@@ -1,0 +1,17 @@
+# User-provided source documents remain local.
+docs/private/
+CODEX_MASTER_PROMPT.md
+GALGAME_REQUIREMENTS_V1.md
+
+# Local tools, dependencies, output, evidence containing machine details.
+.scratch/
+.local/
+node_modules/
+dist/
+build/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+docs/evidence/local/

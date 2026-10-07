@@ -1,0 +1,11 @@
+* text=auto
+.gitattributes text eol=lf
+.gitignore text eol=lf
+.gitmodules text eol=lf
+LICENSE text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.mjs text eol=lf
+*.ps1 text eol=lf
+# Fixtures intentionally retain CRLF bytes to test lossless edits.
+experiments/source-roundtrip/fixtures/** -text whitespace=cr-at-eol

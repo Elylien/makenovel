@@ -1,0 +1,10 @@
+﻿; 原创技术验证场景；素材名仅用于解析，不代表可发行资产。
+changeBg:rain-night.png -next; 保持背景参数
+; @makenovel-node rain.opening
+say:  雨还在下。  -speaker=凛 -vocal=rin-001.ogg; 作者备注：保留停顿；
+futureEffect:{"kind":"unknown","note":"保留我"} -raw=true; 未知命令
+; @makenovel-node rain.reply
+say:晚一点再走吧。 -speaker=葵; 不改这句
+choose:继续等雨:wait.txt
+  |一起回家:home.txt; 多行高级块
+; 末尾注释

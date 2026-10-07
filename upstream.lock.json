@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "recordedOn": "2026-10-07",
+  "upstreams": [
+    {
+      "name": "WebGAL",
+      "path": "vendor/WebGAL",
+      "repository": "https://github.com/OpenWebGAL/WebGAL.git",
+      "commit": "d0318e6c4cdb8b04bb5d891f40368cff3c6efc85",
+      "version": "4.6.5",
+      "packageManager": "yarn@1.22.22",
+      "lockSha256": "D58512914691834E24CC649AA912E090792DAFEB1E85F1DAD18EE6DB5A5E6B34"
+    },
+    {
+      "name": "WebGAL_Terre",
+      "path": "vendor/WebGAL_Terre",
+      "repository": "https://github.com/OpenWebGAL/WebGAL_Terre.git",
+      "commit": "cf73dd58535d3ef15bddf0852adee153fa92d7da",
+      "version": "4.6.5",
+      "packageManager": "yarn@1.22.22",
+      "lockSha256": "1570D2015A5CFB488516FD9349A788F34433337C87CB34ED404CFE07B18F8E89"
+    }
+  ]
+}

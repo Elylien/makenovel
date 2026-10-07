@@ -1,0 +1,6 @@
+[submodule "vendor/WebGAL"]
+	path = vendor/WebGAL
+	url = https://github.com/OpenWebGAL/WebGAL.git
+[submodule "vendor/WebGAL_Terre"]
+	path = vendor/WebGAL_Terre
+	url = https://github.com/OpenWebGAL/WebGAL_Terre.git
