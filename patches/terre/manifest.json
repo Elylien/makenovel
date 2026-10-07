@@ -1,0 +1,9 @@
+{
+  "baseCommit": "cf73dd58535d3ef15bddf0852adee153fa92d7da",
+  "patches": [
+    {
+      "file": "0001-local-editor-versioned-scenes.patch",
+      "sha256": "eb998275cca8241be8206ce85e3a0a9d1bb6371d72ea87d289906657d55a7da5"
+    }
+  ]
+}

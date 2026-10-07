@@ -1,16 +1,26 @@
 {
   "name": "makenovel",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "description": "Visual novel authoring toolchain based on verified WebGAL and Terre baselines",
   "license": "MPL-2.0",
   "packageManager": "yarn@1.22.22",
-  "engines": { "node": ">=22 <23" },
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "test": "node --test experiments/source-roundtrip/*.test.mjs",
     "baseline:install": "pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action Install",
     "baseline:build": "pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action Build",
     "baseline:test": "pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action Test",
-    "baseline:preview": "pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action Preview"
+    "baseline:preview": "pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action Preview",
+    "patch:check": "pwsh -NoLogo -NoProfile -File scripts/Apply-Patches.ps1 -Check",
+    "patch:apply": "pwsh -NoLogo -NoProfile -File scripts/Apply-Patches.ps1 -Apply",
+    "editor:build": "pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL_Terre -Action Build",
+    "editor:start": "pwsh -NoLogo -NoProfile -File scripts/Start-Editor.ps1 -Background",
+    "editor:stop": "pwsh -NoLogo -NoProfile -File scripts/Start-Editor.ps1 -Stop",
+    "test:editor": "node integrations/terre-tests/run.cjs --no-cache",
+    "test:documents": "node integrations/scene-document-tests/run-tests.mjs && node integrations/scene-document-tests/run-message-tests.mjs",
+    "test:patches": "pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-PatchReplay.ps1"
   }
 }

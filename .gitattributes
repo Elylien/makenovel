@@ -6,6 +6,9 @@ LICENSE text eol=lf
 *.md text eol=lf
 *.json text eol=lf
 *.mjs text eol=lf
+*.cjs text eol=lf
 *.ps1 text eol=lf
+# Patch manifests hash exact bytes; do not convert patch line endings on checkout.
+patches/**/*.patch -text whitespace=-blank-at-eol
 # Fixtures intentionally retain CRLF bytes to test lossless edits.
 experiments/source-roundtrip/fixtures/** -text whitespace=cr-at-eol

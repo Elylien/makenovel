@@ -1,49 +1,45 @@
 # 交接与恢复
 
-记录：2026-10-07，MakeNovel `0.0.1` / `main`。远程 `origin` 为 `https://github.com/Elylien/makenovel.git`，公开可读。提交以 `git log -1 --oneline` 和 `git status -sb` 的现场结果为准，不能只依据本文件认定工作树干净。
+记录：2026-10-07，MakeNovel `0.0.2` / `main`。公开远程为 `https://github.com/Elylien/makenovel.git`。提交以 `git log -1 --oneline` 和远程现场结果为准。
 
-## 恢复前先核查
+## 恢复先核查
 
 ```powershell
 git status --short --branch
 git submodule status
 git -C vendor/WebGAL status --short
 git -C vendor/WebGAL_Terre status --short
-node --version
-corepack.cmd yarn --version
+npm.cmd run patch:check
+Get-Content -LiteralPath .local/editor-runtime/process.json
 ```
 
-先读 `PROJECT_STATUS.md`、`TESTING.md`、`TERRE_BASELINE.md`、`KNOWN_ISSUES.md` 和 `DEVELOPMENT_PLAN.md`。本地原需求在 `docs/private/`；公开 clone 不含原件，请用公开追踪表继续，禁止要求用 `git add -f` 发布原文件。
+根仓除预期 submodule dirty 外应无未提交修改；Terre HEAD仍为原版，但工作树有22个审查文件的改动，应匹配已应用1/1补丁。不要 reset/clean，不要为了“干净”删去新模块。新增未知修改时检查真实diff；`patch:check`会拒绝未知树。两份私有原件仍在 `docs/private/`，任何情况下不公开它们。
 
-## 工作边界
+先读 `PROJECT_STATUS.md`、`TESTING.md`、`KNOWN_ISSUES.md`、`DEVELOPMENT_PLAN.md` 和第二轮证据。公开clone应先应用补丁，再按README安装/构建/测试；submodule指针没有改到本地私有提交。
 
-本目录开始时没有用户代码。当前仓库文件由本轮新建，vendor 是未修改的上游来源；构建产物、依赖、日志、缓存、截图不进入 Git。若恢复时出现新修改，先识别来源，禁止 reset/clean 或还原用户变动。
+## 本轮完成
 
-已完成 G0-A：环境/仓库、双上游 frozen 安装、原版构建、测试与失败定位、局部源码实验和需求账本。部分完成 G1-A 的内存文本机制；没有接入 Terre、磁盘事务、稳定存档或完整可视化往返。
+- ESM测试兼容；后端66/66、源码实验19/19、前端共享草稿22/22和消息边界3/3通过。
+- 后端/最终前端build通过（10.73/106.90 s）；真实HTTP/WS22项、启停重启通过。
+- 补丁工具11项夹具测试、真实产品patch独立重放10项通过。
+- 场景版本快照与事务保存、同文件串行/共同锁、临时文件fsync+rename、冲突与写失败原文保留。
+- 图形/源码共享草稿、显式保存、下载/载入磁盘、预览入口草稿闸门；原作者全局profile不使用。
+- IAB实测图形改对白→源码追加→保存重开→外部修改409→下载草稿→载入磁盘，文件字节核对通过；最终预览实际显示修改后的对白。
 
-## 最后实际测试
+## 当前进程和数据
 
-- WebGAL 原版 build：通过，整体 86.13 s；parser：34/34 通过。
-- 自有实验：19/19 通过，0 skip；源码变成 `-next` 参数的边界问题已修复并有原生回归。
-- Terre backend/frontend build：通过（31.55 s / 142.45 s）。
-- Terre backend tests：退出 1，6 suites/24 tests 通过，3 suites 加载 `trash` ESM 失败；继续时保留该失败基线。
-- 浏览器标题/中文首段对白通过；存档面板裁切记录在 `docs/evidence/local/webgal/save-menu-1280.jpg`，未通过完整存档恢复。
-- 原始输出在 `docs/evidence/local/`；公开摘要在 `docs/evidence/2026-10-07-baseline.md`。上游和项目锁文件都必须现场重验。
+本轮保留可操作编辑器 `http://127.0.0.1:3001`，运行记录在 `.local/editor-runtime/process.json`（结束时PID26744；恢复时必须重查，禁止按此旧PID停止）。测试浏览器页作为交付页保留。无WebGAL单独3000预览服务。
 
-## 进程与产物
+启动 `npm.cmd run editor:start`，已有受管进程会被识别。停止 `npm.cmd run editor:stop`，会核验入口、PID、启动时间，不杀其他Node进程。服务只监听127.0.0.1，只有本项目 `.local/editor-profile` 保存作者作品；未创建全局 `~/.webgal_terre`。
 
-WebGAL preview 测试使用 `127.0.0.1:3000`，本轮结束前已核验并停止该任务进程，端口无监听。不要按旧 PID 停止任何新进程。Terre 未启动全局作者服务。浏览器测试页已关闭、临时 viewport 设置已复位。
+测试作品为 `.local/editor-profile/games/makenovel-round2`，背景/立绘使用上游示例，不是正式素材。页面现为已保存外部版本，冲突草稿下载已备份到 `docs/evidence/local/round2/ui-downloaded-draft.txt`；用户Downloads中也有该次测试下载文件。所有这些均被排除于公开Git（Downloads位于项目外）。
 
-已构建目录：`vendor/WebGAL/packages/webgal/dist`、`vendor/WebGAL/packages/parser/build`、Terre `packages/origine2/dist` 与 `packages/terre2/dist`。不是离线 Windows exe 包。需要查看播放器时运行 `npm.cmd run baseline:preview`。
+## 下一单元
 
-## 最可能的下一条工作
+优先补S-05：区分已保存文本与有效执行版本，未知命令只读高级块，语法错误保留草稿并可修复。然后把原型局部写回和持久节点身份接入正式编辑路径，不能依赖行号或把注释ID存在当成迁移完成。
 
-先复现并在隔离小补丁中处理 Jest/ESM 配置，不升级整个工程；相关失败命令：
+并行补G0-B的Windows离线导出/无开发服务器重启，以及上轮1280×720菜单裁切复测（当前只是滚动/缩放线索，未定位）。随后再验完整舞台、声音、存档/历史等玩家能力。
 
-```powershell
-pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL_Terre -Action Test
-```
+范围限制：编辑语句serializer仍可能规范化重复参数/注释空格；JSON与模板仍为旧保存链路；效果面板首次提交前临时预览仍待统一；sessionStorage不是项目级崩溃恢复；外部不协作writer最后hash与rename竞态、物理磁盘满、断电耐久性、孤立lock恢复未验收。G0/G1及完整AT均未整体通过。
 
-随后实现仅本机绑定和独立作者 profile 的启动器，确认不写既有 `~/.webgal_terre`，再开 Terre 做原版图形/源码/重开与 Windows 导出基线。将局部补丁的 expected-hash 与结构化失败接入真实后端，处理磁盘原子替换与跨进程竞态；内存库的 hash 检测不能替代落盘事务。
-
-下一轮不要再次询问：项目定位、Windows 优先、Steam 中文版参考、允许开源/环境安装。当前需要用户处理事项：无。具体参考 build/补丁、正式素材和最终审美仍在对应后续验收收集。
+不要重问已确认方向：Windows优先、Steam中文参考、公开仓库/环境工具/Computer Use授权。当前没有必须由用户处理的阻塞；具体参考build/补丁、正式素材和最终美术体验仍在后续收集。

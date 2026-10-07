@@ -1,0 +1,2152 @@
+diff --git a/packages/origine2/public/monaco-iframe/monaco.html b/packages/origine2/public/monaco-iframe/monaco.html
+index be0811d..552f54b 100644
+--- a/packages/origine2/public/monaco-iframe/monaco.html
++++ b/packages/origine2/public/monaco-iframe/monaco.html
+@@ -28,30 +28,39 @@
+     });
+ 
+     // 通知父窗口 editor 已经准备好
+-    window.parent.postMessage({type: 'editorReady'}, '*');
++    window.parent.postMessage({type: 'editorReady'}, window.location.origin);
++    var applyingParentValue = false;
+ 
+     // 监听来自父窗口的消息
+     window.addEventListener('message', function (event) {
+-      // 安全检查，确保消息来自你的预期来源
+-      // if (event.origin !== 'your_parent_origin') return;
++      if (event.origin !== window.location.origin || event.source !== window.parent) return;
+ 
+       var message = event.data;
++      if (!message || typeof message !== 'object' || Array.isArray(message)) return;
+ 
+       switch (message.type) {
+         case 'setLanguage':
++          if (typeof message.language !== 'string') return;
+           monaco.editor.setModelLanguage(editor.getModel(), message.language);
+           break;
+         case 'setValue':
++          if (typeof message.value !== 'string') return;
+           // 使用 executeEdits 设置新值
+           // 检查要 set 的 value 是否和当前 value 一致
+           if (editor.getValue() !== message.value) {
+             // 使用 executeEdits 设置新值
+-            editor.executeEdits('setValue', [
+-              {range: editor.getModel().getFullModelRange(), text: message.value}
+-            ]);
++            applyingParentValue = true;
++            try {
++              editor.executeEdits('setValue', [
++                {range: editor.getModel().getFullModelRange(), text: message.value}
++              ]);
++            } finally {
++              applyingParentValue = false;
++            }
+           }
+           break;
+         case 'setTheme':
++          if (typeof message.theme !== 'string') return;
+           monaco.editor.setTheme(message.theme);
+           break;
+       }
+@@ -59,11 +68,12 @@
+ 
+     // 监听编辑器内容变化
+     editor.onDidChangeModelContent(function () {
++      if (applyingParentValue) return;
+       // 向父窗口发送消息
+       window.parent.postMessage({
+         type: 'valueChanged',
+         value: editor.getValue()
+-      }, '*'); // 可以替换 '*' 为你的父窗口 origin
++      }, window.location.origin);
+     });
+   });
+ </script>
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
+index 9782eab..462bc90 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
+@@ -1,9 +1,8 @@
+ import { parseScene } from "./parser";
+-import axios from "axios";
+ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import { useVirtualizer } from "@tanstack/react-virtual";
+ import { EditorPreviewClient } from "../../../utils/editorPreviewClient";
+-import { mergeToString, replaceLineRange, splitToArray } from "./utils/sceneTextProcessor";
++import { mergeToString, replaceLineRange, splitToArray, sceneBody, mergeSceneLines } from "./utils/sceneTextProcessor";
+ import { sceneTextPreProcess } from "webgal-parser";
+ import styles from "./graphicalEditor.module.scss";
+ import { DragDropContext, Draggable, Droppable } from "@hello-pangea/dnd";
+@@ -16,7 +15,8 @@ import { editorLineHolder } from "@/runtime/WG_ORIGINE_RUNTIME";
+ import { eventBus } from "@/utils/eventBus";
+ import { createId } from "@/utils/createId";
+ import { t } from "@lingui/macro";
+-import { api } from "@/api";
++import { useSceneDocument } from "../SceneDocument/useSceneDocument";
++import { DocumentBar } from "../SceneDocument/DocumentBar";
+ import { GlobalTerrePanel } from "./components/TerrePanel";
+ import { getArgByKey } from "./utils/getArgByKey";
+ 
+@@ -62,6 +62,7 @@ interface SentenceRowContentProps extends SentenceRowProps {
+ }
+ 
+ export default function GraphicalEditor(props: IGraphicalEditorProps) {
++  const { document, state } = useSceneDocument(props.targetPath);
+   const [sentenceData, setSentenceData] = useState<SentenceItem[]>([]);
+   const sentenceDataRef = useRef<SentenceItem[]>([]);
+   const scrollElementRef = useRef<HTMLDivElement | null>(null);
+@@ -82,51 +83,16 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+     show: true,
+   }), []);
+ 
+-  const fetchScene = useCallback(() => {
+-    const processFetchedData = (data: object) => {
+-      const text = data.toString();
+-      const newContents = splitToArray(text);
+-      const currentSentences = sentenceDataRef.current;
+-
+-      const newSentences = newContents.map((content, i) => {
+-        const existing = currentSentences[i];
+-        return existing && existing.content === content
+-          ? existing
+-          : {
+-            id: createId(),
+-            content,
+-            show: existing?.show ?? true
+-          };
+-      });
+-
+-      updateSentenceData(newSentences);
+-      eventBus.emit('editor:update-scene', { scene: text });
+-    };
+-
+-    axios.get(props.targetPath)
+-      .then(res => res.data)
+-      .then(processFetchedData);
+-  }, [props.targetPath, updateSentenceData]);
+-
+-  useEffect(() => {
+-    fetchScene();
+-  }, [fetchScene]);
+-
++  const fetchScene = useCallback(() => document.load(), [document]);
+   useEffect(() => {
+-    const handleVisibilityChange = () => {
+-      if (document.visibilityState === 'visible') {
+-        fetchScene();
+-      }
+-    };
+-
+-    window.addEventListener('focus', fetchScene);
+-    document.addEventListener('visibilitychange', handleVisibilityChange);
+-
+-    return () => {
+-      window.removeEventListener('focus', fetchScene);
+-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+-    };
+-  }, [fetchScene]);
++    if (!state.revision) return;
++    const current = sentenceDataRef.current;
++    const body = sceneBody(state.text);
++    if (mergeToString(current.map(item => item.content)) === body) return;
++    updateSentenceData(splitToArray(body).map((content, i) =>
++      current[i]?.content === content ? current[i] : { id: createId(), content, show: current[i]?.show ?? true }
++    ));
++  }, [state.text, state.revision, updateSentenceData]);
+ 
+   const mergedSceneText = useMemo(() => mergeToString(sentenceData.map(item => item.content)), [sentenceData]);
+ 
+@@ -157,24 +123,12 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+    * 这样多行语句的续行占位也会被一并跨过。
+    */
+   const submitScene = useCallback((newSentences: SentenceItem[], startLine: number, endLine: number) => {
+-    const newScene = mergeToString(newSentences.map(item => item.content));
++    const newScene = mergeSceneLines(newSentences.map(item => item.content), document.getSnapshot().text);
+     const lineNumber = endLine + 1;
+     editorLineHolder.recordSceneEditingLine(props.targetPath, lineNumber);
+ 
+-    api.assetsControllerEditTextFile({
+-      textFile: newScene,
+-      path: props.targetPath
+-    }).then(() => {
+-      EditorPreviewClient.sendSyncScene({
+-        scenePath: props.targetPath,
+-        lineNumber,
+-        lineCommandString: mergeToString(newSentences.slice(startLine, endLine + 1).map(item => item.content)),
+-      });
+-      eventBus.emit('editor:update-scene', { scene: newScene });
+-    }).catch(() => {
+-      fetchScene();
+-    });
+-  }, [fetchScene, props.targetPath]);
++    document.edit(newScene);
++  }, [document, props.targetPath]);
+ 
+   /**
+    * 改写语句时按位置复用它原来的行对象，只换 content。
+@@ -186,10 +140,14 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+     contents.map((content, i) => {
+       const lineNumber = target.startLine + i;
+       const existing = lineNumber <= target.endLine ? sentenceDataRef.current[lineNumber] : undefined;
+-      return existing ? { ...existing, content } : generateSentenceItem(content);
++      // Preserve the existing line ending; the document owns its BOM separately.
++      const useCR = existing ? existing.content.endsWith('\r') : sentenceDataRef.current.some(line => line.content.endsWith('\r'));
++      const preserved = content.replace(/\r$/, '') + (useCR ? '\r' : '');
++      return existing ? { ...existing, content: preserved } : generateSentenceItem(preserved);
+     }), [generateSentenceItem]);
+ 
+   const updateSentenceByIndex = useCallback((newContent: string, updateIndex: number) => {
++    if (!document.getSnapshot().revision) return;
+     const target = sentences[updateIndex];
+     if (!target) return;
+     const newLines = rewriteLines(target, splitToArray(newContent));
+@@ -205,7 +163,8 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+ 
+   /** insertLine 是插入位置的文件行号（0-based） */
+   const addOneSentence = useCallback((newContent: string, insertLine: number) => {
+-    const newLines = splitToArray(newContent).map(generateSentenceItem);
++    const eol = sentenceDataRef.current.some(line => line.content.endsWith('\r')) ? '\r' : '';
++    const newLines = splitToArray(newContent).map(content => generateSentenceItem(content.replace(/\r$/, '') + eol));
+     const lines = sentenceDataRef.current;
+     // 整个文件只有一个空行时，新语句直接顶替这一行，而不是插在它前面
+     const shouldReplaceEmptyLine = isEmpty(lines);
+@@ -272,6 +231,7 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+ 
+   /** 让预览执行到某条语句。行范围是文件行号（0-based，含首尾） */
+   const syncToLineRange = useCallback((startLine: number, endLine: number) => {
++    if (!document.canPreview()) return;
+     EditorPreviewClient.sendSyncScene({
+       scenePath: props.targetPath,
+       lineNumber: endLine + 1,
+@@ -281,7 +241,7 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+       force: true,
+     });
+     editorLineHolder.recordSceneEditingLine(props.targetPath, endLine + 1);
+-  }, [props.targetPath]);
++  }, [document, props.targetPath]);
+ 
+   const syncToIndex = useCallback((index: number) => {
+     const target = sentences[index];
+@@ -364,8 +324,9 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+   }, [sentences.length, props.targetPath, rowVirtualizer]);
+ 
+   useEffect(() => {
+-    const handleDragUpdate = (data: any) => {
+-      fetchScene();
++    const handleDragUpdate = async (data: any) => {
++      await fetchScene();
++      if (!document.canPreview()) return;
+       EditorPreviewClient.sendSyncScene({
+         scenePath: data.targetPath,
+         lineNumber: data.lineNumber,
+@@ -376,7 +337,7 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+     return () => {
+       eventBus.off('editor:drag-update-scene', handleDragUpdate);
+     };
+-  }, [fetchScene]);
++  }, [document, fetchScene]);
+ 
+   const getSentenceRowProps = (i: number): SentenceRowProps | null => {
+     const sentence = sentences[i];
+@@ -406,6 +367,7 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+   };
+ 
+   return <div className={styles.main} id="graphical-editor-main">
++    <DocumentBar document={document} state={state} />
+     <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
+       <Droppable
+         droppableId="droppable"
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/utils/sceneTextProcessor.ts b/packages/origine2/src/pages/editor/GraphicalEditor/utils/sceneTextProcessor.ts
+index aed32a0..a64bc63 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/utils/sceneTextProcessor.ts
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/utils/sceneTextProcessor.ts
+@@ -1,11 +1,16 @@
+ export const splitToArray = (rawText:string)=>{
+-  return rawText.replaceAll('\r','').split('\n');
++  return rawText.split('\n');
+ };
+ 
+ export const mergeToString = (stringArray:string[])=>{
+   return stringArray.join('\n');
+ };
+ 
++// A BOM belongs to the document, never to a draggable/deletable sentence.
++export const sceneBody = (text: string) => text.replace(/^\uFEFF/, '');
++export const mergeSceneLines = (lines: string[], original: string) =>
++  (original.startsWith('\uFEFF') ? '\uFEFF' : '') + mergeToString(lines);
++
+ /**
+  * 用新的行替换脚本里的一段行范围（含首尾）。
+  *
+diff --git a/packages/origine2/src/pages/editor/ResourceDisplay/JsonResourceDisplay/JsonResourceDisplay.tsx b/packages/origine2/src/pages/editor/ResourceDisplay/JsonResourceDisplay/JsonResourceDisplay.tsx
+index 556578e..2af68f7 100644
+--- a/packages/origine2/src/pages/editor/ResourceDisplay/JsonResourceDisplay/JsonResourceDisplay.tsx
++++ b/packages/origine2/src/pages/editor/ResourceDisplay/JsonResourceDisplay/JsonResourceDisplay.tsx
+@@ -41,10 +41,13 @@ export function JsonResourceDisplay(props: { url: string }) {
+     if (!iframe) return;
+ 
+     const handleMessage = (event: MessageEvent) => {
+-      if (event.data.type === 'editorReady') {
++      if (event.origin !== window.location.origin || event.source !== iframe.contentWindow) return;
++      const message = event.data;
++      if (!message || typeof message !== 'object' || Array.isArray(message)) return;
++      if (message.type === 'editorReady') {
+         setEditorReady(true);
+-      } else if (event.data.type === 'valueChanged') {
+-        update(event.data.value);
++      } else if (message.type === 'valueChanged' && typeof message.value === 'string') {
++        update(message.value);
+       }
+     };
+ 
+@@ -57,9 +60,9 @@ export function JsonResourceDisplay(props: { url: string }) {
+     const iframe = iframeRef.current;
+     if (!iframe || !fileResp.data || !editorReady) return;
+ 
+-    iframe.contentWindow?.postMessage({ type: 'setValue', value: fileResp.data }, '*');
+-    iframe.contentWindow?.postMessage({ type: 'setLanguage', language: 'json' }, '*');
+-    iframe.contentWindow?.postMessage({ type: 'setTheme', theme: isDarkMode ? 'vs-dark' : 'vs' }, '*');
++    iframe.contentWindow?.postMessage({ type: 'setValue', value: fileResp.data }, window.location.origin);
++    iframe.contentWindow?.postMessage({ type: 'setLanguage', language: 'json' }, window.location.origin);
++    iframe.contentWindow?.postMessage({ type: 'setTheme', theme: isDarkMode ? 'vs-dark' : 'vs' }, window.location.origin);
+   }, [fileResp.data, editorReady, isDarkMode]);
+ 
+   // 返回缓存的 iframe 元素
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/DocumentBar.tsx b/packages/origine2/src/pages/editor/SceneDocument/DocumentBar.tsx
+new file mode 100644
+index 0000000..bde2de4
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/SceneDocument/DocumentBar.tsx
+@@ -0,0 +1,27 @@
++import { useState } from 'react';
++import type { DocumentState, SceneDocument } from './sceneDocument';
++import styles from './documentBar.module.scss';
++import { pendingScenePaths } from './sceneDocumentRegistry';
++
++const labels = { loading: '正在读取', saved: '已保存', dirty: '未保存草稿', saving: '正在保存', conflict: '文件冲突 · 草稿已保留', error: '操作失败 · 草稿已保留' };
++export function DocumentBar({ document, state }: { document: SceneDocument; state: DocumentState }) {
++  const [backedUp, setBackedUp] = useState<string | null>(null);
++  const download = () => {
++    const url = URL.createObjectURL(new Blob([state.text], { type: 'text/plain;charset=utf-8' }));
++    const anchor = globalThis.document.createElement('a');
++    anchor.href = url;
++    anchor.download = `scene-draft-${Date.now()}.txt`;
++    anchor.click();
++    setTimeout(() => URL.revokeObjectURL(url), 1000);
++    setBackedUp(state.text);
++  };
++  return <div className={styles.bar} data-status={state.status}>
++    <div role="status" aria-live="polite"><strong>{labels[state.status]}</strong>{state.status === 'dirty' && <span>保存后可同步预览</span>}{state.status === 'saved' && pendingScenePaths().length > 0 && <span>预览暂停，请先处理其他脚本：{pendingScenePaths().join('、')}</span>}{state.message && <span>{state.message}</span>}{state.recoveryWarning && <span>{state.recoveryWarning}</span>}</div>
++    <div className={styles.actions}>
++      <button type="button" disabled={!state.revision || ['saved', 'loading', 'saving', 'conflict'].includes(state.status)} onClick={() => void document.save()}>保存脚本</button>
++      <button type="button" disabled={state.status === 'loading' || state.status === 'saving'} onClick={() => void document.load()}>检查磁盘版本</button>
++      <button type="button" disabled={!state.revision} onClick={download}>下载草稿</button>
++      {(state.status === 'conflict' || state.status === 'error') && <button type="button" disabled={backedUp !== state.text} title="请先下载当前草稿，再载入磁盘版本" onClick={() => void document.reloadDisk()}>已备份，载入磁盘版本</button>}
++    </div>
++  </div>;
++}
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/documentBar.module.scss b/packages/origine2/src/pages/editor/SceneDocument/documentBar.module.scss
+new file mode 100644
+index 0000000..bb3a7c9
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/SceneDocument/documentBar.module.scss
+@@ -0,0 +1,19 @@
++.bar {
++  flex: 0 0 auto;
++  padding: 8px 12px;
++  border-bottom: 1px solid var(--border-color, #b9c9dc);
++  background: var(--bg-card, #f2f6fa);
++  color: var(--text, #25374c);
++  font-size: 12px;
++  display: flex;
++  flex-wrap: wrap;
++  gap: 8px 16px;
++  align-items: center;
++  justify-content: space-between;
++  span { margin-left: 10px; }
++  &[data-status='conflict'], &[data-status='error'] { border-bottom: 2px solid #d48a19; }
++  button { cursor: pointer; border: 1px solid #9cabc0; border-radius: 4px; background: var(--bg-card, white); color: inherit; padding: 4px 8px; }
++  button:disabled { opacity: .5; cursor: default; }
++  button:focus-visible { outline: 2px solid #1971c2; outline-offset: 2px; }
++}
++.actions { display: flex; flex-wrap: wrap; gap: 6px; }
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts b/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts
+new file mode 100644
+index 0000000..13a7093
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts
+@@ -0,0 +1,153 @@
++export interface TextSnapshot { text: string; revision: string }
++export interface SnapshotTransport {
++  read(): Promise<TextSnapshot>;
++  save(text: string, expectedRevision: string): Promise<TextSnapshot>;
++}
++export interface DraftStorage {
++  read(): string | null;
++  write(value: string): void;
++  clear(): void;
++}
++export type DocumentStatus = 'loading' | 'saved' | 'dirty' | 'saving' | 'conflict' | 'error';
++export interface DocumentState {
++  text: string;
++  revision: string | null;
++  status: DocumentStatus;
++  message: string;
++  recoveryWarning: string;
++}
++
++/** A single file session shared by both editor modes. Network completion never replaces newer input. */
++export class SceneDocument {
++  private state: DocumentState = { text: '', revision: null, status: 'loading', message: '', recoveryWarning: '' };
++  private listeners = new Set<() => void>();
++  private savedText = '';
++  private pendingRead: Promise<void> | null = null;
++  private pendingSave: Promise<boolean> | null = null;
++  private initialized = false;
++  private preserveUnknownDraft = false;
++  constructor(private transport: SnapshotTransport, private storage: DraftStorage) {}
++  getSnapshot = () => this.state;
++  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
++  canPreview = () => this.state.status === 'saved';
++  private publish(next: Partial<DocumentState>) {
++    this.state = { ...this.state, ...next };
++    for (const listener of this.listeners) listener();
++  }
++  private persist() {
++    if (this.preserveUnknownDraft) return;
++    try {
++      if (this.state.status === 'saved') this.storage.clear();
++      else if (this.state.revision) this.storage.write(JSON.stringify({ version: 1, text: this.state.text, revision: this.state.revision }));
++    } catch {
++      this.publish({ recoveryWarning: '浏览器无法暂存草稿，请下载草稿备份后再关闭页面。' });
++    }
++  }
++  edit(text: string) {
++    if (!this.state.revision || text === this.state.text) return;
++    const blocked = this.state.status === 'conflict';
++    this.publish({ text, status: blocked ? 'conflict' : this.pendingSave ? 'saving' : text === this.savedText ? 'saved' : 'dirty', message: blocked ? this.state.message : '' });
++    this.persist();
++  }
++  load = (): Promise<void> => {
++    if (this.pendingRead) return this.pendingRead;
++    // Do not race a stale read against an acknowledged write.
++    if (this.pendingSave) return this.pendingSave.then(() => undefined);
++    this.pendingRead = this.read().finally(() => { this.pendingRead = null; });
++    return this.pendingRead;
++  };
++  private async read() {
++    const revisionAtStart = this.state.revision;
++    try {
++      const snapshot = await this.transport.read();
++      if (this.state.revision !== revisionAtStart || this.pendingSave) return;
++      if (!this.initialized) {
++        this.initialized = true;
++        this.savedText = snapshot.text;
++        let recovered: TextSnapshot | undefined;
++        let warning = '';
++        let unknownDraft: string | null = null;
++        try {
++          const raw = this.storage.read();
++          let value;
++          try { value = raw ? JSON.parse(raw) : null; } catch { value = null; }
++          if (value?.version === 1 && typeof value.text === 'string' && /^[a-f0-9]{64}$/.test(value.revision)) recovered = value;
++          else if (raw) { unknownDraft = raw; warning = '暂存草稿格式无法识别，已保留原始数据。请先下载草稿备份，再载入磁盘版本。'; }
++        } catch { warning = '无法读取浏览器暂存草稿。'; }
++        if (unknownDraft !== null) {
++          this.preserveUnknownDraft = true;
++          this.publish({ text: unknownDraft, revision: snapshot.revision, status: 'conflict', message: warning, recoveryWarning: warning });
++          return;
++        }
++        const text = recovered?.text ?? snapshot.text;
++        const conflict = !!recovered && recovered.revision !== snapshot.revision && text !== snapshot.text;
++        this.publish({ text, revision: conflict ? recovered!.revision : snapshot.revision,
++          status: conflict ? 'conflict' : text === snapshot.text ? 'saved' : 'dirty',
++          message: conflict ? '恢复的草稿与磁盘版本不同。请先下载草稿，再载入磁盘版本比较。' : recovered && text !== snapshot.text ? '已恢复本标签页的未保存草稿。' : '', recoveryWarning: warning });
++      } else if (snapshot.revision === this.state.revision) {
++        if (this.state.status === 'error') this.publish({ status: this.state.text === this.savedText ? 'saved' : 'dirty', message: '' });
++      } else if (this.state.text !== this.savedText || this.state.status === 'conflict') {
++        this.publish({ status: 'conflict', message: '磁盘文件已被其他窗口或程序修改。本地草稿已保留，未覆盖文件。' });
++      } else {
++        this.savedText = snapshot.text;
++        this.publish({ ...snapshot, status: 'saved', message: '' });
++      }
++      this.persist();
++    } catch (error) { this.publish({ status: this.state.status === 'conflict' ? 'conflict' : 'error', message: errorMessage(error) }); }
++  }
++  save = (): Promise<boolean> => {
++    if (this.pendingSave) return this.pendingSave;
++    if (!this.state.revision || this.state.status === 'conflict' || this.state.status === 'loading' || this.pendingRead) return Promise.resolve(false);
++    if (this.state.status === 'saved') return Promise.resolve(true);
++    const submitted = this.state.text;
++    const expectedRevision = this.state.revision;
++    this.publish({ status: 'saving', message: '' });
++    this.pendingSave = this.transport.save(submitted, expectedRevision).then(snapshot => {
++      this.savedText = snapshot.text;
++      const current = this.state.text === submitted;
++      this.publish({ revision: snapshot.revision, status: current ? 'saved' : 'dirty', message: current ? '' : '保存期间的新修改仍在草稿中，请再次保存。' });
++      this.persist();
++      return current;
++    }).catch(error => {
++      const conflict = (error as { code?: string }).code === 'REVISION_CONFLICT';
++      this.publish({ status: conflict ? 'conflict' : 'error', message: errorMessage(error) });
++      this.persist();
++      return false;
++    }).finally(() => { this.pendingSave = null; });
++    return this.pendingSave;
++  };
++  /** Call only after the user has downloaded/backed up the local draft and explicitly selected reload. */
++  reloadDisk = (): Promise<void> => {
++    if (this.pendingSave || this.pendingRead) return Promise.resolve();
++    this.pendingRead = this.replaceFromDisk().finally(() => { this.pendingRead = null; });
++    return this.pendingRead;
++  };
++  private async replaceFromDisk() {
++    const textAtStart = this.state.text;
++    const revisionAtStart = this.state.revision;
++    try {
++      const snapshot = await this.transport.read();
++      if (this.state.text !== textAtStart || this.state.revision !== revisionAtStart) {
++        this.publish({ message: '载入期间草稿发生变化，已保留新修改，请重试。' });
++        return;
++      }
++      this.savedText = snapshot.text;
++      this.initialized = true;
++      this.preserveUnknownDraft = false;
++      this.publish({ ...snapshot, status: 'saved', message: '', recoveryWarning: '' });
++      this.persist();
++    } catch (error) { this.publish({ message: errorMessage(error) }); }
++  }
++}
++
++function errorMessage(error: unknown): string {
++  if ((error as { code?: string })?.code === 'REVISION_CONFLICT') return '磁盘文件已变化，保存被拒绝。本地草稿已保留，请下载后与磁盘版本比较。';
++  return error instanceof Error ? error.message : '读取或保存失败，草稿已保留，请重试。';
++}
++
++export function parseScenePath(targetPath: string) {
++  const parts = targetPath.replace(/^\//, '').split('/');
++  if (parts[0] !== 'games' || !parts[1] || parts.length < 4) throw new Error('无法识别作品脚本路径');
++  // These are filesystem-oriented paths from EditArea, not percent-encoded URLs.
++  return { gameName: parts[1], path: parts.slice(2).join('/') };
++}
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts b/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts
+new file mode 100644
+index 0000000..e115294
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts
+@@ -0,0 +1,32 @@
++import axios from "axios";
++import { SceneDocument, parseScenePath, type TextSnapshot } from "./sceneDocument";
++
++const documents = new Map<string, SceneDocument>();
++export function getDocument(path: string) {
++  let document = documents.get(path);
++  if (document) return document;
++  const address = parseScenePath(path);
++  const request = async (endpoint: string, data: object): Promise<TextSnapshot> => {
++    try { return (await axios.post(`/api/manageGame/${endpoint}`, { ...address, ...data })).data; }
++    catch (error) {
++      const detail = axios.isAxiosError(error) ? error.response?.data : null;
++      throw Object.assign(new Error(detail?.message || '无法连接编辑器，草稿已保留，请重试。'), { code: detail?.code });
++    }
++  };
++  const key = `makenovel.scene-draft.v1:${path}`;
++  document = new SceneDocument({ read: () => request('textSnapshot', {}), save: (text, expectedRevision) => request('saveTextSnapshot', { text, expectedRevision }) }, {
++    read: () => sessionStorage.getItem(key), write: value => sessionStorage.setItem(key, value), clear: () => sessionStorage.removeItem(key),
++  });
++  documents.set(path, document);
++  return document;
++}
++
++// One listener for the application; drafts are retained when closing an editor tab or changing modes.
++window.addEventListener('beforeunload', event => {
++  if ([...documents.values()].some(doc => !doc.canPreview() && doc.getSnapshot().revision)) { event.preventDefault(); event.returnValue = ''; }
++});
++
++
++export function canPreviewDocuments() { return [...documents.values()].every(document => document.canPreview()); }
++
++export function pendingScenePaths() { return [...documents.entries()].filter(([, document]) => !document.canPreview()).map(([path]) => path); }
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/sourceEdits.ts b/packages/origine2/src/pages/editor/SceneDocument/sourceEdits.ts
+new file mode 100644
+index 0000000..925ac46
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/SceneDocument/sourceEdits.ts
+@@ -0,0 +1,19 @@
++interface SourceChange {
++  range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number };
++  text: string;
++}
++/** Monaco excludes the BOM and normalizes line endings; map edits back onto the original text. */
++export function applySourceEdits(raw: string, changes: readonly SourceChange[]) {
++  const bom = raw.startsWith('\uFEFF') ? '\uFEFF' : '';
++  const body = raw.slice(bom.length);
++  const lines = body.split('\n');
++  const offset = (line: number, column: number) => {
++    let value = column - 1;
++    for (let i = 0; i < line - 1; i++) value += lines[i].length + 1;
++    return value;
++  };
++  const patches = changes.map(change => ({ start: offset(change.range.startLineNumber, change.range.startColumn), end: offset(change.range.endLineNumber, change.range.endColumn), text: change.text }));
++  let result = body;
++  for (const patch of patches.sort((a, b) => b.start - a.start)) result = result.slice(0, patch.start) + patch.text + result.slice(patch.end);
++  return bom + result;
++}
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/useSceneDocument.ts b/packages/origine2/src/pages/editor/SceneDocument/useSceneDocument.ts
+new file mode 100644
+index 0000000..e2f738b
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/SceneDocument/useSceneDocument.ts
+@@ -0,0 +1,17 @@
++import { useEffect, useMemo, useSyncExternalStore } from "react";
++import { eventBus } from "@/utils/eventBus";
++import { getDocument } from "./sceneDocumentRegistry";
++
++export function useSceneDocument(path: string) {
++  const document = useMemo(() => getDocument(path), [path]);
++  const state = useSyncExternalStore(document.subscribe, document.getSnapshot);
++  useEffect(() => {
++    void document.load();
++    const refresh = () => { if (globalThis.document.visibilityState === 'visible') void document.load(); };
++    window.addEventListener('focus', refresh);
++    globalThis.document.addEventListener('visibilitychange', refresh);
++    return () => { window.removeEventListener('focus', refresh); globalThis.document.removeEventListener('visibilitychange', refresh); };
++  }, [document]);
++  useEffect(() => { if (state.status === 'saved') eventBus.emit('editor:update-scene', { scene: state.text }); }, [state.status, state.text]);
++  return { document, state };
++}
+diff --git a/packages/origine2/src/pages/editor/TextEditor/TextEditor.tsx b/packages/origine2/src/pages/editor/TextEditor/TextEditor.tsx
+index c3c2e5c..eeb52bb 100644
+--- a/packages/origine2/src/pages/editor/TextEditor/TextEditor.tsx
++++ b/packages/origine2/src/pages/editor/TextEditor/TextEditor.tsx
+@@ -1,225 +1,69 @@
+ import * as monaco from 'monaco-editor';
+-import Editor, { Monaco } from '@monaco-editor/react';
+-import { useCallback, useEffect, useMemo, useRef } from 'react';
++import Editor, { type Monaco } from '@monaco-editor/react';
++import { useCallback, useEffect, useRef } from 'react';
+ import styles from './textEditor.module.scss';
+-import axios from 'axios';
+-import { logger } from '../../../utils/logger';
+-import debounce from 'lodash/debounce';
+-
+-// 语法高亮文件
+-import { editorLineHolder, lspSceneName, WG_ORIGINE_RUNTIME } from '../../../runtime/WG_ORIGINE_RUNTIME';
++import { editorLineHolder, lspSceneName } from '../../../runtime/WG_ORIGINE_RUNTIME';
+ import { EditorPreviewClient } from '../../../utils/editorPreviewClient';
+ import { eventBus } from '@/utils/eventBus';
+ import useEditorStore from '@/store/useEditorStore';
+-import { useGameEditorContext } from '@/store/useGameEditorStore';
+-import { api } from '@/api';
+-import { useValue } from "@/hooks/useValue";
+-
+-// 最近一次通过点击光标同步到引擎的场景，所有文本编辑器标签页共享
+-let lastClickSyncedScenePath = '';
++import { useSceneDocument } from '../SceneDocument/useSceneDocument';
++import { DocumentBar } from '../SceneDocument/DocumentBar';
++import { applySourceEdits } from '../SceneDocument/sourceEdits';
+ 
+-interface ITextEditorProps {
+-  targetPath: string;
+-  isHide: boolean;
+-}
++interface ITextEditorProps { targetPath: string; isHide: boolean }
+ 
+ export default function TextEditor(props: ITextEditorProps) {
+-  const target = useGameEditorContext((state) => state.currentTag);
+-  const tags = useGameEditorContext((state) => state.tags);
+-  const currentText = useRef('Loading Scene Data......');
+-  const sceneName = tags.find((e) => e.path === target?.path)!.name;
++  const { document, state } = useSceneDocument(props.targetPath);
+   const isAutoWarp = useEditorStore.use.isAutoWarp();
+-  const isEditorReady = useValue(false); // 读取完脚本才能算准备就绪
+-
+-  // 准备获取 Monaco
+-  // 建立 Ref
+   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+-
+-  /**
+-   * 处理挂载事件
+-   * @param {any} editor
+-   * @param {any} monaco
+-   */
+-  function handleEditorDidMount(editor: monaco.editor.IStandaloneCodeEditor, monaco: Monaco) {
+-    logger.debug('脚本编辑器挂载');
+-    lspSceneName.value = sceneName;
++  const applyingSnapshot = useRef(false);
++  const applySnapshot = useCallback(() => {
++    const model = editorRef.current?.getModel();
++    if (!model) return;
++    const snapshot = document.getSnapshot();
++    editorRef.current?.updateOptions({ readOnly: !snapshot.revision });
++    const text = snapshot.text.replace(/^\uFEFF/, '');
++    // Keep original EOL/BOM in SceneDocument, rather than serializing the normalized model.
++    if (model.getValue().replace(/\r\n/g, '\n') === text.replace(/\r\n/g, '\n')) return;
++    applyingSnapshot.current = true;
++    model.setValue(text);
++    applyingSnapshot.current = false;
++  }, [document]);
++
++  function handleEditorDidMount(editor: monaco.editor.IStandaloneCodeEditor, api: Monaco) {
+     editorRef.current = editor;
+-
+-    configureMonaco(editor, monaco);
+-
+-    editor.onDidChangeCursorPosition(debounce((event: monaco.editor.ICursorPositionChangedEvent) => {
+-      const previousCursorPosition = editorLineHolder.getScenePosition(props.targetPath);
+-      const editorValue = editor.getValue();
+-      const targetValue = editorValue.split('\n')[event.position.lineNumber - 1];
+-      if (event.reason === monaco.editor.CursorChangeReason.Explicit) {
+-        const scenePath = target?.path ?? '';
+-        // 切换标签页后引擎仍停留在其他场景，此时即使点击的是已记录的同一行也需要同步
+-        const isSceneChanged = scenePath !== lastClickSyncedScenePath;
+-        if (event.position.lineNumber !== previousCursorPosition.lineNumber || isSceneChanged) {
+-          lastClickSyncedScenePath = scenePath;
+-          EditorPreviewClient.sendSyncScene({
+-            scenePath,
+-            lineNumber: event.position.lineNumber,
+-            lineCommandString: targetValue,
+-          });
+-        }
+-      }
+-      editorLineHolder.recordSceneEditingPosition(props.targetPath, event.position);
+-    }));
+-    // 由于 monaco 接收拖拽进来的文字时, 会在末尾添加 $0
+-    // 这里手动实现接收拖拽进来的文字, 以避开这个问题
++    lspSceneName.value = props.targetPath.split('/').pop() ?? '';
++    api.languages.setLanguageConfiguration('webgal', { comments: { lineComment: ';' }, brackets: [['{', '}'], ['[', ']'], ['(', ')']] });
++    editor.updateOptions({ unicodeHighlight: { ambiguousCharacters: false }, wordWrap: isAutoWarp ? 'on' : 'off', smoothScrolling: true, quickSuggestions: { other: true, comments: true, strings: true } });
++    const cursor = editor.onDidChangeCursorPosition(event => editorLineHolder.recordSceneEditingPosition(props.targetPath, event.position));
++    editor.addCommand(api.KeyMod.CtrlCmd | api.KeyCode.KeyS, () => { void document.save(); });
+     const domNode = editor.getContainerDomNode();
+-    const dropHandler = (e: DragEvent) => {
+-      e.preventDefault();
+-      const data = e.dataTransfer?.getData("text/plain");
+-      const position = editor.getTargetAtClientPoint(e.clientX, e.clientY);
+-      if (position?.range && data) {
+-        editor.executeEdits("drop", [
+-          {
+-            range: position.range,
+-            text: data,
+-            forceMoveMarkers: true,
+-          },
+-        ]);
+-      }
+-    };
+-    domNode.addEventListener("drop", dropHandler);
+-    editor.onDidDispose(() => {
+-      domNode.removeEventListener("drop", dropHandler);
+-    });
+-    editor.updateOptions({
+-      unicodeHighlight: { ambiguousCharacters: false },
+-      wordWrap: isAutoWarp ? 'on' : 'off',
+-      smoothScrolling: true,
+-      quickSuggestions: { other: true, comments: true, strings: true },
+-    });
+-    updateEditData();
+-  }
+-
+-  function configureMonaco(editor: monaco.editor.IStandaloneCodeEditor, monaco: Monaco) {
+-    const languageConfiguration: monaco.languages.LanguageConfiguration = {
+-      comments: {
+-        lineComment: ";",
+-      },
+-      brackets: [
+-        ["{", "}"],
+-        ["[", "]"],
+-        ["(", ")"],
+-      ],
++    const dropHandler = (event: DragEvent) => {
++      event.preventDefault();
++      const text = event.dataTransfer?.getData('text/plain');
++      const position = editor.getTargetAtClientPoint(event.clientX, event.clientY);
++      if (position?.range && text) editor.executeEdits('drop', [{ range: position.range, text, forceMoveMarkers: true }]);
+     };
+-    monaco.languages.setLanguageConfiguration('webgal', languageConfiguration);
++    domNode.addEventListener('drop', dropHandler);
++    editor.onDidDispose(() => { cursor.dispose(); domNode.removeEventListener('drop', dropHandler); });
++    applySnapshot();
++    editor.setPosition(editorLineHolder.getScenePosition(props.targetPath));
+   }
+ 
+-  useEffect(() => {
+-    editorRef?.current?.updateOptions?.({ wordWrap: isAutoWarp ? 'on' : 'off' });
+-  }, [isAutoWarp]);
+-
+-  /**
+-   * handle monaco change
+-   * @param {string} value
+-   * @param {any} ev
+-   */
+-  const submitChange = useMemo(() => debounce((value: string | undefined, ev: monaco.editor.IModelContentChangedEvent) => {
+-    logger.debug('编辑器提交更新');
+-    // 这里直接使用临时储存的行数, 一般来说光标位置就在改变的行
+-    const lineNumber = editorLineHolder.getSceneLine(props.targetPath);
+-    // const lineNumber = ev.changes[0].range.startLineNumber;
+-    // const trueLineNumber = getTrueLinenumber(lineNumber, value ?? "");
+-    if (value || value === '') currentText.current = value;
+-    eventBus.emit('editor:update-scene', { scene: currentText.current });
+-    api.assetsControllerEditTextFile({textFile: currentText.current, path: props.targetPath}).then((res) => {
+-      const targetValue = currentText.current.split('\n')[lineNumber - 1];
+-      EditorPreviewClient.sendSyncScene({
+-        scenePath: target?.path ?? '',
+-        lineNumber,
+-        lineCommandString: targetValue,
+-      });
+-    });
+-  }, 500), [props.targetPath, target?.path]);
+-
+-  const handleChange = (value: string | undefined, ev: monaco.editor.IModelContentChangedEvent) => {
+-    if (!isEditorReady.value) return;
+-    submitChange(value, ev);
+-  };
+-
+-  useEffect(() => {
+-    return () => submitChange.flush();
+-  }, [submitChange]);
+-
++  useEffect(applySnapshot, [applySnapshot, state.text, state.revision]);
++  useEffect(() => { editorRef.current?.updateOptions({ wordWrap: isAutoWarp ? 'on' : 'off' }); }, [isAutoWarp]);
+   const syncCurrentLine = useCallback(() => {
+-    const lineNumber = editorLineHolder.getSceneLine(props.targetPath) || editorRef.current?.getPosition()?.lineNumber || 1;
+-    EditorPreviewClient.sendSyncScene({
+-      scenePath: target?.path ?? '',
+-      lineNumber,
+-      lineCommandString: currentText.current.split('\n')[lineNumber - 1] ?? '',
+-      force: true,
+-    });
+-  }, [props.targetPath, target?.path]);
+-
+-  useEffect(() => {
+-    eventBus.on('editor:sync-current-line', syncCurrentLine);
+-    return () => {
+-      eventBus.off('editor:sync-current-line', syncCurrentLine);
+-    };
+-  }, [syncCurrentLine]);
+-
+-  function updateEditData() {
+-    const path = props.targetPath;
+-    axios
+-      .get(path)
+-      .then((res) => res.data)
+-      .then((data) => {
+-        const dataStr = data.toString();
+-        if (dataStr === currentText.current) {
+-          return;
+-        }
+-        currentText.current = dataStr;
+-        eventBus.emit('editor:update-scene', { scene: dataStr });
+-        const model = editorRef.current?.getModel();
+-        model?.applyEdits([
+-          {
+-            range: model.getFullModelRange(),
+-            text: currentText.current,
+-            forceMoveMarkers: true
+-          }
+-        ]);
+-        isEditorReady.value = true;
+-        const targetPosition = editorLineHolder.getScenePosition(props.targetPath);
+-        editorRef?.current?.setPosition(targetPosition);
+-        editorRef?.current?.revealPositionInCenterIfOutsideViewport(targetPosition, monaco.editor.ScrollType.Immediate);
+-      });
+-  }
+-
+-  useEffect(() => {
+-    const handleVisibilityChange = () => {
+-      if (document.visibilityState === 'visible') {
+-        updateEditData();
+-      }
+-    };
+-
+-    window.addEventListener('focus', handleVisibilityChange);
+-    document.addEventListener('visibilitychange', handleVisibilityChange);
+-
+-    return () => {
+-      window.removeEventListener('focus', handleVisibilityChange);
+-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+-    };
+-  }, []);
+-
+-  return (
+-    <div
+-      style={{ display: props.isHide ? 'none' : 'block', zIndex: 999, overflow: 'auto' }}
+-      className={styles.textEditor_main}
+-    >
+-      <Editor
+-        height="100%"
+-        width="100%"
+-        onMount={handleEditorDidMount}
+-        onChange={handleChange}
+-        defaultLanguage="webgal"
+-        language="webgal"
+-        defaultValue={currentText.current}
+-      />
++    if (props.isHide || !document.canPreview()) return;
++    const lineNumber = editorRef.current?.getPosition()?.lineNumber || 1;
++    EditorPreviewClient.sendSyncScene({ scenePath: props.targetPath, lineNumber, lineCommandString: document.getSnapshot().text.split('\n')[lineNumber - 1] ?? '', force: true });
++  }, [document, props.isHide, props.targetPath]);
++  useEffect(() => { eventBus.on('editor:sync-current-line', syncCurrentLine); return () => { eventBus.off('editor:sync-current-line', syncCurrentLine); }; }, [syncCurrentLine]);
++
++  return <div style={{ display: props.isHide ? 'none' : 'flex', flexDirection: 'column', overflow: 'hidden' }} className={styles.textEditor_main}>
++    <DocumentBar document={document} state={state} />
++    <div style={{ flex: 1, minHeight: 0 }}>
++      <Editor height="100%" width="100%" onMount={handleEditorDidMount} language="webgal" defaultValue=""
++        onChange={(_value, event) => { if (!applyingSnapshot.current && document.getSnapshot().revision) document.edit(applySourceEdits(document.getSnapshot().text, event.changes)); }} />
+     </div>
+-  );
++  </div>;
+ }
+diff --git a/packages/origine2/src/pages/templateEditor/TextEditor/TextEditor.tsx b/packages/origine2/src/pages/templateEditor/TextEditor/TextEditor.tsx
+index 0d15253..06dcc95 100644
+--- a/packages/origine2/src/pages/templateEditor/TextEditor/TextEditor.tsx
++++ b/packages/origine2/src/pages/templateEditor/TextEditor/TextEditor.tsx
+@@ -47,10 +47,13 @@ export default function TextEditor({ path }: { path: string }) {
+     if (!iframe) return;
+ 
+     const handleMessage = (event: MessageEvent) => {
+-      if (event.data.type === 'editorReady') {
++      if (event.origin !== window.location.origin || event.source !== iframe.contentWindow) return;
++      const message = event.data;
++      if (!message || typeof message !== 'object' || Array.isArray(message)) return;
++      if (message.type === 'editorReady') {
+         setEditorReady(true);
+-      } else if (event.data.type === 'valueChanged') {
+-        update(event.data.value);
++      } else if (message.type === 'valueChanged' && typeof message.value === 'string') {
++        update(message.value);
+       }
+     };
+ 
+@@ -63,9 +66,9 @@ export default function TextEditor({ path }: { path: string }) {
+     const iframe = iframeRef.current;
+     if (!iframe || !data || !editorReady) return;
+ 
+-    iframe.contentWindow?.postMessage({ type: 'setValue', value: data }, '*');
+-    iframe.contentWindow?.postMessage({ type: 'setLanguage', language: extName }, '*');
+-    iframe.contentWindow?.postMessage({ type: 'setTheme', theme: isDarkMode ? 'vs-dark' : 'vs' }, '*');
++    iframe.contentWindow?.postMessage({ type: 'setValue', value: data }, window.location.origin);
++    iframe.contentWindow?.postMessage({ type: 'setLanguage', language: extName }, window.location.origin);
++    iframe.contentWindow?.postMessage({ type: 'setTheme', theme: isDarkMode ? 'vs-dark' : 'vs' }, window.location.origin);
+   }, [data, editorReady, extName, isDarkMode]);
+ 
+   return memoizedIframe;
+diff --git a/packages/origine2/src/utils/editorPreviewClient.ts b/packages/origine2/src/utils/editorPreviewClient.ts
+index 32a0082..d1dfe57 100644
+--- a/packages/origine2/src/utils/editorPreviewClient.ts
++++ b/packages/origine2/src/utils/editorPreviewClient.ts
+@@ -1,3 +1,4 @@
++import { canPreviewDocuments } from "@/pages/editor/SceneDocument/sceneDocumentRegistry";
+ import useEditorStore from '@/store/useEditorStore';
+ import type { IDebugVariable } from '@/types/editor';
+ import { createId } from '@/utils/createId';
+@@ -263,6 +264,8 @@ function sendPreviewCommand<TType extends PreviewCommandType>(
+   type: TType,
+   payload: RequestPayloadByType[TType],
+ ): boolean {
++  // All mutation entry points share the draft barrier, including effect panels and drag previews.
++  if (!canPreviewDocuments()) return false;
+   ensureEditorPreviewClientStarted();
+   editorPreviewTransport?.ensureConnected();
+   if (!editorPreviewTransport) {
+diff --git a/packages/terre2/src/Modules/manage-game/manage-game.controller.ts b/packages/terre2/src/Modules/manage-game/manage-game.controller.ts
+index 199ce51..afc1641 100644
+--- a/packages/terre2/src/Modules/manage-game/manage-game.controller.ts
++++ b/packages/terre2/src/Modules/manage-game/manage-game.controller.ts
+@@ -4,6 +4,7 @@ import {
+   ConsoleLogger,
+   Controller,
+   Get,
++  HttpCode,
+   Param,
+   Post,
+   Query,
+@@ -40,6 +41,9 @@ import {
+   SetFlowchartDto,
+   UpdateAnimationTableDto,
+   TrashDto,
++  ReadTextSnapshotDto,
++  SaveTextSnapshotDto,
++  TextSnapshotDto,
+ } from './manage-game.dto';
+ import { UserDataService } from '../user-data/user-data.service';
+ 
+@@ -52,6 +56,28 @@ export class ManageGameController {
+     private readonly logger: ConsoleLogger,
+   ) {}
+ 
++  @Post('textSnapshot')
++  @HttpCode(200)
++  @ApiOperation({ summary: 'Read an existing game text file with its byte revision' })
++  @ApiResponse({ status: 200, type: TextSnapshotDto })
++  async textSnapshot(@Body() request: ReadTextSnapshotDto) {
++    return this.webgalFs.readTextSnapshot(request?.gameName, request?.path);
++  }
++
++  @Post('saveTextSnapshot')
++  @HttpCode(200)
++  @ApiOperation({ summary: 'Save game text only when its byte revision still matches' })
++  @ApiResponse({ status: 200, type: TextSnapshotDto })
++  @ApiResponse({ status: 409, description: 'REVISION_CONFLICT or WRITE_LOCKED; file unchanged' })
++  async saveTextSnapshot(@Body() request: SaveTextSnapshotDto) {
++    return this.webgalFs.saveTextSnapshot(
++      request?.gameName,
++      request?.path,
++      request?.text,
++      request?.expectedRevision,
++    );
++  }
++
+   @Get('gameList')
+   @Get('gameList')
+   @ApiOperation({ summary: 'Retrieve game list' })
+diff --git a/packages/terre2/src/Modules/manage-game/manage-game.dto.ts b/packages/terre2/src/Modules/manage-game/manage-game.dto.ts
+index c62d915..74a2c5c 100644
+--- a/packages/terre2/src/Modules/manage-game/manage-game.dto.ts
++++ b/packages/terre2/src/Modules/manage-game/manage-game.dto.ts
+@@ -70,6 +70,30 @@ export class EditTextFileDto {
+   textFile: string;
+ }
+ 
++export class ReadTextSnapshotDto {
++  @ApiProperty({ description: 'The selected game directory name' })
++  gameName: string;
++
++  @ApiProperty({ description: 'Plain relative path inside the game, e.g. game/scene/start.txt' })
++  path: string;
++}
++
++export class SaveTextSnapshotDto extends ReadTextSnapshotDto {
++  @ApiProperty({ description: 'Complete UTF-8 text, preserving its BOM and line endings' })
++  text: string;
++
++  @ApiProperty({ description: 'SHA256 from the last read or successful save' })
++  expectedRevision: string;
++}
++
++export class TextSnapshotDto {
++  @ApiProperty({ description: 'Exact UTF-8 text, including BOM and line endings' })
++  text: string;
++
++  @ApiProperty({ description: 'SHA256 of the original UTF-8 bytes' })
++  revision: string;
++}
++
+ export class UpdateAnimationTableDto {
+   @ApiProperty({ description: 'The name of the game directory' })
+   gameName: string;
+diff --git a/packages/terre2/src/Modules/user-data/user-data.service.spec.ts b/packages/terre2/src/Modules/user-data/user-data.service.spec.ts
+index dcdd0bc..07a8920 100644
+--- a/packages/terre2/src/Modules/user-data/user-data.service.spec.ts
++++ b/packages/terre2/src/Modules/user-data/user-data.service.spec.ts
+@@ -6,6 +6,7 @@ import { UserDataService } from './user-data.service';
+ import { TERRE_VERSION } from '../../version';
+ 
+ describe('UserDataService', () => {
++  const originalProfile = process.env.WEBGAL_USER_DATA_ROOT;
+   const testRoot = path.join(
+     process.cwd(),
+     'tmp',
+@@ -13,7 +14,13 @@ describe('UserDataService', () => {
+     `run-${Date.now()}`,
+   );
+ 
++  beforeEach(() => {
++    delete process.env.WEBGAL_USER_DATA_ROOT;
++  });
++
+   afterEach(async () => {
++    if (originalProfile === undefined) delete process.env.WEBGAL_USER_DATA_ROOT;
++    else process.env.WEBGAL_USER_DATA_ROOT = originalProfile;
+     jest.restoreAllMocks();
+     (UserDataService as any).state = null;
+     await fs.rm(testRoot, { recursive: true, force: true });
+@@ -75,4 +82,52 @@ describe('UserDataService', () => {
+       userDataPath: customPath,
+     });
+   });
++
++  it('isolates configuration and managed data from home, custom and portable roots', async () => {
++    const profileRoot = path.join(testRoot, 'isolated-profile');
++    const outsideRoot = path.join(testRoot, 'old-custom-data');
++    process.env.WEBGAL_USER_DATA_ROOT = profileRoot;
++    const homeLookup = jest.spyOn(os, 'homedir');
++    await fs.mkdir(path.join(profileRoot, 'data'), { recursive: true });
++    await fs.writeFile(
++      path.join(profileRoot, 'config.json'),
++      JSON.stringify({ userDataPath: outsideRoot }),
++    );
++
++    await UserDataService.initialize();
++    const status = await UserDataService.getStatus();
++
++    expect(homeLookup).not.toHaveBeenCalled();
++    expect(status.configRoot).toBe(profileRoot);
++    expect(status.activeUserDataRoot).toBe(profileRoot);
++    expect(status.configuredUserDataRoot).toBe(profileRoot);
++    expect(status.isPortable).toBe(false);
++    expect(UserDataService.getGameRoot()).toBe(path.join(profileRoot, 'games'));
++    await expect(fs.stat(outsideRoot)).rejects.toMatchObject({
++      code: 'ENOENT',
++    });
++  });
++
++  it('rejects migration and changes that would move the isolated profile', async () => {
++    const profileRoot = path.join(testRoot, 'isolated-profile');
++    const outsideRoot = path.join(testRoot, 'outside');
++    process.env.WEBGAL_USER_DATA_ROOT = profileRoot;
++    await UserDataService.initialize();
++    const service = new UserDataService(new ConsoleLogger());
++
++    expect((await service.setUserDataPath(outsideRoot)).success).toBe(false);
++    expect((await service.migrateLegacy()).success).toBe(false);
++    expect((await service.setPortableMode(true)).success).toBe(false);
++    expect((await service.getStatus()).activeUserDataRoot).toBe(profileRoot);
++    await expect(fs.stat(outsideRoot)).rejects.toMatchObject({
++      code: 'ENOENT',
++    });
++  });
++
++  it('rejects a relative isolated profile path', () => {
++    process.env.WEBGAL_USER_DATA_ROOT = 'relative-profile';
++    expect(() => (UserDataService as any).getDefaultUserDataRoot()).toThrow(
++      'absolute path',
++    );
++  });
+ });
+diff --git a/packages/terre2/src/Modules/user-data/user-data.service.ts b/packages/terre2/src/Modules/user-data/user-data.service.ts
+index e918d73..38e797b 100644
+--- a/packages/terre2/src/Modules/user-data/user-data.service.ts
++++ b/packages/terre2/src/Modules/user-data/user-data.service.ts
+@@ -239,7 +239,9 @@ export class UserDataService {
+ 
+   static async getStatus(): Promise<UserDataStatusDto> {
+     const state = this.getState();
+-    state.hasPortableDataDir = await this.pathIsDir(state.portableDataRoot);
++    state.hasPortableDataDir =
++      !this.getIsolatedProfileRoot() &&
++      (await this.pathIsDir(state.portableDataRoot));
+     state.isPortable = state.hasPortableDataDir;
+     state.activeUserDataRoot = state.isPortable
+       ? state.portableDataRoot
+@@ -278,6 +280,13 @@ export class UserDataService {
+   }
+ 
+   async migrateLegacy(): Promise<UserDataOperationResultDto> {
++    if (UserDataService.getIsolatedProfileRoot()) {
++      return this.toOperationResult(
++        false,
++        'Legacy migration is disabled for an isolated profile.',
++        [],
++      );
++    }
+     const result = await UserDataService.migrateLegacyData();
+     return this.toOperationResult(
+       result.conflicts.length === 0,
+@@ -303,6 +312,16 @@ export class UserDataService {
+ 
+     const targetPath = path.resolve(decodeURI(userDataPath));
+     const currentPath = state.activeUserDataRoot;
++    if (
++      UserDataService.getIsolatedProfileRoot() &&
++      targetPath !== currentPath
++    ) {
++      return this.toOperationResult(
++        false,
++        'The isolated profile path cannot be changed.',
++        [],
++      );
++    }
+     if (path.resolve(targetPath) === path.resolve(currentPath)) {
+       return this.toOperationResult(true, 'User data path unchanged.', []);
+     }
+@@ -346,6 +365,13 @@ export class UserDataService {
+     portable: boolean,
+   ): Promise<UserDataOperationResultDto> {
+     const state = UserDataService.getState();
++    if (UserDataService.getIsolatedProfileRoot()) {
++      return this.toOperationResult(
++        false,
++        'Portable mode is disabled for an isolated profile.',
++        [],
++      );
++    }
+     await UserDataService.getStatus();
+     if (portable === state.isPortable) {
+       return this.toOperationResult(true, 'Portable mode unchanged.', []);
+@@ -412,12 +438,19 @@ export class UserDataService {
+     await fs.mkdir(configRoot, { recursive: true });
+     const config = await this.readConfig(configPath);
+     const defaultUserDataRoot = configRoot;
++    const isolatedProfileRoot = this.getIsolatedProfileRoot();
+     const configuredUserDataRoot =
+-      config.userDataPath && config.userDataPath.trim() !== ''
++      !isolatedProfileRoot &&
++      config.userDataPath &&
++      config.userDataPath.trim() !== ''
+         ? path.resolve(config.userDataPath)
+         : defaultUserDataRoot;
+-    const portableDataRoot = path.join(appRoot, PORTABLE_DATA_DIR_NAME);
+-    const hasPortableDataDir = await this.pathIsDir(portableDataRoot);
++    const portableDataRoot = path.join(
++      isolatedProfileRoot ?? appRoot,
++      PORTABLE_DATA_DIR_NAME,
++    );
++    const hasPortableDataDir =
++      !isolatedProfileRoot && (await this.pathIsDir(portableDataRoot));
+     const isPortable = hasPortableDataDir;
+ 
+     return {
+@@ -437,10 +470,21 @@ export class UserDataService {
+   }
+ 
+   private static getDefaultUserDataRoot() {
++    const isolatedProfileRoot = this.getIsolatedProfileRoot();
++    if (isolatedProfileRoot) return isolatedProfileRoot;
+     const baseDir = os.platform() === 'android' ? process.cwd() : os.homedir();
+     return path.join(baseDir, USER_DATA_DIR_NAME);
+   }
+ 
++  private static getIsolatedProfileRoot(): string | undefined {
++    const root = process.env.WEBGAL_USER_DATA_ROOT;
++    if (!root) return undefined;
++    if (!path.isAbsolute(root)) {
++      throw new Error('WEBGAL_USER_DATA_ROOT must be an absolute path.');
++    }
++    return path.resolve(root);
++  }
++
+   private static async readConfig(configPath: string): Promise<UserDataConfig> {
+     try {
+       const text = await fs.readFile(configPath, 'utf8');
+diff --git a/packages/terre2/src/Modules/webgal-fs/text-file-transaction.spec.ts b/packages/terre2/src/Modules/webgal-fs/text-file-transaction.spec.ts
+new file mode 100644
+index 0000000..3e79d45
+--- /dev/null
++++ b/packages/terre2/src/Modules/webgal-fs/text-file-transaction.spec.ts
+@@ -0,0 +1,275 @@
++import { createHash } from 'crypto';
++import { spawn } from 'child_process';
++import * as fs from 'fs/promises';
++import { tmpdir } from 'os';
++import { basename, dirname, join } from 'path';
++import { TextFileTransactions } from './text-file-transaction';
++
++describe('TextFileTransactions (real filesystem)', () => {
++  const gameName = '中文 作品';
++  const scene = 'game/scene/中文 剧本.txt';
++  const original = '\uFEFF; 保留注释\r\n未知命令:值 -keep;\r\n角色:旧对白;\r\n';
++  let root: string;
++  let target: string;
++  let transaction: TextFileTransactions;
++
++  beforeEach(async () => {
++    root = await fs.mkdtemp(join(tmpdir(), 'makenovel-transaction-'));
++    target = join(root, gameName, scene);
++    await fs.mkdir(dirname(target), { recursive: true });
++    await fs.writeFile(target, original, 'utf8');
++    transaction = new TextFileTransactions(() => root, 200);
++  });
++
++  afterEach(async () => {
++    await fs.chmod(target, 0o666).catch(() => undefined);
++    await fs.rm(root, { recursive: true, force: true });
++  });
++
++  it('hashes real UTF-8 bytes and keeps BOM, CRLF, comments and unknown syntax', async () => {
++    const snapshot = await transaction.read(gameName, scene);
++    expect(snapshot).toEqual({
++      text: original,
++      revision: createHash('sha256')
++        .update(await fs.readFile(target))
++        .digest('hex'),
++    });
++    const changed = original.replace('旧对白', '新对白');
++    const saved = await transaction.save(
++      gameName,
++      scene,
++      changed,
++      snapshot.revision,
++    );
++    expect(await fs.readFile(target)).toEqual(Buffer.from(changed, 'utf8'));
++    expect(saved).toEqual(await transaction.read(gameName, scene));
++    expect(await fs.readdir(dirname(target))).toEqual([basename(target)]);
++  });
++
++  it('refuses stale writes after an external editor changes the file', async () => {
++    const snapshot = await transaction.read(gameName, scene);
++    const external = original + '; 外部修改\r\n';
++    await fs.writeFile(target, external);
++    await expect(
++      transaction.save(gameName, scene, 'stale', snapshot.revision),
++    ).rejects.toMatchObject({
++      status: 409,
++      response: {
++        code: 'REVISION_CONFLICT',
++        expectedRevision: snapshot.revision,
++        actualRevision: createHash('sha256').update(external).digest('hex'),
++      },
++    });
++    expect(await fs.readFile(target, 'utf8')).toBe(external);
++    expect(await fs.readdir(dirname(target))).toEqual([basename(target)]);
++  });
++
++  it('allows only one of two concurrent writers with the same revision', async () => {
++    const snapshot = await transaction.read(gameName, scene);
++    const second = new TextFileTransactions(() => root);
++    const outcomes = await Promise.allSettled([
++      transaction.save(gameName, scene, 'writer one', snapshot.revision),
++      second.save(gameName, scene, 'writer two', snapshot.revision),
++    ]);
++    expect(
++      outcomes.filter((outcome) => outcome.status === 'fulfilled'),
++    ).toHaveLength(1);
++    const rejected = outcomes.find(
++      (outcome) => outcome.status === 'rejected',
++    ) as PromiseRejectedResult;
++    expect(rejected.reason).toMatchObject({
++      status: 409,
++      response: { code: 'REVISION_CONFLICT' },
++    });
++    expect(['writer one', 'writer two']).toContain(
++      await fs.readFile(target, 'utf8'),
++    );
++  });
++
++  it('serializes cooperating writers in independent node processes using the lockfile', async () => {
++    const snapshot = await transaction.read(gameName, scene);
++    const runWriter = (text: string) =>
++      new Promise<{ status: number; code?: string }>((done, reject) => {
++        const program = `
++        const { TextFileTransactions } = require(process.argv[1]);
++        const [root, game, path, text, revision] = JSON.parse(process.argv[2]);
++        new TextFileTransactions(() => root).save(game, path, text, revision)
++          .then(() => console.log(JSON.stringify({status: 200})))
++          .catch(error => console.log(JSON.stringify({status: error.getStatus(), code: error.getResponse().code})));
++      `;
++        const child = spawn(
++          process.execPath,
++          [
++            '-r',
++            require.resolve('ts-node/register/transpile-only'),
++            '-e',
++            program,
++            join(__dirname, 'text-file-transaction.ts'),
++            JSON.stringify([root, gameName, scene, text, snapshot.revision]),
++          ],
++          { cwd: join(__dirname, '../../..'), windowsHide: true },
++        );
++        let output = '';
++        let errors = '';
++        child.stdout.on('data', (data) => {
++          output += data;
++        });
++        child.stderr.on('data', (data) => {
++          errors += data;
++        });
++        child.on('error', reject);
++        child.on('close', (code) => {
++          if (code !== 0) return reject(new Error(errors));
++          try {
++            done(JSON.parse(output.trim()));
++          } catch (error) {
++            reject(error);
++          }
++        });
++      });
++    const results = await Promise.all([
++      runWriter('process one'),
++      runWriter('process two'),
++    ]);
++    expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
++    expect(results.find((result) => result.status === 409).code).toBe(
++      'REVISION_CONFLICT',
++    );
++    expect(['process one', 'process two']).toContain(
++      await fs.readFile(target, 'utf8'),
++    );
++    expect(await fs.readdir(dirname(target))).toEqual([basename(target)]);
++  }, 30000);
++
++  it('does not steal an existing lock or write through it', async () => {
++    const snapshot = await transaction.read(gameName, scene);
++    const lockPath = join(
++      dirname(target),
++      `.${basename(target)}.makenovel.lock`,
++    );
++    await fs.writeFile(lockPath, 'another process');
++    await expect(
++      transaction.save(gameName, scene, 'wrong', snapshot.revision),
++    ).rejects.toMatchObject({
++      status: 409,
++      response: { code: 'WRITE_LOCKED' },
++    });
++    expect(await fs.readFile(target, 'utf8')).toBe(original);
++    expect(await fs.readFile(lockPath, 'utf8')).toBe('another process');
++  });
++
++  it('rejects missing files on both read and write instead of creating or claiming success', async () => {
++    const snapshot = await transaction.read(gameName, scene);
++    await fs.unlink(target);
++    await expect(transaction.read(gameName, scene)).rejects.toMatchObject({
++      status: 404,
++      response: { code: 'TEXT_FILE_MISSING' },
++    });
++    await expect(
++      transaction.save(gameName, scene, 'wrong', snapshot.revision),
++    ).rejects.toMatchObject({ status: 404 });
++    await expect(fs.stat(target)).rejects.toMatchObject({ code: 'ENOENT' });
++  });
++
++  it('rejects replacement of a read-only file without damaging its bytes', async () => {
++    const snapshot = await transaction.read(gameName, scene);
++    // Windows read-only prevents replacement; POSIX directory access controls it.
++    if (process.platform === 'win32') await fs.chmod(target, 0o444);
++    else await fs.chmod(dirname(target), 0o555);
++    try {
++      await expect(
++        transaction.save(gameName, scene, 'wrong', snapshot.revision),
++      ).rejects.toMatchObject({
++        status: 403,
++        response: { code: 'TEXT_FILE_IO_ERROR' },
++      });
++      expect(await fs.readFile(target, 'utf8')).toBe(original);
++      expect(await fs.readdir(dirname(target))).toEqual([basename(target)]);
++    } finally {
++      await fs.chmod(target, 0o666);
++      await fs.chmod(dirname(target), 0o755);
++    }
++  });
++
++  it.each([
++    ['../other', scene],
++    [gameName, '../other.txt'],
++    [gameName, 'game/../../other.txt'],
++    [gameName, 'C:\\outside.txt'],
++    [gameName, '/outside.txt'],
++    [gameName, 'game/scene/a.txt:stream'],
++    [gameName, 'game/scene./a.txt'],
++    ['', scene],
++  ])('rejects path escape or platform aliases (%s, %s)', async (game, path) => {
++    await expect(transaction.read(game, path)).rejects.toMatchObject({
++      status: 400,
++      response: { code: 'INVALID_PATH' },
++    });
++    expect(await fs.readFile(target, 'utf8')).toBe(original);
++  });
++
++  it('rejects junctions to files outside the selected game', async () => {
++    const outside = join(root, 'outside');
++    await fs.mkdir(outside);
++    await fs.writeFile(join(outside, 'secret.txt'), 'outside');
++    await fs.symlink(outside, join(root, gameName, 'linked'), 'junction');
++    await expect(
++      transaction.read(gameName, 'linked/secret.txt'),
++    ).rejects.toMatchObject({
++      status: 403,
++      response: { code: 'FORBIDDEN_PATH' },
++    });
++    await expect(
++      transaction.save(gameName, 'linked/secret.txt', 'wrong', '0'.repeat(64)),
++    ).rejects.toMatchObject({ status: 403 });
++    expect(await fs.readFile(join(outside, 'secret.txt'), 'utf8')).toBe(
++      'outside',
++    );
++  });
++
++  it('does not URL-decode literal percent sequences in JSON paths', async () => {
++    const name = 'game/scene/%20中文.txt';
++    await fs.writeFile(join(root, gameName, name), 'literal');
++    expect((await transaction.read(gameName, name)).text).toBe('literal');
++  });
++
++  it('refuses a profile-root change during a transaction', async () => {
++    const revision = (await transaction.read(gameName, scene)).revision;
++    const anotherRoot = join(root, 'another profile');
++    const anotherTarget = join(anotherRoot, gameName, scene);
++    await fs.mkdir(dirname(anotherTarget), { recursive: true });
++    await fs.writeFile(anotherTarget, original);
++    let rootReads = 0;
++    const changingProfile = new TextFileTransactions(() =>
++      ++rootReads === 1 ? root : anotherRoot,
++    );
++    await expect(
++      changingProfile.save(gameName, scene, 'wrong', revision),
++    ).rejects.toMatchObject({
++      status: 409,
++      response: { code: 'EDIT_TARGET_CHANGED' },
++    });
++    expect(await fs.readFile(target, 'utf8')).toBe(original);
++    expect(await fs.readFile(anotherTarget, 'utf8')).toBe(original);
++  });
++
++  it('refuses malformed UTF-8 rather than changing its bytes during decoding', async () => {
++    const malformed = Buffer.from([0xc3, 0x28]);
++    await fs.writeFile(target, malformed);
++    await expect(transaction.read(gameName, scene)).rejects.toMatchObject({
++      status: 422,
++      response: { code: 'INVALID_UTF8' },
++    });
++    expect(await fs.readFile(target)).toEqual(malformed);
++  });
++
++  it('rejects an absent revision and lossy Unicode without touching the file', async () => {
++    await expect(
++      transaction.save(gameName, scene, 'wrong', undefined),
++    ).rejects.toMatchObject({ status: 400 });
++    await expect(
++      transaction.save(gameName, scene, '\ud800', '0'.repeat(64)),
++    ).rejects.toMatchObject({ status: 422 });
++    expect(await fs.readFile(target, 'utf8')).toBe(original);
++  });
++});
+diff --git a/packages/terre2/src/Modules/webgal-fs/text-file-transaction.ts b/packages/terre2/src/Modules/webgal-fs/text-file-transaction.ts
+new file mode 100644
+index 0000000..ca58f23
+--- /dev/null
++++ b/packages/terre2/src/Modules/webgal-fs/text-file-transaction.ts
+@@ -0,0 +1,323 @@
++import { HttpException } from '@nestjs/common';
++import { createHash, randomUUID } from 'crypto';
++import * as fs from 'fs/promises';
++import {
++  basename,
++  dirname,
++  isAbsolute,
++  join,
++  relative,
++  resolve,
++  sep,
++} from 'path';
++
++export interface TextFileSnapshot {
++  text: string;
++  revision: string;
++}
++
++/**
++ * Serializes cooperating editor writers and atomically replaces existing files.
++ * An unrelated process can still write between the last hash check and rename:
++ * portable filesystem APIs do not offer compare-and-swap against a content hash.
++ */
++export class TextFileTransactions {
++  private static readonly queues = new Map<string, Promise<void>>();
++
++  constructor(
++    private readonly getGamesRoot: () => string,
++    private readonly lockWaitMs = 5000,
++  ) {}
++
++  async read(gameName: string, path: string): Promise<TextFileSnapshot> {
++    try {
++      const target = await this.resolveTarget(gameName, path);
++      // Cooperating replacements are atomic, so cross-process reads see a whole
++      // old or new file. Do not let an orphaned write lock prevent recovery reads.
++      return await this.serial(target, async () => {
++        await this.ensureSameTarget(gameName, path, target);
++        return this.snapshot(await fs.readFile(target));
++      });
++    } catch (error) {
++      throw this.fileError(error);
++    }
++  }
++
++  async save(
++    gameName: string,
++    path: string,
++    text: string,
++    expectedRevision: string,
++  ): Promise<TextFileSnapshot> {
++    if (
++      typeof text !== 'string' ||
++      typeof expectedRevision !== 'string' ||
++      !/^[a-f0-9]{64}$/.test(expectedRevision)
++    ) {
++      throw this.failure(
++        400,
++        'INVALID_REQUEST',
++        'Text and a SHA256 expectedRevision are required.',
++      );
++    }
++    const bytes = Buffer.from(text, 'utf8');
++    // Do not silently replace unpaired surrogates or accept binary data as text.
++    if (bytes.toString('utf8') !== text || text.includes('\0')) {
++      throw this.failure(
++        422,
++        'INVALID_UTF8',
++        'The submitted text is not lossless UTF-8 text.',
++      );
++    }
++    try {
++      const target = await this.resolveTarget(gameName, path);
++      return await this.serial(target, async () => {
++        await this.ensureSameTarget(gameName, path, target);
++        const lockPath = join(
++          dirname(target),
++          `.${basename(target)}.makenovel.lock`,
++        );
++        const lock = await this.acquireLock(lockPath);
++        let temporaryPath: string | undefined;
++        let committed = false;
++        try {
++          await this.ensureSameTarget(gameName, path, target);
++          this.checkRevision(await fs.readFile(target), expectedRevision);
++          const originalStat = await fs.stat(target);
++          temporaryPath = join(
++            dirname(target),
++            `.${basename(target)}.${randomUUID()}.tmp`,
++          );
++          const temporary = await fs.open(
++            temporaryPath,
++            'wx',
++            originalStat.mode,
++          );
++          try {
++            await temporary.writeFile(bytes);
++            await temporary.sync();
++          } finally {
++            await temporary.close();
++          }
++          // Validate again after I/O, including rechecking links and missing files.
++          await this.ensureSameTarget(gameName, path, target);
++          this.checkRevision(await fs.readFile(target), expectedRevision);
++          await fs.rename(temporaryPath, target);
++          temporaryPath = undefined;
++          committed = true;
++          return this.snapshot(bytes);
++        } finally {
++          // No unlink of the destination: failed writes retain the original file.
++          try {
++            if (temporaryPath) {
++              await fs
++                .chmod(temporaryPath, 0o600)
++                .catch((error: NodeJS.ErrnoException) => {
++                  if (error.code !== 'ENOENT') throw error;
++                });
++              await fs
++                .unlink(temporaryPath)
++                .catch((error: NodeJS.ErrnoException) => {
++                  if (error.code !== 'ENOENT') throw error;
++                });
++            }
++          } finally {
++            await lock.close();
++            try {
++              await fs.unlink(lockPath);
++            } catch (error) {
++              throw this.fileError(error, committed);
++            }
++          }
++        }
++      });
++    } catch (error) {
++      throw this.fileError(error);
++    }
++  }
++
++  private async ensureSameTarget(
++    gameName: string,
++    path: string,
++    target: string,
++  ) {
++    if ((await this.resolveTarget(gameName, path)) !== target) {
++      throw this.failure(
++        409,
++        'EDIT_TARGET_CHANGED',
++        'The active game location changed; reload before editing.',
++      );
++    }
++  }
++
++  private async resolveTarget(gameName: string, path: string): Promise<string> {
++    if (
++      typeof gameName !== 'string' ||
++      typeof path !== 'string' ||
++      gameName.length === 0 ||
++      /[/\\]/.test(gameName) ||
++      path.length === 0 ||
++      isAbsolute(path)
++    ) {
++      throw this.failure(
++        400,
++        'INVALID_PATH',
++        'A game name and a relative file path are required.',
++      );
++    }
++    // JSON inputs are already plain text. Decoding here would corrupt literal % names.
++    const segments = [gameName, ...path.replace(/\\/g, '/').split('/')];
++    if (
++      segments.some(
++        (segment) =>
++          !segment ||
++          segment === '.' ||
++          segment === '..' ||
++          /[\x00-\x1f<>:"|?*]/.test(segment) ||
++          /[ .]$/.test(segment) ||
++          /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(segment),
++      )
++    ) {
++      throw this.failure(
++        400,
++        'INVALID_PATH',
++        'The file path contains an invalid segment.',
++      );
++    }
++    const root = resolve(this.getGamesRoot());
++    const rootStat = await fs.lstat(root);
++    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
++      throw this.failure(
++        403,
++        'FORBIDDEN_PATH',
++        'The game root must be a real directory.',
++      );
++    }
++    const canonicalRoot = await fs.realpath(root);
++    let target = root;
++    for (let i = 0; i < segments.length; i++) {
++      target = join(target, segments[i]);
++      const stat = await fs.lstat(target);
++      if (stat.isSymbolicLink()) {
++        throw this.failure(
++          403,
++          'FORBIDDEN_PATH',
++          'Symbolic links and junctions cannot be edited.',
++        );
++      }
++      if (i < segments.length - 1 ? !stat.isDirectory() : !stat.isFile()) {
++        throw this.failure(
++          400,
++          'INVALID_PATH',
++          'The target must be an existing regular file.',
++        );
++      }
++    }
++    const canonicalTarget = await fs.realpath(target);
++    const inside = relative(canonicalRoot, canonicalTarget);
++    if (
++      !inside ||
++      inside === '..' ||
++      inside.startsWith(`..${sep}`) ||
++      isAbsolute(inside)
++    ) {
++      throw this.failure(
++        403,
++        'FORBIDDEN_PATH',
++        'The file is outside the selected game root.',
++      );
++    }
++    return canonicalTarget;
++  }
++
++  private snapshot(bytes: Buffer): TextFileSnapshot {
++    const text = bytes.toString('utf8');
++    if (!Buffer.from(text, 'utf8').equals(bytes) || text.includes('\0')) {
++      throw this.failure(
++        422,
++        'INVALID_UTF8',
++        'The file is not lossless UTF-8 text.',
++      );
++    }
++    return { text, revision: createHash('sha256').update(bytes).digest('hex') };
++  }
++
++  private checkRevision(bytes: Buffer, expectedRevision: string) {
++    const { revision } = this.snapshot(bytes);
++    if (revision !== expectedRevision) {
++      throw this.failure(
++        409,
++        'REVISION_CONFLICT',
++        'The file changed on disk; reload or preserve your draft before retrying.',
++        {
++          expectedRevision,
++          actualRevision: revision,
++        },
++      );
++    }
++  }
++
++  private async acquireLock(path: string): Promise<fs.FileHandle> {
++    const deadline = Date.now() + this.lockWaitMs;
++    while (true) {
++      try {
++        return await fs.open(path, 'wx');
++      } catch (error) {
++        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
++        if (Date.now() >= deadline) {
++          throw this.failure(
++            409,
++            'WRITE_LOCKED',
++            'Another editor owns the write lock. A lock left by an interrupted process must be inspected before removal.',
++          );
++        }
++        await new Promise((done) => setTimeout(done, 25));
++      }
++    }
++  }
++
++  private async serial<T>(
++    path: string,
++    operation: () => Promise<T>,
++  ): Promise<T> {
++    const key = process.platform === 'win32' ? path.toLowerCase() : path;
++    const previous = TextFileTransactions.queues.get(key) ?? Promise.resolve();
++    let release: () => void;
++    const current = new Promise<void>((done) => {
++      release = done;
++    });
++    TextFileTransactions.queues.set(key, current);
++    await previous;
++    try {
++      return await operation();
++    } finally {
++      release();
++      if (TextFileTransactions.queues.get(key) === current) {
++        TextFileTransactions.queues.delete(key);
++      }
++    }
++  }
++
++  private failure(status: number, code: string, message: string, details = {}) {
++    return new HttpException({ code, message, ...details }, status);
++  }
++
++  private fileError(error: unknown, committed = false): HttpException {
++    if (error instanceof HttpException) return error;
++    const ioCode = (error as NodeJS.ErrnoException)?.code ?? 'UNKNOWN';
++    const status =
++      ioCode === 'ENOENT'
++        ? 404
++        : ioCode === 'EACCES' || ioCode === 'EPERM'
++        ? 403
++        : 500;
++    return this.failure(
++      status,
++      status === 404 ? 'TEXT_FILE_MISSING' : 'TEXT_FILE_IO_ERROR',
++      committed
++        ? 'The text was saved, but its write lock could not be removed.'
++        : 'The text file could not be read or saved.',
++      { ioCode, ...(committed ? { committed: true } : {}) },
++    );
++  }
++}
+diff --git a/packages/terre2/src/Modules/webgal-fs/text-snapshot-api.spec.ts b/packages/terre2/src/Modules/webgal-fs/text-snapshot-api.spec.ts
+new file mode 100644
+index 0000000..d60a297
+--- /dev/null
++++ b/packages/terre2/src/Modules/webgal-fs/text-snapshot-api.spec.ts
+@@ -0,0 +1,153 @@
++import { ConsoleLogger, INestApplication } from '@nestjs/common';
++import { Test } from '@nestjs/testing';
++import * as fs from 'fs/promises';
++import { tmpdir } from 'os';
++import { dirname, join } from 'path';
++import request = require('supertest');
++import { ManageGameController } from '../manage-game/manage-game.controller';
++import { ManageGameService } from '../manage-game/manage-game.service';
++import { UserDataService } from '../user-data/user-data.service';
++import { WebgalFsService } from './webgal-fs.service';
++
++describe('Text snapshot HTTP API (real filesystem)', () => {
++  const location = {
++    gameName: 'API 中文作品',
++    path: 'game/scene/开始 场景.txt',
++  };
++  let root: string;
++  let target: string;
++  let app: INestApplication;
++  let gameRoot: jest.SpyInstance;
++
++  beforeEach(async () => {
++    root = await fs.mkdtemp(join(tmpdir(), 'makenovel-text-api-'));
++    target = join(root, location.gameName, location.path);
++    await fs.mkdir(dirname(target), { recursive: true });
++    await fs.writeFile(target, '\uFEFF角色:原文;\r\n');
++    // Profile selection is the only boundary substituted. Every file operation,
++    // request parser, controller, service and error response remains real.
++    gameRoot = jest.spyOn(UserDataService, 'getGameRoot').mockReturnValue(root);
++    const module = await Test.createTestingModule({
++      controllers: [ManageGameController],
++      providers: [
++        ConsoleLogger,
++        WebgalFsService,
++        { provide: ManageGameService, useValue: {} },
++      ],
++    }).compile();
++    app = module.createNestApplication();
++    await app.init();
++  });
++
++  afterEach(async () => {
++    await app?.close();
++    gameRoot?.mockRestore();
++    await fs.chmod(target, 0o666).catch(() => undefined);
++    await fs.rm(root, { recursive: true, force: true });
++  });
++
++  it('returns persisted text and byte revision with HTTP 200 on read and save', async () => {
++    const before = await request(app.getHttpServer())
++      .post('/api/manageGame/textSnapshot')
++      .send(location)
++      .expect(200);
++    expect(before.body.text).toBe('\uFEFF角色:原文;\r\n');
++    expect(before.body.revision).toMatch(/^[a-f0-9]{64}$/);
++    const next = '\uFEFF角色:新对白;\r\n';
++    const saved = await request(app.getHttpServer())
++      .post('/api/manageGame/saveTextSnapshot')
++      .send({ ...location, text: next, expectedRevision: before.body.revision })
++      .expect(200);
++    expect(saved.body.text).toBe(next);
++    expect(await fs.readFile(target, 'utf8')).toBe(next);
++    const reopened = await request(app.getHttpServer())
++      .post('/api/manageGame/textSnapshot')
++      .send(location)
++      .expect(200);
++    expect(reopened.body).toEqual(saved.body);
++  });
++
++  it('returns a structured HTTP 409 after a real external edit and preserves that edit', async () => {
++    const before = await request(app.getHttpServer())
++      .post('/api/manageGame/textSnapshot')
++      .send(location)
++      .expect(200);
++    await fs.writeFile(target, '外部 AI:已修改;\r\n');
++    const response = await request(app.getHttpServer())
++      .post('/api/manageGame/saveTextSnapshot')
++      .send({
++        ...location,
++        text: '旧缓存;',
++        expectedRevision: before.body.revision,
++      })
++      .expect(409);
++    expect(response.body).toMatchObject({
++      code: 'REVISION_CONFLICT',
++      expectedRevision: before.body.revision,
++    });
++    expect(response.body.actualRevision).toMatch(/^[a-f0-9]{64}$/);
++    expect(await fs.readFile(target, 'utf8')).toBe('外部 AI:已修改;\r\n');
++  });
++
++  it('reports missing files as HTTP 404', async () => {
++    await fs.unlink(target);
++    const response = await request(app.getHttpServer())
++      .post('/api/manageGame/textSnapshot')
++      .send(location)
++      .expect(404);
++    expect(response.body).toMatchObject({
++      code: 'TEXT_FILE_MISSING',
++      ioCode: 'ENOENT',
++    });
++  });
++
++  it('reports malformed requests and path traversal as HTTP 400', async () => {
++    await request(app.getHttpServer())
++      .post('/api/manageGame/saveTextSnapshot')
++      .send({ ...location, text: 'no revision' })
++      .expect(400);
++    await request(app.getHttpServer())
++      .post('/api/manageGame/textSnapshot')
++      .send({ ...location, path: '../outside.txt' })
++      .expect(400);
++    await request(app.getHttpServer())
++      .post('/api/manageGame/textSnapshot')
++      .send({})
++      .expect(400);
++    expect(await fs.readFile(target, 'utf8')).toBe('\uFEFF角色:原文;\r\n');
++  });
++
++  it('reports a real read-only replacement failure with HTTP 403', async () => {
++    const before = await request(app.getHttpServer())
++      .post('/api/manageGame/textSnapshot')
++      .send(location)
++      .expect(200);
++    if (process.platform === 'win32') await fs.chmod(target, 0o444);
++    else await fs.chmod(dirname(target), 0o555);
++    try {
++      const result = await request(app.getHttpServer())
++        .post('/api/manageGame/saveTextSnapshot')
++        .send({
++          ...location,
++          text: 'wrong',
++          expectedRevision: before.body.revision,
++        })
++        .expect(403);
++      expect(result.body.code).toBe('TEXT_FILE_IO_ERROR');
++      expect(['EPERM', 'EACCES']).toContain(result.body.ioCode);
++      expect(await fs.readFile(target, 'utf8')).toBe('\uFEFF角色:原文;\r\n');
++    } finally {
++      await fs.chmod(target, 0o666);
++      await fs.chmod(dirname(target), 0o755);
++    }
++  });
++
++  it('reports invalid on-disk UTF-8 with HTTP 422', async () => {
++    await fs.writeFile(target, Buffer.from([0xff, 0xfe, 0x80]));
++    const result = await request(app.getHttpServer())
++      .post('/api/manageGame/textSnapshot')
++      .send(location)
++      .expect(422);
++    expect(result.body.code).toBe('INVALID_UTF8');
++  });
++});
+diff --git a/packages/terre2/src/Modules/webgal-fs/webgal-fs.service.ts b/packages/terre2/src/Modules/webgal-fs/webgal-fs.service.ts
+index 023da3f..d899187 100644
+--- a/packages/terre2/src/Modules/webgal-fs/webgal-fs.service.ts
++++ b/packages/terre2/src/Modules/webgal-fs/webgal-fs.service.ts
+@@ -8,6 +8,7 @@ import { promisify } from 'util';
+ import { gzip, Z_BEST_COMPRESSION } from 'zlib';
+ import { UserDataService } from '../user-data/user-data.service';
+ import trash from 'trash';
++import { TextFileTransactions } from './text-file-transaction';
+ 
+ const pExecFile = promisify(execFile);
+ const pGzip = promisify(gzip);
+@@ -35,8 +36,25 @@ interface FileList {
+ 
+ @Injectable()
+ export class WebgalFsService {
++  private readonly textTransactions = new TextFileTransactions(() =>
++    UserDataService.getGameRoot(),
++  );
++
+   constructor(private readonly logger: ConsoleLogger) {}
+ 
++  readTextSnapshot(gameName: string, path: string) {
++    return this.textTransactions.read(gameName, path);
++  }
++
++  saveTextSnapshot(
++    gameName: string,
++    path: string,
++    text: string,
++    expectedRevision: string,
++  ) {
++    return this.textTransactions.save(gameName, path, text, expectedRevision);
++  }
++
+   static checkFileName(name: string): boolean {
+     return name.search(/[\/\\\:\*\?"\<\>\|]/) === -1;
+   }
+diff --git a/packages/terre2/src/main.ts b/packages/terre2/src/main.ts
+index f8118c6..34851e1 100644
+--- a/packages/terre2/src/main.ts
++++ b/packages/terre2/src/main.ts
+@@ -13,7 +13,8 @@ process.chdir(cwd);
+ import { NestFactory } from '@nestjs/core';
+ import { AppModule } from './app.module';
+ import { _open } from './util/open';
+-import { urlencoded, json } from 'express';
++import { urlencoded, json, static as serveStatic } from 'express';
++import type { IncomingMessage } from 'http';
+ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+ import { env } from 'process';
+ import { WsAdapter } from '@nestjs/platform-ws';
+@@ -25,7 +26,50 @@ import { version_number } from './version';
+ 
+ let WEBGAL_PORT = 3000; // 默认端口
+ if (env.WEBGAL_PORT) {
+-  WEBGAL_PORT = Number.parseInt(env.WEBGAL_PORT);
++  WEBGAL_PORT = Number(env.WEBGAL_PORT);
++}
++if (
++  !Number.isInteger(WEBGAL_PORT) ||
++  WEBGAL_PORT < 1023 ||
++  WEBGAL_PORT > 65534
++) {
++  throw new Error('WEBGAL_PORT must be an integer between 1023 and 65534.');
++}
++
++const editorHost = `127.0.0.1:${WEBGAL_PORT + 1}`;
++const editorOrigin = `http://${editorHost}`;
++
++// CORS alone does not stop cross-site requests from reaching filesystem routes.
++function isTrustedRequest(request: IncomingMessage, requireSource: boolean) {
++  if (request.headers.host !== editorHost) return false;
++  const origin = request.headers.origin;
++  if (origin !== undefined && origin !== editorOrigin) return false;
++  const fetchSite = request.headers['sec-fetch-site'];
++  if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none')
++    return false;
++  const referer = request.headers.referer;
++  if (referer) {
++    try {
++      if (new URL(referer).origin !== editorOrigin) return false;
++    } catch {
++      return false;
++    }
++  }
++  return !requireSource || origin === editorOrigin || !!referer;
++}
++
++class LocalWsAdapter extends WsAdapter {
++  create(port: number, options: Record<string, any> = {}) {
++    // Both upstream gateways share the loopback HTTP listener (port 0).
++    if (port !== 0 || options.server) {
++      throw new Error('Separate WebSocket listeners are disabled.');
++    }
++    return super.create(port, {
++      ...options,
++      verifyClient: (info, done) =>
++        done(isTrustedRequest(info.req, true), 403, 'Untrusted editor origin'),
++    });
++  }
+ }
+ 
+ /**
+@@ -97,8 +141,22 @@ async function bootstrap() {
+ 
+   const app = await NestFactory.create(AppModule);
+ 
++  app.use((request, response, next) => {
++    const pathname = request.path.toLowerCase();
++    if (
++      !isTrustedRequest(
++        request,
++        pathname === '/api' || pathname.startsWith('/api/'),
++      )
++    ) {
++      return response.status(403).json({ message: 'Untrusted editor origin' });
++    }
++    response.setHeader('X-Frame-Options', 'SAMEORIGIN');
++    response.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
++    next();
++  });
+   app.enableCors({
+-    origin: '*',
++    origin: editorOrigin,
+     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+     credentials: true,
+     allowedHeaders: '*', // Allow all headers
+@@ -107,6 +165,13 @@ async function bootstrap() {
+ 
+   app.use(json({ limit: '50mb' }));
+   app.use(urlencoded({ extended: true, limit: '50mb' }));
++  if (env.WEBGAL_EDITOR_DIST) {
++    const editorDist = path.resolve(env.WEBGAL_EDITOR_DIST);
++    if (!(await fsExtra.pathExists(path.join(editorDist, 'index.html')))) {
++      throw new Error('WEBGAL_EDITOR_DIST does not contain a built editor.');
++    }
++    app.use(serveStatic(editorDist));
++  }
+   const config = new DocumentBuilder()
+     .setTitle('WebGAL Terre API')
+     .setDescription('API Refrence of WebGAL Terre Editor')
+@@ -114,12 +179,16 @@ async function bootstrap() {
+     .build();
+   const document = SwaggerModule.createDocument(app, config);
+   SwaggerModule.setup('api', app, document);
+-  app.useWebSocketAdapter(new WsAdapter(app));
+-  await app.listen(WEBGAL_PORT + 1);
++  app.useWebSocketAdapter(new LocalWsAdapter(app));
++  await app.listen(WEBGAL_PORT + 1, '127.0.0.1');
+ }
+ 
+ bootstrap().then(() => {
+   console.log(`WebGAL Terre ${version_number} starting at ${process.cwd()}`);
+-  if ((process?.env?.NODE_ENV ?? '') !== 'development' && !global['isElectron'])
+-    _open(`http://localhost:${WEBGAL_PORT + 1}`);
++  if (
++    (process?.env?.NODE_ENV ?? '') !== 'development' &&
++    env.WEBGAL_OPEN_BROWSER !== '0' &&
++    !global['isElectron']
++  )
++    _open(editorOrigin);
+ });

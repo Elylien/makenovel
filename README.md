@@ -2,7 +2,7 @@
 
 面向 Windows 的视觉小说创作工具链：传统玩家体验、人工导演模式，以及共享同一份源码的 AI 创作接口。
 
-**当前状态：项目准备与上游基线验证，尚未完成导演编辑器或独立游戏发行包。** 第一候选是 WebGAL + Terre；先验证已有能力，再做可回归的小范围改造。
+**当前版本 0.0.2：Terre 场景编辑已接入共享草稿、显式保存和外部修改冲突保护。** 图形编辑 → 源码编辑 → 保存重开已实机验证；完整导演工具、语法闸门与 Windows 离线发行包仍在开发。
 
 ## 开始
 
@@ -18,6 +18,25 @@ pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action
 ```
 
 预览仅绑定 `http://127.0.0.1:3000`，显示的是上游示例。Terre 安装与构建说明见 [测试入口](docs/TESTING.md)。独立源码写回实验运行 `npm test`，其边界见 [实验说明](experiments/source-roundtrip/README.md)。
+
+## 启动当前编辑器
+
+完成上述 WebGAL 基线安装后，继续安装 Terre 并应用审查过的补丁：
+
+```powershell
+pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL_Terre -Action Install
+npm.cmd run patch:apply
+npm.cmd run editor:build
+npm.cmd run test:editor
+npm.cmd run test:documents
+npm.cmd run editor:start
+```
+
+访问 `http://127.0.0.1:3001`。数据隔离在本项目 `.local/editor-profile/`，停止用 `npm.cmd run editor:stop`。这是本机开发预览，不是独立安装包。
+
+场景图形/源码模式共享草稿，修改后点击“保存脚本”（源码支持 Ctrl+S）。发生外部版本冲突时保留草稿并拒绝覆盖，先下载备份再载入磁盘版本。浏览器 sessionStorage 支持本标签页刷新恢复；关闭浏览器后的恢复和跨设备同步尚未验收。JSON 资源/模板仍沿用上游保存方式。完整限制见 [已知问题](docs/KNOWN_ISSUES.md)。
+
+Terre submodule 的 HEAD 仍是原版提交，工作树有意保留应用后的改动；公开源码在根仓库 [patches/terre](patches/terre/)。`npm.cmd run patch:check` 应报告完整匹配，不能把预期的 dirty 状态当成外部修改，也不能 reset。详见 [补丁机制](docs/integrations/TERRE_PATCHES.md)。
 
 ## 项目导航
 
