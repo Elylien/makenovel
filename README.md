@@ -2,7 +2,7 @@
 
 面向 Windows 的视觉小说创作工具链：传统玩家体验、人工导演模式，以及共享同一份源码的 AI 创作接口。
 
-**当前版本 0.0.3：场景编辑已接入核心语法诊断、持久节点身份、局部写回与冲突保护，并生成可直接运行的本地 Windows 开发包。** 图形复制/移动、错误草稿修复和 EXE 一槽正常退出重启读档已实测；完整导演工具、插件、旧档迁移与正式发行仍在开发。
+**当前版本 0.0.4：共享撤销/重做、关闭标签后手动恢复草稿，以及播放器菜单裁切修复已通过有限真实界面验证。** 259 项代码回归、构建与两子仓独立补丁重放通过；已有 Windows 开发包和一槽退出重启读档证据来自第三轮。完整导演工具、插件、旧档迁移与正式发行仍在开发。
 
 ## 开始
 
@@ -11,13 +11,14 @@
 ```powershell
 git clone --recurse-submodules https://github.com/Elylien/makenovel.git
 cd makenovel
+pwsh -NoLogo -NoProfile -File scripts/Apply-Patches.ps1 -Target WebGAL -Apply
 pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action Install
 pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action Build
 pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action Test
 pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action Preview
 ```
 
-预览仅绑定 `http://127.0.0.1:3000`，显示的是上游示例。Terre 安装与构建说明见 [测试入口](docs/TESTING.md)。独立源码写回实验运行 `npm test`，其边界见 [实验说明](experiments/source-roundtrip/README.md)。
+预览仅绑定 `http://127.0.0.1:3000`，显示锁定上游示例及本项目 runtime 补丁。Terre 安装与构建说明见 [测试入口](docs/TESTING.md)。独立源码写回实验运行 `npm test`，其边界见 [实验说明](experiments/source-roundtrip/README.md)。
 
 ## 启动当前编辑器
 
@@ -35,11 +36,15 @@ npm.cmd run editor:start
 
 访问 `http://127.0.0.1:3001`。数据隔离在本项目 `.local/editor-profile/`，停止用 `npm.cmd run editor:stop`。这是本机开发预览，不是独立安装包。
 
+升级已有 checkout 时，先停止编辑器，再执行 `npm.cmd run baseline:build` 和 `npm.cmd run editor:build`。前者生成经过源码与产物 hash 校验的 runtime 构建凭据，后者将该引擎同步到内置模板；缺失或过期凭据会拒绝同步。作者作品文件不会被改写，但没有自带 `index.html` 的普通作品会使用更新后的共享模板运行和导出；自带入口或衍生引擎的作品保留自己的引擎。
+
 场景图形/源码模式共享草稿，修改后点击“保存脚本”（源码支持 Ctrl+S）。核心语法或身份错误会显示位置并保留未应用草稿。未知前缀显示高级块；确认是人物台词后，可明确转换为 `say`，不自动把未知插件指令改成对白。已登记的节点复制时分配新 ID，移动时保留原 ID。
 
-发生外部版本冲突时保留草稿并拒绝覆盖，先下载备份再载入磁盘版本。sessionStorage 支持本标签页刷新恢复；项目级崩溃恢复与跨设备同步未验收。JSON/模板仍沿用上游保存方式；多行、不安全参数与未知代码保留源码编辑。完整限制见 [已知问题](docs/KNOWN_ISSUES.md)。
+图形/源码共用场景撤销与重做，默认保留最多 100 步、2 MiB 文本增量，保存后仍可撤销；窗口关闭后不保留撤销栈。发生外部版本冲突时保留草稿并拒绝覆盖，先下载备份再载入磁盘版本。
 
-Terre submodule 的 HEAD 仍是原版提交，工作树有意保留应用后的改动；公开源码在根仓库 [patches/terre](patches/terre/)。`npm.cmd run patch:check` 应报告完整匹配，不能把预期的 dirty 状态当成外部修改，也不能 reset。详见 [补丁机制](docs/integrations/TERRE_PATCHES.md)。
+同一标签页刷新可自动恢复 session 草稿；关闭浏览器标签页后，在相同浏览器、工作区和场景的“本机恢复副本”中手动选择 localStorage 副本。各窗口副本独立，旧版无工作区身份的 session 数据只作为手动候选；容量不足会提示下载备份，不自动淘汰其他副本。这不是作品目录中的崩溃恢复或跨设备同步。JSON/模板仍沿用上游保存方式；多行、不安全参数与未知代码保留源码编辑。完整限制见 [已知问题](docs/KNOWN_ISSUES.md)。
+
+两个 submodule 的 HEAD 仍是锁定原版提交，工作树有意保留应用后的改动；公开来源分别在 [patches/terre](patches/terre/) 和 [patches/webgal](patches/webgal/)。`npm.cmd run patch:check` 检查 Terre，`npm.cmd run patch:runtime:check` 检查 WebGAL。第四轮最终导出与重放结果见 [当前状态](docs/PROJECT_STATUS.md)；不要 reset 预期的补丁工作树。详见 [Terre 补丁](docs/integrations/TERRE_PATCHES.md) 和 [运行时补丁与模板同步](docs/integrations/RUNTIME_PATCHES.md)。
 
 ## 导出 Windows 开发包
 
@@ -59,6 +64,7 @@ npm.cmd run game:export -- -GamePath '.local/editor-profile/games/你的作品�
 - [开发计划](docs/DEVELOPMENT_PLAN.md) / [需求追踪](docs/REQUIREMENTS_TRACEABILITY.md)
 - [引擎评估](docs/ENGINE_EVALUATION.md) / [Terre 实测](docs/TERRE_BASELINE.md)
 - [对标范围](docs/REFERENCE_PARITY.md) / [决策](docs/DECISIONS.md)
+- [存档兼容边界与下一步](docs/SAVE_COMPATIBILITY.md)（设计审查，未实现迁移）
 
 `vendor/` 使用 Git submodule 固定上游提交，`upstream.lock.json` 记录版本和锁文件摘要。实验不创建第二套剧情执行器或存档系统。
 

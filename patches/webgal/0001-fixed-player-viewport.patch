@@ -1,0 +1,15 @@
+diff --git a/packages/webgal/src/index.scss b/packages/webgal/src/index.scss
+index d24cafd..bd785d4 100644
+--- a/packages/webgal/src/index.scss
++++ b/packages/webgal/src/index.scss
+@@ -54,6 +54,10 @@ code {
+ }
+ 
+ #root {
++  // Keep the unscaled design canvas out of body scrolling when UI controls are brought into view.
++  position: fixed;
++  top: 0;
++  left: 0;
+   width: $screenWidth;
+   height: $screenHeight;
+   overflow: hidden;

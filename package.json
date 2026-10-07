@@ -1,6 +1,6 @@
 {
   "name": "makenovel",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "description": "Visual novel authoring toolchain based on verified WebGAL and Terre baselines",
   "license": "MPL-2.0",
@@ -16,11 +16,15 @@
     "baseline:preview": "pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action Preview",
     "patch:check": "pwsh -NoLogo -NoProfile -File scripts/Apply-Patches.ps1 -Check",
     "patch:apply": "pwsh -NoLogo -NoProfile -File scripts/Apply-Patches.ps1 -Apply",
+    "patch:runtime:check": "pwsh -NoLogo -NoProfile -File scripts/Apply-Patches.ps1 -Target WebGAL -Check",
+    "patch:runtime:apply": "pwsh -NoLogo -NoProfile -File scripts/Apply-Patches.ps1 -Target WebGAL -Apply",
     "editor:build": "pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL_Terre -Action Build",
     "editor:start": "pwsh -NoLogo -NoProfile -File scripts/Start-Editor.ps1 -Background",
     "editor:stop": "pwsh -NoLogo -NoProfile -File scripts/Start-Editor.ps1 -Stop",
     "test:editor": "node integrations/terre-tests/run.cjs --no-cache",
     "test:documents": "node integrations/scene-document-tests/run-tests.mjs && node integrations/scene-document-tests/run-message-tests.mjs",
+    "test:source-input": "node integrations/scene-document-tests/run-source-editor-tests.mjs",
+    "test:graph-input": "node integrations/scene-document-tests/run-graph-input-tests.mjs",
     "test:patches": "pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-PatchReplay.ps1",
     "test:identity": "node integrations/scene-identity-tests/run-tests.mjs",
     "game:export": "pwsh -NoLogo -NoProfile -File scripts/Export-Game.ps1"

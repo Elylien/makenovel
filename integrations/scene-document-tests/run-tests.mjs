@@ -13,6 +13,7 @@ await mkdir(bundleRoot, { recursive: true });
 await build({
   entryPoints: {
     sceneDocument: path.join(sourceRoot, 'SceneDocument/sceneDocument.ts'),
+    draftVault: path.join(sourceRoot, 'SceneDocument/draftVault.ts'),
     sourceEdits: path.join(sourceRoot, 'SceneDocument/sourceEdits.ts'),
     graphText: path.join(sourceRoot, 'GraphicalEditor/utils/sceneTextProcessor.ts'),
     graphEdits: path.join(sourceRoot, 'SceneDocument/graphicalSourceEdits.ts'),
@@ -24,7 +25,7 @@ await build({
   format: 'esm',
   target: 'node22',
 });
-const run = spawnSync(process.execPath, ['--test', fileURLToPath(new URL('./scene-document.test.mjs', import.meta.url))], {
+const run = spawnSync(process.execPath, ['--test', fileURLToPath(new URL('./scene-document.test.mjs', import.meta.url)), fileURLToPath(new URL('./draft-vault.test.mjs', import.meta.url))], {
   stdio: 'inherit',
   env: { ...process.env, SCENE_DOCUMENT_TEST_BUNDLE: bundleRoot },
 });

@@ -3,16 +3,26 @@ param(
     [switch]$Check,
     [switch]$Apply,
     [string]$RepositoryPath,
-    [string]$ManifestPath
+    [string]$ManifestPath,
+    [ValidateSet('WebGAL', 'WebGAL_Terre')][string]$Target = 'WebGAL_Terre'
 )
 
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'PowerShell 7 is required.' }
 if ($Check -and $Apply) { throw 'Choose either -Check or -Apply.' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$baseCommit = 'cf73dd58535d3ef15bddf0852adee153fa92d7da'
-if (-not $RepositoryPath) { $RepositoryPath = Join-Path $projectRoot 'vendor/WebGAL_Terre' }
-if (-not $ManifestPath) { $ManifestPath = Join-Path $projectRoot 'patches/terre/manifest.json' }
+$lock = Get-Content -LiteralPath (Join-Path $projectRoot 'upstream.lock.json') -Raw | ConvertFrom-Json
+$upstreams = @($lock.upstreams | Where-Object name -EQ $Target)
+if ($upstreams.Count -ne 1 -or $upstreams[0].commit -notmatch '^[a-fA-F0-9]{40}$' -or -not $upstreams[0].path) {
+    throw "Expected one locked commit and checkout path for $Target in upstream.lock.json."
+}
+$upstream = $upstreams[0]
+$baseCommit = $upstream.commit
+if (-not $RepositoryPath) { $RepositoryPath = Join-Path $projectRoot $upstream.path }
+if (-not $ManifestPath) {
+    $patchDirectory = if ($Target -eq 'WebGAL') { 'patches/webgal' } else { 'patches/terre' }
+    $ManifestPath = Join-Path $projectRoot $patchDirectory 'manifest.json'
+}
 $RepositoryPath = [IO.Path]::GetFullPath($RepositoryPath)
 $ManifestPath = [IO.Path]::GetFullPath($ManifestPath)
 
@@ -48,9 +58,9 @@ if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
     throw "Patch manifest missing: $ManifestPath. Export and review patches before applying."
 }
 $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
-if ($manifest.baseCommit -ne $baseCommit) { throw 'Manifest baseCommit does not match the locked Terre commit.' }
+if ($manifest.baseCommit -ne $baseCommit) { throw "Manifest baseCommit does not match the locked $Target commit." }
 $head = (Invoke-PatchGit -Arguments @('rev-parse', 'HEAD')).Stdout.Trim()
-if ($head -ne $baseCommit) { throw "Terre HEAD differs from the locked commit: $head" }
+if ($head -ne $baseCommit) { throw "$Target HEAD differs from the locked commit: $head" }
 $staged = Invoke-PatchGit -Arguments @('diff', '--cached', '--quiet', 'HEAD', '--') -AllowFailure
 if ($staged.ExitCode -ne 0) { throw 'Vendor index has staged changes (or cannot be read); preserve and review them before applying patches.' }
 

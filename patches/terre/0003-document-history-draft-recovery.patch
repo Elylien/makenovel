@@ -1,0 +1,1194 @@
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
+index 29a058e6d7640de64caf70cb153ae45ca03296f3..46399a654edd11046efbe9b7da7832b3e574e01e 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
+@@ -1,5 +1,5 @@
+ import { parseScene } from "./parser";
+-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
++import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+ import { useVirtualizer } from "@tanstack/react-virtual";
+ import { EditorPreviewClient } from "../../../utils/editorPreviewClient";
+ import { mergeToString, splitToArray, sceneBody } from "./utils/sceneTextProcessor";
+@@ -37,6 +37,7 @@ interface SentenceItem {
+ 
+ interface SentenceRowProps {
+   revision: string | null;
++  historyVersion: number;
+   node?: SourceNode;
+   block?: SceneBlock;
+   onDuplicate: (index: number) => void;
+@@ -69,6 +70,17 @@ interface SentenceRowContentProps extends SentenceRowProps {
+ 
+ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+   const { document, state } = useSceneDocument(props.targetPath);
++  const rootRef = useRef<HTMLDivElement | null>(null);
++  useLayoutEffect(() => {
++    const root = rootRef.current;
++    return () => {
++      // Switching file/mode/project must commit a focused control before its DOM
++      // disappears. Say also retains an unmount fallback for an interrupted IME.
++      const active = globalThis.document.activeElement;
++      if (root?.contains(active) && (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)) active.blur();
++      queueMicrotask(() => document.setComposing(false));
++    };
++  }, [document]);
+   const [foldedNodes, setFoldedNodes] = useState<Record<string, boolean>>({});
+   const identity = useMemo(() => {
+     try { return inspectSceneIdentity(state.text, nativeRanges(state.text)); }
+@@ -122,10 +134,12 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+ 
+   const updateSentenceByIndex = useCallback((newContent: string, updateIndex: number) => {
+     if (!document.getSnapshot().revision) return;
++    // A disposed control must not replay its old buffer after undo/reload/recovery.
++    if (document.getSnapshot().historyVersion !== state.historyVersion) return;
+     const target = sentences[updateIndex];
+     if (!target) return;
+     applySource(() => editGraphicalStatement(document.getSnapshot().text, target.startLine, newContent));
+-  }, [document, sentences, applySource]);
++  }, [document, sentences, applySource, state.historyVersion]);
+ 
+   /** Insert before the complete native block, including an attached legacy ID. */
+   const addOneSentence = useCallback((newContent: string, insertLine: number) => {
+@@ -321,6 +335,7 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+     if (!sentence || !sentenceItem) return null;
+     return {
+       revision: state.revision,
++      historyVersion: state.historyVersion,
+       sentence,
+       sentenceItem,
+       node,
+@@ -346,7 +361,22 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+     return rowProps && <SentenceRowContent provided={provided} {...rowProps} />;
+   };
+ 
+-  return <div className={styles.main} id="graphical-editor-main">
++  return <div ref={rootRef} className={styles.main} id="graphical-editor-main"
++    onCompositionStartCapture={() => document.setComposing(true)}
++    onCompositionEndCapture={() => queueMicrotask(() => queueMicrotask(() => document.setComposing(false)))}
++    onKeyDownCapture={event => {
++    if (!(event.ctrlKey || event.metaKey) || event.altKey || !['z', 'y', 's'].includes(event.key.toLowerCase())) return;
++    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
++    event.preventDefault();
++    event.stopPropagation();
++    // Commit the focused field's pending debounce before navigating document
++    // history. The controls already flush on blur; no game shortcuts receive it.
++    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) event.target.blur();
++    document.breakHistoryGroup();
++    if (event.key.toLowerCase() === 's') void document.save();
++    else if (event.key.toLowerCase() === 'y' || event.shiftKey) document.redo();
++    else document.undo();
++  }}>
+     <DocumentBar document={document} state={state} onRegisterNodes={registerNodes} onLocate={(line) => {
+       const index = sentences.findIndex(sentence => sentence.startLine <= line - 1 && sentence.endLine >= line - 1);
+       if (index >= 0) rowVirtualizer.scrollToIndex(index, { align: 'center' });
+@@ -481,7 +511,7 @@ const SentenceRowContent = (props: SentenceRowContentProps) => {
+           </div>
+         </div>
+         {sentenceItem.show && <div className={styles.sentenceEditBody}>
+-          {props.block?.graphicalEditable ? <SentenceEditor key={props.revision} sentence={sentence} index={index} onSubmit={(newSentence) => {
++          {props.block?.graphicalEditable ? <SentenceEditor key={`${targetPath}:${props.historyVersion}`} sentence={sentence} index={index} onSubmit={(newSentence) => {
+             props.onUpdate(newSentence, i);
+           }} targetPath={targetPath} sceneLabels={sceneLabels} extraOptions={argOption} /> : <div>
+             <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: '4px 0 10px' }}>{props.block?.raw ?? props.foldedSentence}</pre>
+@@ -509,4 +539,5 @@ const SentenceRow = memo((props: SentenceRowProps) => {
+   prev.sceneLabels === next.sceneLabels
+   && prev.node === next.node && prev.block === next.block
+   && prev.revision === next.revision
++  && prev.historyVersion === next.historyVersion
+ ));
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Say.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Say.tsx
+index e0bbba6e0ca76ff4aff20178cd3dd11946640a7d..7e3772a1c6022498e951e74aed0e73493024f51f 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Say.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Say.tsx
+@@ -7,7 +7,7 @@ import TerreToggle from "../../../../components/terreToggle/TerreToggle";
+ import CommonOptions from "../components/CommonOption";
+ import { cloneDeep, debounce } from "lodash";
+ import CommonTips from "../components/CommonTips";
+-import { useEffect, useRef, useState } from "react";
++import { useEffect, useLayoutEffect, useRef } from "react";
+ import { Button } from "@fluentui/react-components";
+ import { t } from "@lingui/macro";
+ import WheelDropdown from "@/pages/editor/GraphicalEditor/components/WheelDropdown";
+@@ -39,7 +39,9 @@ export default function Say(props: ISentenceEditorProps) {
+   ]);
+   const isConcat = useValue(!!getArgByKey(props.sentence, 'concat')); // 是否是继承语句
+   const isNotend = useValue(!!getArgByKey(props.sentence, 'notend')); // 是否有 notend 参数
+-  const [isComposing, setIsComposing] = useState(false);
++  const isComposing = useRef(false);
++  const pendingInput = useRef(false);
++  const mounted = useRef(true);
+ 
+   useEffect(() => {
+     /**
+@@ -68,6 +70,7 @@ export default function Say(props: ISentenceEditorProps) {
+   const fontSize = useValue(getInitialFontSize());
+ 
+   const submit = () => {
++    pendingInput.current = false;
+     const commitValue = currentValue.value.map(e => e.replaceAll('\n', '|').replaceAll(';', '\\;'));
+     const sayContent = commitValue.join("|");
+     const inheritSpeaker = !isNoSpeaker.value && currentSpeaker.value === "";
+@@ -112,28 +115,36 @@ export default function Say(props: ISentenceEditorProps) {
+ 
+   const submitDebounced = useRef(
+     debounce(() => {
+-      submitRef.current();
++      if (mounted.current && !isComposing.current && pendingInput.current) submitRef.current();
+     }, 500)
+   ).current;
+ 
+-  useEffect(() => {
++  useLayoutEffect(() => {
++    mounted.current = true;
+     return () => {
+       submitDebounced.cancel();
++      // Preserve local text even if a switch removes the input before the browser
++      // emits compositionend/blur. The parent rejects callbacks from old history.
++      if (pendingInput.current) submitRef.current();
++      mounted.current = false;
+     };
+   }, []);
+ 
+   const handleCompositionStart = () => {
+     submitDebounced.cancel();
+-    setIsComposing(true);
++    isComposing.current = true;
+   };
+ 
+   const handleCompositionEnd = () => {
+-    setIsComposing(false);
+-    submitDebounced();
++    isComposing.current = false;
++    submitDebounced.cancel();
++    // Wait for the final input event/state, then commit the entire composition.
++    queueMicrotask(() => { if (mounted.current && pendingInput.current) submitRef.current(); });
+   };
+ 
+   const triggerSubmit = () => {
+-    if (!isComposing) {
++    pendingInput.current = true;
++    if (!isComposing.current) {
+       submitDebounced();
+     }
+   };
+@@ -272,6 +283,7 @@ export default function Say(props: ISentenceEditorProps) {
+             onChange={(ev) => {
+               const newValue = ev.target.value;
+               volume.set(newValue ?? "");
++              triggerSubmit();
+             }}
+             onBlur={submit}
+             className={styles.sayInput}
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/components/WheelDropdown.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/components/WheelDropdown.tsx
+index 63b49f56a2aff0a00c701e899e5e89da7f514309..eb8f0393a9a584b47ae762d5a699be86d81f7545 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/components/WheelDropdown.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/components/WheelDropdown.tsx
+@@ -1,6 +1,5 @@
+ import { useEffect, useRef, useCallback, useState } from 'react';
+ import { Dropdown, Option, DropdownProps } from "@fluentui/react-components";
+-import debounce from 'lodash/debounce';
+ 
+ interface WheelDropdownProps extends DropdownProps {
+   options: Map<string, string>;
+@@ -18,11 +17,6 @@ export default function WheelDropdown({
+   const optionKeys = Array.from(options.keys());
+   const [internalValue, setInternalValue] = useState(value);
+ 
+-  const debouncedOnValueChange = useCallback(
+-    debounce(onValueChange, 500),
+-    [onValueChange]
+-  );
+-
+   // 滚动处理
+   const handleWheel = useCallback(
+     (event: WheelEvent) => {
+@@ -43,9 +37,11 @@ export default function WheelDropdown({
+       const newTarget = optionKeys[newIndex];
+ 
+       setInternalValue(newTarget);
+-      debouncedOnValueChange(newTarget);
++      // Commit the selection in this user event. A delayed callback could outlive
++      // an undo, file switch or unmount and write an obsolete sentence afterward.
++      onValueChange(newTarget);
+     },
+-    [optionKeys, options.size, internalValue, debouncedOnValueChange]
++    [optionKeys, options.size, internalValue, onValueChange]
+   );
+ 
+   // 滚动事件监听
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/DocumentBar.tsx b/packages/origine2/src/pages/editor/SceneDocument/DocumentBar.tsx
+index 26118849a2b1bf433e57a21e3fe144f5020f1b51..1b419131e40db1043c019836511ddc48011d34f6 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/DocumentBar.tsx
++++ b/packages/origine2/src/pages/editor/SceneDocument/DocumentBar.tsx
+@@ -2,6 +2,7 @@ import { useState } from 'react';
+ import type { DocumentState, SceneDocument } from './sceneDocument';
+ import styles from './documentBar.module.scss';
+ import { pendingScenePaths } from './sceneDocumentRegistry';
++import { DraftRecovery } from './DraftRecovery';
+ 
+ const labels = { loading: '正在读取', saved: '已保存', dirty: '未保存草稿', saving: '正在保存', conflict: '文件冲突 · 草稿已保留', error: '操作失败 · 草稿已保留' };
+ export function DocumentBar({ document, state, onLocate, onRegisterNodes }: { document: SceneDocument; state: DocumentState; onLocate?: (line: number, column: number) => void; onRegisterNodes?: () => void }) {
+@@ -16,14 +17,18 @@ export function DocumentBar({ document, state, onLocate, onRegisterNodes }: { do
+     setBackedUp(state.text);
+   };
+   return <div className={styles.bar} data-status={state.status}>
+-    <div role="status" aria-live="polite"><strong>{labels[state.status]}</strong><span>{state.analysis.valid ? state.analysis.hasAdvanced ? '含高级代码 · 预览暂停' : '核心语法检查通过' : '脚本有错误 · 保存与预览暂停'}</span>{state.status === 'dirty' && <span>草稿保留在本标签页，保存后应用</span>}{state.status === 'saved' && state.analysis.previewable && pendingScenePaths(document.gameName).length > 0 && <span>预览暂停，请先处理其他脚本：{pendingScenePaths(document.gameName).join('、')}</span>}{state.message && <span>{state.message}</span>}{state.recoveryWarning && <span>{state.recoveryWarning}</span>}</div>
++    <div role="status" aria-live="polite"><strong>{labels[state.status]}</strong><span>{state.analysis.valid ? state.analysis.hasAdvanced ? '含高级代码 · 预览暂停' : '核心语法检查通过' : '脚本有错误 · 保存与预览暂停'}</span>{state.status === 'dirty' && <span>修改保留为草稿，保存后应用</span>}{state.status === 'saved' && state.analysis.previewable && pendingScenePaths(document.gameName).length > 0 && <span>预览暂停，请先处理其他脚本：{pendingScenePaths(document.gameName).join('、')}</span>}{state.message && <span>{state.message}</span>}{state.recoveryWarning && <span>{state.recoveryWarning}</span>}</div>
+     <div className={styles.actions}>
+-      <button type="button" disabled={!state.revision || ['saved', 'loading', 'saving', 'conflict'].includes(state.status)} onClick={() => void document.save()}>保存脚本</button>
+-      {onRegisterNodes && <button type="button" disabled={!state.revision || state.status === 'saving' || state.status === 'conflict'} onClick={onRegisterNodes}>登记节点身份</button>}
+-      <button type="button" disabled={state.status === 'loading' || state.status === 'saving'} onClick={() => void document.load()}>检查磁盘版本</button>
+-      <button type="button" disabled={!state.revision} onClick={download}>下载草稿</button>
+-      {(state.status === 'conflict' || state.status === 'error') && <button type="button" disabled={backedUp !== state.text} title="请先下载当前草稿，再载入磁盘版本" onClick={() => void document.reloadDisk()}>已备份，载入磁盘版本</button>}
++      {state.isComposing && <span role="status">正在输入，请先完成候选文字</span>}
++      <button type="button" disabled={state.isComposing || !state.canUndo} onClick={() => document.undo()} title="撤销本场景上一步修改，不自动保存">撤销</button>
++      <button type="button" disabled={state.isComposing || !state.canRedo} onClick={() => document.redo()} title="重做本场景修改，不自动保存">重做</button>
++      <button type="button" disabled={state.isComposing || !state.revision || ['saved', 'loading', 'saving', 'conflict'].includes(state.status)} onClick={() => void document.save()}>保存脚本</button>
++      {onRegisterNodes && <button type="button" disabled={state.isComposing || !state.revision || state.status === 'saving' || state.status === 'conflict'} onClick={onRegisterNodes}>登记节点身份</button>}
++      <button type="button" disabled={state.isComposing || state.status === 'loading' || state.status === 'saving'} onClick={() => void document.load()}>检查磁盘版本</button>
++      <button type="button" disabled={state.isComposing || !state.revision} onClick={download}>下载草稿</button>
++      {(state.status === 'conflict' || state.status === 'error') && <button type="button" disabled={state.isComposing || backedUp !== state.text} title="请先下载当前草稿，再载入磁盘版本" onClick={() => void document.reloadDisk()}>已备份，载入磁盘版本</button>}
+     </div>
++    <DraftRecovery key={document.gameName} document={document} state={state} />
+     {state.analysis.diagnostics.length > 0 && <details className={styles.diagnostics} open={!state.analysis.valid}>
+       <summary>脚本诊断（{state.analysis.diagnostics.length}）</summary>
+       <ul>{state.analysis.diagnostics.map((item, index) => <li key={`${item.code}-${item.range.start.offset}-${index}`} data-severity={item.severity}>
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/DraftRecovery.tsx b/packages/origine2/src/pages/editor/SceneDocument/DraftRecovery.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..e2f7343acfe2a900ba8147dbdf11db7c72428ee7
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/SceneDocument/DraftRecovery.tsx
+@@ -0,0 +1,49 @@
++import { useEffect, useState } from 'react';
++import type { DocumentState, SceneDocument } from './sceneDocument';
++import { listRecoveryDrafts } from './sceneDocumentRegistry';
++import type { RecoveryDraft } from './draftVault';
++import styles from './documentBar.module.scss';
++
++export function DraftRecovery({ document, state }: { document: SceneDocument; state: DocumentState }) {
++  const [open, setOpen] = useState(false);
++  const [copies, setCopies] = useState<RecoveryDraft[]>([]);
++  const [error, setError] = useState('');
++  const refresh = () => {
++    try { setCopies(listRecoveryDrafts(document)); setError(''); }
++    catch { setError('无法读取本机恢复副本。当前草稿仍可下载备份。'); }
++  };
++  useEffect(() => {
++    if (!open) return;
++    refresh();
++    const changed = () => refresh();
++    window.addEventListener('storage', changed);
++    return () => window.removeEventListener('storage', changed);
++  }, [document, open, state.revision]);
++  const download = (copy: RecoveryDraft) => {
++    const url = URL.createObjectURL(new Blob([copy.text], { type: 'text/plain;charset=utf-8' }));
++    const anchor = globalThis.document.createElement('a');
++    anchor.href = url;
++    anchor.download = `scene-recovery-${copy.updatedAt || 'legacy'}.txt`;
++    anchor.click();
++    setTimeout(() => URL.revokeObjectURL(url), 1000);
++  };
++  const canRecover = !!state.revision && !document.hasUnsavedChanges() && !['loading', 'saving', 'conflict'].includes(state.status);
++  return <details className={styles.recovery} onToggle={event => setOpen(event.currentTarget.open)}>
++    <summary>本机恢复副本</summary>
++    {open && <>
++      <p>副本保存在此浏览器中，关闭页面后可在同一工作区、同一场景恢复。各窗口独立保留；不会自动覆盖磁盘。其他场景请打开对应文件查看。</p>
++      <button type="button" onClick={refresh}>刷新副本列表</button>
++      {error && <p role="alert">{error}</p>}
++      {!error && copies.length === 0 && <p>没有其他页面留下的可恢复副本。</p>}
++      {!canRecover && <p>恢复前请先保存当前草稿，或下载备份并载入磁盘版本。</p>}
++      <ul>{copies.map(copy => <li key={copy.id}>
++        <strong>{copy.legacy ? '旧版标签页草稿（请核对作品）' : new Date(copy.updatedAt).toLocaleString()}</strong>
++        <span>{copy.revision === state.revision ? '基于当前磁盘版本' : '基于其他版本，恢复后需处理冲突'}</span>
++        <pre>{copy.text.slice(0, 240)}{copy.text.length > 240 ? '…' : ''}</pre>
++        <button type="button" onClick={() => download(copy)}>下载此副本</button>{' '}
++        <button type="button" disabled={!canRecover} onClick={() => { document.recoverDraft(copy); }}>恢复到草稿</button>
++      </li>)}</ul>
++      <p>浏览器清理数据或容量不足会影响恢复；重要内容请另存文件。其他副本保留，不自动清理。</p>
++    </>}
++  </details>;
++}
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/documentBar.module.scss b/packages/origine2/src/pages/editor/SceneDocument/documentBar.module.scss
+index b7d80c3ef46b21361913dcd0988771070065dfb8..b0cac7608080e05072449d18cdafdc0f73858831 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/documentBar.module.scss
++++ b/packages/origine2/src/pages/editor/SceneDocument/documentBar.module.scss
+@@ -18,3 +18,10 @@
+ }
+ .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+ .diagnostics { width: 100%; max-height: 140px; overflow: auto; line-height: 1.6; summary { cursor: pointer; } ul { margin: 4px 0; padding-left: 20px; } [data-severity='error'] { color: #ac2d27; } }
++.recovery { width: 100%; max-height: 240px; overflow: auto; line-height: 1.5;
++  summary { cursor: pointer; }
++  p { margin: 6px 0; }
++  ul { padding-left: 20px; margin: 6px 0; }
++  li { margin: 8px 0; padding-bottom: 8px; border-bottom: 1px solid #b9c9dc; }
++  pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 90px; overflow: auto; margin: 4px 0; }
++}
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/draftVault.ts b/packages/origine2/src/pages/editor/SceneDocument/draftVault.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0150891b1e953c85a71401d450d3ef0ffa1e5d5d
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/SceneDocument/draftVault.ts
+@@ -0,0 +1,72 @@
++import type { DraftStorage, TextSnapshot } from './sceneDocument';
++
++export interface KeyValueStorage {
++  readonly length: number;
++  key(index: number): string | null;
++  getItem(key: string): string | null;
++  setItem(key: string, value: string): void;
++  removeItem(key: string): void;
++}
++export interface RecoveryDraft extends TextSnapshot { id: string; updatedAt: number; legacy?: boolean }
++
++/** Each document instance owns one record. Other tabs' recovery copies are never overwritten. */
++export class DraftVault implements DraftStorage {
++  private prefix: string;
++  private sessionKey: string;
++  private ownKey: string;
++  private legacyKey: string;
++  constructor(private durable: KeyValueStorage, private session: KeyValueStorage, workspaceId: string,
++    path: string, owner: string, private now: () => number = Date.now) {
++    if (!/^[a-f0-9]{64}$/.test(workspaceId) || !owner) throw new Error('无法确定草稿所属工作区。');
++    this.prefix = `makenovel.scene-recovery.v2:${workspaceId}:${encodeURIComponent(path)}:`;
++    this.sessionKey = `${this.prefix}session`;
++    this.ownKey = `${this.prefix}${owner}`;
++    this.legacyKey = `makenovel.scene-draft.v1:${path}`;
++  }
++  read = () => this.session.getItem(this.sessionKey);
++  write = (raw: string) => {
++    // Keep the session copy even when the durable quota is exhausted. Report the
++    // failure to SceneDocument; never evict another tab's only recovery copy.
++    const draft = parseDraft(raw);
++    if (!draft) throw new Error('无法暂存未知格式的草稿。');
++    let failed = false;
++    try { this.session.setItem(this.sessionKey, raw); } catch { failed = true; }
++    try { this.durable.setItem(this.ownKey, JSON.stringify({ version: 2, updatedAt: this.now(), draft })); } catch { failed = true; }
++    if (failed) throw new Error('部分浏览器存储不可用，请下载草稿备份。');
++  };
++  clear = () => {
++    let failed = false;
++    try { this.durable.removeItem(this.ownKey); } catch { failed = true; }
++    try { this.session.removeItem(this.sessionKey); } catch { failed = true; }
++    if (failed) throw new Error('部分暂存副本无法清理。');
++  };
++  list(): RecoveryDraft[] {
++    const result: RecoveryDraft[] = [];
++    // Old session-only data had no workspace identity. Keep it available for
++    // explicit review, but never silently restore it into the new workspace.
++    let legacy: ReturnType<typeof parseDraft> = null;
++    try { legacy = parseDraft(this.session.getItem(this.legacyKey) ?? undefined); } catch { /* Durable copies remain available if session storage is disabled. */ }
++    if (legacy) result.push({ ...legacy, id: this.legacyKey, updatedAt: 0, legacy: true });
++    try { for (let i = 0; i < this.durable.length; i++) {
++      const key = this.durable.key(i);
++      if (!key?.startsWith(this.prefix) || key === this.ownKey) continue;
++      try {
++        const raw = this.durable.getItem(key);
++        const value = raw ? JSON.parse(raw) : null;
++        const draft = parseDraft(JSON.stringify(value?.draft));
++        if (value?.version === 2 && Number.isSafeInteger(value.updatedAt) && draft) {
++          result.push({ ...draft, id: key, updatedAt: value.updatedAt });
++        }
++      } catch { /* Unknown/corrupt records remain untouched, never guessed into source. */ }
++    } } catch (error) { if (result.length === 0) throw error; }
++    return result.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
++  }
++}
++
++function parseDraft(raw: string | undefined): (TextSnapshot & { version: 1 }) | null {
++  try {
++    const value = raw ? JSON.parse(raw) : null;
++    return value?.version === 1 && typeof value.text === 'string' && /^[a-f0-9]{64}$/.test(value.revision)
++      ? { version: 1, text: value.text, revision: value.revision } : null;
++  } catch { return null; }
++}
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts b/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts
+index 191015cd47aad9d547c291a18a604b73a32974e4..62cde5171d413791cd9f97555f65a95eb097029c 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts
++++ b/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts
+@@ -11,6 +11,16 @@ export interface DraftStorage {
+   clear(): void;
+ }
+ export type DocumentStatus = 'loading' | 'saved' | 'dirty' | 'saving' | 'conflict' | 'error';
++export interface DocumentEditOptions {
++  /** Consecutive source typing may share a group. Omit for one complete operation. */
++  historyGroup?: string;
++}
++export interface DocumentHistoryOptions {
++  maxSteps?: number;
++  /** Budget for UTF-16 bytes retained in reversible text deltas, across both stacks. */
++  maxTextBytes?: number;
++  coalesceWindowMs?: number;
++}
+ export interface DocumentState {
+   text: string;
+   revision: string | null;
+@@ -18,44 +28,141 @@ export interface DocumentState {
+   message: string;
+   recoveryWarning: string;
+   analysis: SceneAnalysis;
++  canUndo: boolean;
++  canRedo: boolean;
++  /** Changes only when history navigation or a disk/recovery replacement needs UI resync. */
++  historyVersion: number;
++  isComposing: boolean;
+ }
+ 
++interface TextChange { start: number; removed: string; inserted: string }
++interface HistoryGroup { name: string; updatedAt: number; entry: TextChange }
++
+ /** A single file session shared by both editor modes. Network completion never replaces newer input. */
+ export class SceneDocument {
+-  private state: DocumentState = { text: '', revision: null, status: 'loading', message: '', recoveryWarning: '', analysis: analyzeScene('') };
++  private state: DocumentState = { text: '', revision: null, status: 'loading', message: '', recoveryWarning: '', analysis: analyzeScene(''), canUndo: false, canRedo: false, historyVersion: 0, isComposing: false };
+   private listeners = new Set<() => void>();
+   private savedText = '';
+   private pendingRead: Promise<void> | null = null;
+   private pendingSave: Promise<boolean> | null = null;
+   private initialized = false;
+   private preserveUnknownDraft = false;
+-  constructor(private transport: SnapshotTransport, private storage: DraftStorage, readonly gameName?: string) {}
++  private conflictingDraftRevision: string | null = null;
++  private undoStack: TextChange[] = [];
++  private redoStack: TextChange[] = [];
++  private historyGroup: HistoryGroup | null = null;
++  private textVersion = 0;
++  private historyLimits: Required<DocumentHistoryOptions>;
++  constructor(private transport: SnapshotTransport, private storage: DraftStorage, readonly gameName?: string, historyOptions: DocumentHistoryOptions = {}) {
++    this.historyLimits = {
++      maxSteps: historyLimit(historyOptions.maxSteps, 100),
++      maxTextBytes: historyLimit(historyOptions.maxTextBytes, 2 * 1024 * 1024),
++      coalesceWindowMs: historyLimit(historyOptions.coalesceWindowMs, 1000),
++    };
++  }
+   getSnapshot = () => this.state;
+   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+-  canPreview = () => this.state.status === 'saved' && this.state.analysis.previewable;
+-  hasUnsavedChanges = () => !!this.state.revision && this.state.text !== this.savedText;
++  canPreview = () => !this.state.isComposing && this.state.status === 'saved' && this.state.analysis.previewable;
++  hasUnsavedChanges = () => !!this.state.revision && (this.state.isComposing || this.state.text !== this.savedText);
++  setComposing = (isComposing: boolean) => {
++    if (isComposing === this.state.isComposing) return;
++    this.breakHistoryGroup();
++    this.publish({ isComposing });
++  };
+   reportMessage = (message: string) => this.publish({ message });
+   private publish(next: Partial<DocumentState>) {
+-    if (next.text !== undefined && next.text !== this.state.text) next.analysis = analyzeScene(next.text);
+-    this.state = { ...this.state, ...next };
++    if (next.text !== undefined && next.text !== this.state.text) {
++      next.analysis = analyzeScene(next.text);
++      this.textVersion++;
++    }
++    this.state = { ...this.state, ...next, canUndo: this.undoStack.length > 0, canRedo: this.redoStack.length > 0 };
+     for (const listener of this.listeners) listener();
+   }
+   private persist() {
+     if (this.preserveUnknownDraft) return;
+     try {
+       if (this.state.status === 'saved') this.storage.clear();
+-      else if (this.state.revision) this.storage.write(JSON.stringify({ version: 1, text: this.state.text, revision: this.state.revision }));
++      else if (this.state.revision) this.storage.write(JSON.stringify({ version: 1, text: this.state.text, revision: this.conflictingDraftRevision ?? this.state.revision }));
+     } catch {
+       this.publish({ recoveryWarning: '浏览器无法暂存草稿，请下载草稿备份后再关闭页面。' });
+     }
+   }
+-  edit(text: string) {
+-    if (!this.state.revision || text === this.state.text) return;
++  breakHistoryGroup = () => { this.historyGroup = null; };
++  private historyCost() {
++    return [...this.undoStack, ...this.redoStack].reduce((bytes, entry) => bytes + 2 * (entry.removed.length + entry.inserted.length), 0);
++  }
++  private recordEdit(before: string, after: string, options: DocumentEditOptions) {
++    const now = Date.now();
++    const previous = this.undoStack[this.undoStack.length - 1];
++    const merge = !!options.historyGroup && this.historyGroup?.name === options.historyGroup
++      && this.historyGroup.entry === previous && now >= this.historyGroup.updatedAt
++      && now - this.historyGroup.updatedAt <= this.historyLimits.coalesceWindowMs && this.redoStack.length === 0;
++    this.redoStack = [];
++    const base = merge ? applyChange(before, previous, false) : before;
++    if (merge) this.undoStack.pop();
++    const entry = textChange(base, after);
++    if (entry) this.undoStack.push(entry);
++    this.historyGroup = entry && options.historyGroup ? { name: options.historyGroup, updatedAt: now, entry } : null;
++    // Discard only the oldest reachable transitions. If the current operation
++    // itself exceeds the budget it must also remove earlier history: those
++    // transitions cannot safely be applied across an unrecorded operation.
++    while (this.undoStack.length > this.historyLimits.maxSteps || this.historyCost() > this.historyLimits.maxTextBytes) this.undoStack.shift();
++    if (!this.undoStack.includes(entry!)) this.breakHistoryGroup();
++  }
++  private resetHistory(diskText?: string, draftText?: string) {
++    this.undoStack = [];
++    this.redoStack = [];
++    this.breakHistoryGroup();
++    if (diskText !== undefined && draftText !== undefined && diskText !== draftText) this.recordEdit(diskText, draftText, {});
++  }
++  private changeText(text: string, navigate = false) {
+     const blocked = this.state.status === 'conflict';
+-    this.publish({ text, status: blocked ? 'conflict' : this.pendingSave ? 'saving' : text === this.savedText ? 'saved' : 'dirty', message: blocked ? this.state.message : '' });
++    this.publish({ text, status: blocked ? 'conflict' : this.pendingSave ? 'saving' : text === this.savedText ? 'saved' : 'dirty', message: blocked ? this.state.message : '',
++      ...(navigate ? { historyVersion: this.state.historyVersion + 1 } : {}) });
++    this.persist();
++  }
++  edit(text: string, options: DocumentEditOptions = {}) {
++    if (!this.state.revision) return;
++    if (text === this.state.text) { if (!options.historyGroup) this.breakHistoryGroup(); return; }
++    this.recordEdit(this.state.text, text, options);
++    this.changeText(text);
++  }
++  undo = (): boolean => {
++    this.breakHistoryGroup();
++    if (this.state.isComposing) return false;
++    const entry = this.undoStack.pop();
++    if (!entry || !this.state.revision) return false;
++    this.redoStack.push(entry);
++    this.changeText(applyChange(this.state.text, entry, false), true);
++    return true;
++  };
++  redo = (): boolean => {
++    this.breakHistoryGroup();
++    if (this.state.isComposing) return false;
++    const entry = this.redoStack.pop();
++    if (!entry || !this.state.revision) return false;
++    this.undoStack.push(entry);
++    this.changeText(applyChange(this.state.text, entry, true), true);
++    return true;
++  };
++  /** Restore only an explicitly selected backup while the current file is clean. */
++  recoverDraft(snapshot: TextSnapshot): boolean {
++    if (!this.state.revision || this.state.isComposing || this.pendingRead || this.pendingSave || this.preserveUnknownDraft
++      || this.state.status === 'conflict' || this.hasUnsavedChanges()
++      || typeof snapshot?.text !== 'string' || !/^[a-f0-9]{64}$/.test(snapshot?.revision)) return false;
++    this.breakHistoryGroup();
++    const conflict = snapshot.revision !== this.state.revision && snapshot.text !== this.savedText;
++    this.conflictingDraftRevision = conflict ? snapshot.revision : null;
++    if (snapshot.text !== this.state.text) this.recordEdit(this.state.text, snapshot.text, {});
++    this.publish({ text: snapshot.text, status: conflict ? 'conflict' : snapshot.text === this.savedText ? 'saved' : 'dirty',
++      message: conflict ? '所选草稿与磁盘版本不同。已保留草稿，先备份并与磁盘版本比较后再保存。' : snapshot.text === this.savedText ? '' : '已恢复所选草稿，尚未写入磁盘。',
++      historyVersion: this.state.historyVersion + 1 });
+     this.persist();
++    return true;
+   }
+   load = (): Promise<void> => {
++    this.breakHistoryGroup();
++    if (this.state.isComposing) return Promise.resolve();
+     if (this.pendingRead) return this.pendingRead;
+     // Do not race a stale read against an acknowledged write.
+     if (this.pendingSave) return this.pendingSave.then(() => undefined);
+@@ -66,7 +173,7 @@ export class SceneDocument {
+     const revisionAtStart = this.state.revision;
+     try {
+       const snapshot = await this.transport.read();
+-      if (this.state.revision !== revisionAtStart || this.pendingSave) return;
++      if (this.state.revision !== revisionAtStart || this.pendingSave || this.state.isComposing) return;
+       if (!this.initialized) {
+         this.initialized = true;
+         this.savedText = snapshot.text;
+@@ -82,26 +189,31 @@ export class SceneDocument {
+         } catch { warning = '无法读取浏览器暂存草稿。'; }
+         if (unknownDraft !== null) {
+           this.preserveUnknownDraft = true;
+-          this.publish({ text: unknownDraft, revision: snapshot.revision, status: 'conflict', message: warning, recoveryWarning: warning });
++          this.resetHistory(snapshot.text, unknownDraft);
++          this.publish({ text: unknownDraft, revision: snapshot.revision, status: 'conflict', message: warning, recoveryWarning: warning, historyVersion: this.state.historyVersion + 1 });
+           return;
+         }
+         const text = recovered?.text ?? snapshot.text;
+         const conflict = !!recovered && recovered.revision !== snapshot.revision && text !== snapshot.text;
++        this.resetHistory(snapshot.text, text);
+         this.publish({ text, revision: conflict ? recovered!.revision : snapshot.revision,
+           status: conflict ? 'conflict' : text === snapshot.text ? 'saved' : 'dirty',
+-          message: conflict ? '恢复的草稿与磁盘版本不同。请先下载草稿，再载入磁盘版本比较。' : recovered && text !== snapshot.text ? '已恢复本标签页的未保存草稿。' : '', recoveryWarning: warning });
++          message: conflict ? '恢复的草稿与磁盘版本不同。请先下载草稿，再载入磁盘版本比较。' : recovered && text !== snapshot.text ? '已恢复本标签页的未保存草稿。' : '', recoveryWarning: warning, historyVersion: this.state.historyVersion + 1 });
+       } else if (snapshot.revision === this.state.revision) {
+         if (this.state.status === 'error') this.publish({ status: this.state.text === this.savedText ? 'saved' : 'dirty', message: '' });
+       } else if (this.state.text !== this.savedText || this.state.status === 'conflict') {
+         this.publish({ status: 'conflict', message: '磁盘文件已被其他窗口或程序修改。本地草稿已保留，未覆盖文件。' });
+       } else {
+         this.savedText = snapshot.text;
+-        this.publish({ ...snapshot, status: 'saved', message: '' });
++        this.resetHistory();
++        this.publish({ ...snapshot, status: 'saved', message: '', historyVersion: this.state.historyVersion + 1 });
+       }
+       this.persist();
+-    } catch (error) { this.publish({ status: this.state.status === 'conflict' ? 'conflict' : 'error', message: errorMessage(error) }); }
++    } catch (error) { if (!this.state.isComposing) this.publish({ status: this.state.status === 'conflict' ? 'conflict' : 'error', message: errorMessage(error) }); }
+   }
+   save = (): Promise<boolean> => {
++    this.breakHistoryGroup();
++    if (this.state.isComposing) return Promise.resolve(false);
+     if (this.pendingSave) return this.pendingSave;
+     if (!this.state.revision || this.state.status === 'conflict' || this.state.status === 'loading' || this.pendingRead) return Promise.resolve(false);
+     if (!this.state.analysis.valid) {
+@@ -120,7 +232,7 @@ export class SceneDocument {
+     this.publish({ status: 'saving', message: '' });
+     this.pendingSave = this.transport.save(submitted, expectedRevision).then(snapshot => {
+       this.savedText = snapshot.text;
+-      const current = this.state.text === submitted;
++      const current = this.state.text === snapshot.text;
+       this.publish({ revision: snapshot.revision, status: current ? 'saved' : 'dirty', message: current ? '' : '保存期间的新修改仍在草稿中，请再次保存。' });
+       this.persist();
+       return current;
+@@ -134,6 +246,8 @@ export class SceneDocument {
+   };
+   /** Call only after the user has downloaded/backed up the local draft and explicitly selected reload. */
+   reloadDisk = (): Promise<void> => {
++    this.breakHistoryGroup();
++    if (this.state.isComposing) return Promise.resolve();
+     if (this.pendingSave || this.pendingRead) return Promise.resolve();
+     this.pendingRead = this.replaceFromDisk().finally(() => { this.pendingRead = null; });
+     return this.pendingRead;
+@@ -141,21 +255,45 @@ export class SceneDocument {
+   private async replaceFromDisk() {
+     const textAtStart = this.state.text;
+     const revisionAtStart = this.state.revision;
++    const textVersionAtStart = this.textVersion;
+     try {
+       const snapshot = await this.transport.read();
+-      if (this.state.text !== textAtStart || this.state.revision !== revisionAtStart) {
++      if (this.state.isComposing) return;
++      if (this.state.text !== textAtStart || this.state.revision !== revisionAtStart || this.textVersion !== textVersionAtStart) {
+         this.publish({ message: '载入期间草稿发生变化，已保留新修改，请重试。' });
+         return;
+       }
+       this.savedText = snapshot.text;
+       this.initialized = true;
+       this.preserveUnknownDraft = false;
+-      this.publish({ ...snapshot, status: 'saved', message: '', recoveryWarning: '' });
++      this.conflictingDraftRevision = null;
++      this.resetHistory();
++      this.publish({ ...snapshot, status: 'saved', message: '', recoveryWarning: '', historyVersion: this.state.historyVersion + 1 });
+       this.persist();
+     } catch (error) { this.publish({ message: errorMessage(error) }); }
+   }
+ }
+ 
++function historyLimit(value: number | undefined, fallback: number): number {
++  return value !== undefined && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
++}
++
++function textChange(before: string, after: string): TextChange | undefined {
++  if (before === after) return;
++  let start = 0;
++  while (start < before.length && start < after.length && before[start] === after[start]) start++;
++  let beforeEnd = before.length;
++  let afterEnd = after.length;
++  while (beforeEnd > start && afterEnd > start && before[beforeEnd - 1] === after[afterEnd - 1]) { beforeEnd--; afterEnd--; }
++  return { start, removed: before.slice(start, beforeEnd), inserted: after.slice(start, afterEnd) };
++}
++
++function applyChange(text: string, change: TextChange, forward: boolean): string {
++  const replaced = forward ? change.removed : change.inserted;
++  const replacement = forward ? change.inserted : change.removed;
++  return text.slice(0, change.start) + replacement + text.slice(change.start + replaced.length);
++}
++
+ function errorMessage(error: unknown): string {
+   if ((error as { code?: string })?.code === 'REVISION_CONFLICT') return '磁盘文件已变化，保存被拒绝。本地草稿已保留，请下载后与磁盘版本比较。';
+   return error instanceof Error ? error.message : '读取或保存失败，草稿已保留，请重试。';
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts b/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts
+index 9117c2a280c091c5cc9e4667b66b917b9545e886..25172d8e81a8492af27dcdc7bbc4d4b1a99a7237 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts
++++ b/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts
+@@ -1,32 +1,58 @@
+-import axios from "axios";
+-import { SceneDocument, parseScenePath, type TextSnapshot } from "./sceneDocument";
++import axios from 'axios';
++import { SceneDocument, parseScenePath, type TextSnapshot } from './sceneDocument';
++import { DraftVault, type KeyValueStorage } from './draftVault';
++
++function browserStorage(name: 'localStorage' | 'sessionStorage'): KeyValueStorage {
++  return {
++    get length() { return window[name].length; },
++    key: index => window[name].key(index),
++    getItem: key => window[name].getItem(key),
++    setItem: (key, value) => window[name].setItem(key, value),
++    removeItem: key => window[name].removeItem(key),
++  };
++}
+ 
+ const documents = new Map<string, SceneDocument>();
++const vaults = new WeakMap<SceneDocument, DraftVault>();
+ export function getDocument(path: string) {
+-  let document = documents.get(path);
+-  if (document) return document;
++  const existing = documents.get(path);
++  if (existing) return existing;
+   const address = parseScenePath(path);
++  let vault: DraftVault | undefined;
++  let workspaceId: string | undefined;
++  let document: SceneDocument;
+   const request = async (endpoint: string, data: object): Promise<TextSnapshot> => {
+-    try { return (await axios.post(`/api/manageGame/${endpoint}`, { ...address, ...data })).data; }
+-    catch (error) {
+-      const detail = axios.isAxiosError(error) ? error.response?.data : null;
++    try {
++      const snapshot = (await axios.post(`/api/manageGame/${endpoint}`, { ...address, ...data })).data;
++      if (!/^[a-f0-9]{64}$/.test(snapshot.workspaceId)) throw new Error('编辑器尚未提供工作区标识，请完成后端构建后重新启动。');
++      if (workspaceId && workspaceId !== snapshot.workspaceId) throw new Error('作者工作区已切换，请备份当前草稿并重新打开页面。');
++      if (!vault) {
++        workspaceId = snapshot.workspaceId;
++        vault = new DraftVault(browserStorage('localStorage'), browserStorage('sessionStorage'), snapshot.workspaceId, path, crypto.randomUUID());
++        vaults.set(document, vault);
++      }
++      return snapshot;
++    } catch (error) {
++      if (!axios.isAxiosError(error)) throw error;
++      const detail = error.response?.data;
+       throw Object.assign(new Error(detail?.message || '无法连接编辑器，草稿已保留，请重试。'), { code: detail?.code });
+     }
+   };
+-  const key = `makenovel.scene-draft.v1:${path}`;
+-  document = new SceneDocument({ read: () => request('textSnapshot', {}), save: (text, expectedRevision) => request('saveTextSnapshot', { text, expectedRevision }) }, {
+-    read: () => sessionStorage.getItem(key), write: value => sessionStorage.setItem(key, value), clear: () => sessionStorage.removeItem(key),
++  document = new SceneDocument({ read: () => request('textSnapshot', {}), save: (text, expectedRevision) => request('saveTextSnapshot', { text, expectedRevision, expectedWorkspaceId: workspaceId }) }, {
++    read: () => vault?.read() ?? null,
++    write: value => { if (!vault) throw new Error('草稿工作区不可用'); vault.write(value); },
++    clear: () => vault?.clear(),
+   }, address.gameName);
+   documents.set(path, document);
+   return document;
+ }
+ 
+-// One listener for the application; drafts are retained when closing an editor tab or changing modes.
++export function listRecoveryDrafts(document: SceneDocument) { return vaults.get(document)?.list() ?? []; }
++
++// One listener for the application; drafts remain separate across files and projects.
+ window.addEventListener('beforeunload', event => {
+   if ([...documents.values()].some(doc => doc.hasUnsavedChanges())) { event.preventDefault(); event.returnValue = ''; }
+ });
+ 
+-
+ export function canPreviewDocuments(gameName?: string) { return [...documents.values()].filter(document => !gameName || document.gameName === gameName).every(document => document.canPreview()); }
+-
+ export function pendingScenePaths(gameName?: string) { return [...documents.entries()].filter(([, document]) => (!gameName || document.gameName === gameName) && !document.canPreview()).map(([path]) => path); }
+diff --git a/packages/origine2/src/pages/editor/TextEditor/TextEditor.tsx b/packages/origine2/src/pages/editor/TextEditor/TextEditor.tsx
+index cb008a8e3ed9f2688f0e630db86436aa9d5720d5..c66f1ad42cd9c5130bdb289cd38ff6a56b2b8101 100644
+--- a/packages/origine2/src/pages/editor/TextEditor/TextEditor.tsx
++++ b/packages/origine2/src/pages/editor/TextEditor/TextEditor.tsx
+@@ -9,14 +9,166 @@ import useEditorStore from '@/store/useEditorStore';
+ import { useSceneDocument } from '../SceneDocument/useSceneDocument';
+ import { DocumentBar } from '../SceneDocument/DocumentBar';
+ import { applySourceEdits } from '../SceneDocument/sourceEdits';
++import type { SceneDocument } from '../SceneDocument/sceneDocument';
+ 
+ interface ITextEditorProps { targetPath: string; isHide: boolean }
+ 
++/** Bind the actual Monaco event boundary to the shared document, including its one history. */
++export function bindSourceEditor(editor: monaco.editor.IStandaloneCodeEditor, api: Monaco, document: SceneDocument) {
++  let disposed = false;
++  let applyingSnapshot = false;
++  let nativeHistoryPending = false;
++  let composing = false;
++  let compositionText = '';
++  let discreteInput = false;
++  const disposables: monaco.IDisposable[] = [];
++  const domNode = editor.getContainerDomNode();
++  const breakGroup = () => { document.breakHistoryGroup(); };
++  const separateInput = () => { breakGroup(); discreteInput = true; };
++  const writeModel = (raw: string) => {
++    if (disposed) return;
++    const model = editor.getModel();
++    if (!model) return;
++    const text = raw.replace(/^\uFEFF/, '');
++    // Keep original EOL/BOM in SceneDocument, rather than serializing the normalized model.
++    if (model.getValue().replace(/\r\n/g, '\n') === text.replace(/\r\n/g, '\n')) return;
++    const viewState = editor.saveViewState();
++    applyingSnapshot = true;
++    try { model.setValue(text); if (viewState) editor.restoreViewState(viewState); }
++    finally { applyingSnapshot = false; }
++  };
++  const syncSnapshot = () => {
++    if (disposed || composing || nativeHistoryPending) return;
++    const snapshot = document.getSnapshot();
++    editor.updateOptions({ readOnly: !snapshot.revision });
++    writeModel(snapshot.text);
++  };
++  const navigate = (redo: boolean) => {
++    if (composing || disposed) return;
++    breakGroup();
++    if (redo) document.redo(); else document.undo();
++    syncSnapshot();
++  };
++  const finishComposition = () => {
++    if (!composing) return;
++    // Monaco emits its final model change before the public composition-end event.
++    // Commit the raw-text buffer once; pending save acknowledgements only alter the baseline.
++    document.edit(compositionText);
++    composing = false;
++    document.setComposing(false);
++    breakGroup();
++    syncSnapshot();
++  };
++  const unsubscribe = document.subscribe(syncSnapshot);
++  disposables.push(editor.onDidCompositionStart(() => {
++    if (disposed || composing || !document.getSnapshot().revision) return;
++    breakGroup();
++    composing = true;
++    compositionText = document.getSnapshot().text;
++    document.setComposing(true);
++  }));
++  disposables.push(editor.onDidCompositionEnd(finishComposition));
++  disposables.push(editor.onDidChangeModelContent(event => {
++    if (applyingSnapshot || disposed || !document.getSnapshot().revision) return;
++    if (event.isUndoing || event.isRedoing) {
++      // Native/context-menu history is merely a request to navigate the shared history.
++      // Never apply its changes; restore after Monaco finishes its current undo operation.
++      nativeHistoryPending = true;
++      if (!composing) {
++        breakGroup();
++        if (event.isRedoing) document.redo(); else document.undo();
++      }
++      queueMicrotask(() => {
++        nativeHistoryPending = false;
++        if (composing) writeModel(compositionText); else syncSnapshot();
++      });
++      return;
++    }
++    if (composing) {
++      compositionText = applySourceEdits(compositionText, event.changes);
++      return;
++    }
++    if (event.isFlush || event.isEolChange) { syncSnapshot(); return; }
++    const change = event.changes[0];
++    const typing = !discreteInput && event.changes.length === 1 && change.text.length <= 2
++      && !/[\r\n]/.test(change.text) && change.range.startLineNumber === change.range.endLineNumber
++      && (change.text.length === 0 ? change.range.endColumn - change.range.startColumn <= 2 : change.range.endColumn === change.range.startColumn);
++    if (!typing) document.breakHistoryGroup();
++    document.edit(applySourceEdits(document.getSnapshot().text, event.changes), typing ? { historyGroup: 'source-typing' } : {});
++    discreteInput = false;
++  }));
++  disposables.push(editor.onDidChangeCursorSelection(event => {
++    if (!applyingSnapshot && !composing && event.reason === api.editor.CursorChangeReason.Explicit) document.breakHistoryGroup();
++  }));
++  disposables.push(editor.onDidPaste(breakGroup));
++  disposables.push(editor.addAction({ id: 'makenovel.documentUndo', label: '撤销场景修改', contextMenuGroupId: '1_modification', contextMenuOrder: 0.1,
++    keybindings: [api.KeyMod.CtrlCmd | api.KeyCode.KeyZ], run: () => navigate(false) }));
++  disposables.push(editor.addAction({ id: 'makenovel.documentRedo', label: '重做场景修改', contextMenuGroupId: '1_modification', contextMenuOrder: 0.2,
++    keybindings: [api.KeyMod.CtrlCmd | api.KeyMod.Shift | api.KeyCode.KeyZ, api.KeyMod.CtrlCmd | api.KeyCode.KeyY], run: () => navigate(true) }));
++  disposables.push(editor.addAction({ id: 'makenovel.saveScene', label: '保存场景脚本', keybindings: [api.KeyMod.CtrlCmd | api.KeyCode.KeyS],
++    run: () => { if (!composing) void document.save(); } }));
++  const keydown = (event: KeyboardEvent) => {
++    const command = (event.ctrlKey || event.metaKey) && !event.altKey ? event.key.toLowerCase() : '';
++    if (composing || event.isComposing) {
++      // Allow candidate selection, but do not let its keys reach preview/game shortcuts.
++      event.stopPropagation();
++      if (['s', 'z', 'y'].includes(command)) event.preventDefault();
++      return;
++    }
++    if (['s', 'z', 'y'].includes(command)) {
++      event.preventDefault();
++      event.stopPropagation();
++      if (command === 's') void document.save(); else navigate(command === 'y' || event.shiftKey);
++    } else if (event.key === 'Enter' || event.key === 'Tab') separateInput();
++  };
++  const keyup = (event: KeyboardEvent) => { if (composing || event.isComposing) event.stopPropagation(); };
++  const beforeinput = (event: InputEvent) => {
++    if (event.inputType === 'historyUndo' || event.inputType === 'historyRedo') {
++      if (event.cancelable) {
++        event.preventDefault();
++        event.stopPropagation();
++        navigate(event.inputType === 'historyRedo');
++      }
++    } else if (['insertFromPaste', 'insertFromDrop', 'insertLineBreak', 'insertParagraph', 'deleteByCut'].includes(event.inputType)) separateInput();
++  };
++  const drop = (event: DragEvent) => {
++    event.preventDefault();
++    if (composing) return;
++    separateInput();
++    const text = event.dataTransfer?.getData('text/plain');
++    const position = editor.getTargetAtClientPoint(event.clientX, event.clientY);
++    if (position?.range && text) editor.executeEdits('drop', [{ range: position.range, text, forceMoveMarkers: true }]);
++  };
++  domNode.addEventListener('keydown', keydown, true);
++  domNode.addEventListener('keyup', keyup, true);
++  domNode.addEventListener('beforeinput', beforeinput, true);
++  domNode.addEventListener('paste', separateInput, true);
++  domNode.addEventListener('cut', separateInput, true);
++  domNode.addEventListener('drop', drop);
++  const dispose = () => {
++    if (disposed) return;
++    disposed = true;
++    finishComposition();
++    document.breakHistoryGroup();
++    unsubscribe();
++    domNode.removeEventListener('keydown', keydown, true);
++    domNode.removeEventListener('keyup', keyup, true);
++    domNode.removeEventListener('beforeinput', beforeinput, true);
++    domNode.removeEventListener('paste', separateInput, true);
++    domNode.removeEventListener('cut', separateInput, true);
++    domNode.removeEventListener('drop', drop);
++    disposables.forEach(item => item.dispose());
++  };
++  disposables.push(editor.onDidDispose(dispose));
++  syncSnapshot();
++  return { syncSnapshot, finishComposition, dispose };
++}
++
+ export default function TextEditor(props: ITextEditorProps) {
+   const { document, state } = useSceneDocument(props.targetPath);
+   const isAutoWarp = useEditorStore.use.isAutoWarp();
+   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+-  const applyingSnapshot = useRef(false);
++  const bindingRef = useRef<ReturnType<typeof bindSourceEditor> | null>(null);
+   const applyDiagnostics = useCallback(() => {
+     const model = editorRef.current?.getModel();
+     if (!model) return;
+@@ -27,41 +179,26 @@ export default function TextEditor(props: ITextEditorProps) {
+       endLineNumber: item.range.end.line, endColumn: item.range.end.column,
+     })));
+   }, [document]);
+-  const applySnapshot = useCallback(() => {
+-    const model = editorRef.current?.getModel();
+-    if (!model) return;
+-    const snapshot = document.getSnapshot();
+-    editorRef.current?.updateOptions({ readOnly: !snapshot.revision });
+-    const text = snapshot.text.replace(/^\uFEFF/, '');
+-    // Keep original EOL/BOM in SceneDocument, rather than serializing the normalized model.
+-    if (model.getValue().replace(/\r\n/g, '\n') === text.replace(/\r\n/g, '\n')) return;
+-    applyingSnapshot.current = true;
+-    model.setValue(text);
+-    applyingSnapshot.current = false;
+-  }, [document]);
+ 
+   function handleEditorDidMount(editor: monaco.editor.IStandaloneCodeEditor, api: Monaco) {
++    bindingRef.current?.dispose();
+     editorRef.current = editor;
+     lspSceneName.value = props.targetPath.split('/').pop() ?? '';
+     api.languages.setLanguageConfiguration('webgal', { comments: { lineComment: ';' }, brackets: [['{', '}'], ['[', ']'], ['(', ')']] });
+     editor.updateOptions({ unicodeHighlight: { ambiguousCharacters: false }, wordWrap: isAutoWarp ? 'on' : 'off', smoothScrolling: true, quickSuggestions: { other: true, comments: true, strings: true } });
+     const cursor = editor.onDidChangeCursorPosition(event => editorLineHolder.recordSceneEditingPosition(props.targetPath, event.position));
+-    editor.addCommand(api.KeyMod.CtrlCmd | api.KeyCode.KeyS, () => { void document.save(); });
+-    const domNode = editor.getContainerDomNode();
+-    const dropHandler = (event: DragEvent) => {
+-      event.preventDefault();
+-      const text = event.dataTransfer?.getData('text/plain');
+-      const position = editor.getTargetAtClientPoint(event.clientX, event.clientY);
+-      if (position?.range && text) editor.executeEdits('drop', [{ range: position.range, text, forceMoveMarkers: true }]);
+-    };
+-    domNode.addEventListener('drop', dropHandler);
+-    editor.onDidDispose(() => { cursor.dispose(); domNode.removeEventListener('drop', dropHandler); });
+-    applySnapshot();
++    editor.onDidDispose(() => cursor.dispose());
++    bindingRef.current = bindSourceEditor(editor, api, document);
+     applyDiagnostics();
+     editor.setPosition(editorLineHolder.getScenePosition(props.targetPath));
+   }
+ 
+-  useEffect(applySnapshot, [applySnapshot, state.text, state.revision]);
++  useEffect(() => () => { bindingRef.current?.dispose(); bindingRef.current = null; }, []);
++  useEffect(() => {
++    document.breakHistoryGroup();
++    if (props.isHide) bindingRef.current?.finishComposition();
++    return () => { document.breakHistoryGroup(); };
++  }, [document, props.isHide]);
+   useEffect(applyDiagnostics, [applyDiagnostics, state.analysis]);
+   useEffect(() => { editorRef.current?.updateOptions({ wordWrap: isAutoWarp ? 'on' : 'off' }); }, [isAutoWarp]);
+   const syncCurrentLine = useCallback(() => {
+@@ -78,8 +215,7 @@ export default function TextEditor(props: ITextEditorProps) {
+       editorRef.current?.focus();
+     }} />
+     <div style={{ flex: 1, minHeight: 0 }}>
+-      <Editor height="100%" width="100%" onMount={handleEditorDidMount} language="webgal" defaultValue=""
+-        onChange={(_value, event) => { if (!applyingSnapshot.current && document.getSnapshot().revision) document.edit(applySourceEdits(document.getSnapshot().text, event.changes)); }} />
++      <Editor key={props.targetPath} height="100%" width="100%" onMount={handleEditorDidMount} language="webgal" defaultValue="" />
+     </div>
+   </div>;
+ }
+diff --git a/packages/terre2/src/Modules/manage-game/manage-game.controller.ts b/packages/terre2/src/Modules/manage-game/manage-game.controller.ts
+index e5ec69f803e83f8b2b9f5699da0bda3f3581bb30..d84ebcd640ea7614a64106401ec407c1289b233b 100644
+--- a/packages/terre2/src/Modules/manage-game/manage-game.controller.ts
++++ b/packages/terre2/src/Modules/manage-game/manage-game.controller.ts
+@@ -84,6 +84,7 @@ export class ManageGameController {
+       request?.path,
+       request?.text,
+       request?.expectedRevision,
++      request?.expectedWorkspaceId,
+     );
+   }
+ 
+diff --git a/packages/terre2/src/Modules/manage-game/manage-game.dto.ts b/packages/terre2/src/Modules/manage-game/manage-game.dto.ts
+index 1c050bc917d98e6f9da0aa08563bfbdcaf8705ce..9799efea9ea7edcbc9fa4e424ed016a7c6bf7157 100644
+--- a/packages/terre2/src/Modules/manage-game/manage-game.dto.ts
++++ b/packages/terre2/src/Modules/manage-game/manage-game.dto.ts
+@@ -79,6 +79,8 @@ export class ReadTextSnapshotDto {
+ }
+ 
+ export class SaveTextSnapshotDto extends ReadTextSnapshotDto {
++  @ApiProperty({ description: 'Opaque author workspace from textSnapshot; checked before writing when supplied', required: false })
++  expectedWorkspaceId?: string;
+   @ApiProperty({ description: 'Complete UTF-8 text, preserving its BOM and line endings' })
+   text: string;
+ 
+@@ -92,6 +94,8 @@ export class ValidateSceneSnapshotDto {
+ }
+ 
+ export class TextSnapshotDto {
++  @ApiProperty({ description: 'Opaque local author workspace identity for draft isolation and guarded writes' })
++  workspaceId: string;
+   @ApiProperty({ description: 'Exact UTF-8 text, including BOM and line endings' })
+   text: string;
+ 
+diff --git a/packages/terre2/src/Modules/webgal-fs/text-snapshot-api.spec.ts b/packages/terre2/src/Modules/webgal-fs/text-snapshot-api.spec.ts
+index d7f6f27f7550c55125b28bf7327f3ec859dc62f7..980a42aa89b1a0e409f44f033d573bb9004465cb 100644
+--- a/packages/terre2/src/Modules/webgal-fs/text-snapshot-api.spec.ts
++++ b/packages/terre2/src/Modules/webgal-fs/text-snapshot-api.spec.ts
+@@ -8,6 +8,7 @@ import { ManageGameController } from '../manage-game/manage-game.controller';
+ import { ManageGameService } from '../manage-game/manage-game.service';
+ import { UserDataService } from '../user-data/user-data.service';
+ import { WebgalFsService } from './webgal-fs.service';
++import { TextFileTransactions } from './text-file-transaction';
+ 
+ describe('Text snapshot HTTP API (real filesystem)', () => {
+   const location = {
+@@ -89,6 +90,72 @@ describe('Text snapshot HTTP API (real filesystem)', () => {
+     expect(await fs.readFile(target, 'utf8')).toBe('外部 AI:已修改;\r\n');
+   });
+ 
++  it('keeps the opaque workspace identity stable across reads and revision-checked saves', async () => {
++    const before = await request(app.getHttpServer())
++      .post('/api/manageGame/textSnapshot').send(location).expect(200);
++    const repeated = await request(app.getHttpServer())
++      .post('/api/manageGame/textSnapshot').send(location).expect(200);
++    expect(before.body.workspaceId).toMatch(/^[a-f0-9]{64}$/);
++    expect(repeated.body.workspaceId).toBe(before.body.workspaceId);
++    const saved = await request(app.getHttpServer())
++      .post('/api/manageGame/saveTextSnapshot')
++      .send({ ...location, text: 'say:同工作区更新;', expectedRevision: before.body.revision,
++        expectedWorkspaceId: before.body.workspaceId }).expect(200);
++    expect(saved.body.workspaceId).toBe(before.body.workspaceId);
++    expect(saved.body.revision).not.toBe(before.body.revision);
++    expect(await fs.readFile(target, 'utf8')).toBe(saved.body.text);
++  });
++
++  it('rejects an old workspace identity even when the other profile has identical file bytes', async () => {
++    const before = await request(app.getHttpServer())
++      .post('/api/manageGame/textSnapshot').send(location).expect(200);
++    const original = await fs.readFile(target);
++    const otherRoot = join(root, 'separate-profile');
++    const otherTarget = join(otherRoot, location.gameName, location.path);
++    await fs.mkdir(dirname(otherTarget), { recursive: true });
++    await fs.writeFile(otherTarget, original);
++    gameRoot.mockReturnValue(otherRoot);
++    const other = await request(app.getHttpServer())
++      .post('/api/manageGame/textSnapshot').send(location).expect(200);
++    expect(other.body.revision).toBe(before.body.revision);
++    expect(other.body.workspaceId).not.toBe(before.body.workspaceId);
++    const refused = await request(app.getHttpServer())
++      .post('/api/manageGame/saveTextSnapshot')
++      .send({ ...location, text: 'say:旧页面不得写入新工作区;', expectedRevision: before.body.revision,
++        expectedWorkspaceId: before.body.workspaceId }).expect(409);
++    expect(refused.body.code).toBe('WORKSPACE_CHANGED');
++    expect(await fs.readFile(target)).toEqual(original);
++    expect(await fs.readFile(otherTarget)).toEqual(original);
++  });
++
++  it('refuses a completed read if profile selection changed before its snapshot response', async () => {
++    const original = await fs.readFile(target);
++    const otherRoot = join(root, 'switched-during-read');
++    const otherTarget = join(otherRoot, location.gameName, location.path);
++    await fs.mkdir(dirname(otherTarget), { recursive: true });
++    await fs.writeFile(otherTarget, 'say:另一个工作区;');
++    const realRead = TextFileTransactions.prototype.read;
++    // Complete the real filesystem read, then change only the profile selector
++    // at the await boundary. No snapshot or filesystem result is fabricated.
++    const readBoundary = jest.spyOn(TextFileTransactions.prototype, 'read')
++      .mockImplementationOnce(async function (gameName: string, path: string) {
++        const snapshot = await realRead.call(this, gameName, path);
++        gameRoot.mockReturnValue(otherRoot);
++        return snapshot;
++      });
++    try {
++      const refused = await request(app.getHttpServer())
++        .post('/api/manageGame/textSnapshot').send(location).expect(409);
++      expect(refused.body.code).toBe('WORKSPACE_CHANGED');
++      expect(refused.body.workspaceId).toBeUndefined();
++      expect(refused.body.text).toBeUndefined();
++      expect(await fs.readFile(target)).toEqual(original);
++      expect(await fs.readFile(otherTarget, 'utf8')).toBe('say:另一个工作区;');
++    } finally {
++      readBoundary.mockRestore();
++    }
++  });
++
+   it('reports missing files as HTTP 404', async () => {
+     await fs.unlink(target);
+     const response = await request(app.getHttpServer())
+diff --git a/packages/terre2/src/Modules/webgal-fs/webgal-fs.service.ts b/packages/terre2/src/Modules/webgal-fs/webgal-fs.service.ts
+index 5d76b41470be4370255925543f1a1c600ec97257..2272586a93df260ef7a3c7c88d3867051f2b0b0a 100644
+--- a/packages/terre2/src/Modules/webgal-fs/webgal-fs.service.ts
++++ b/packages/terre2/src/Modules/webgal-fs/webgal-fs.service.ts
+@@ -10,6 +10,7 @@ import { UserDataService } from '../user-data/user-data.service';
+ import trash from 'trash';
+ import { TextFileTransactions } from './text-file-transaction';
+ import { analyzeScene, hasUnreviewedAdvancedChanges } from '../scene-document/scene-analysis';
++import { createHash } from 'crypto';
+ 
+ const pExecFile = promisify(execFile);
+ const pGzip = promisify(gzip);
+@@ -37,14 +38,29 @@ interface FileList {
+ 
+ @Injectable()
+ export class WebgalFsService {
+-  private readonly textTransactions = new TextFileTransactions(() =>
+-    UserDataService.getGameRoot(),
+-  );
+-
+   constructor(private readonly logger: ConsoleLogger) {}
+ 
+-  readTextSnapshot(gameName: string, path: string) {
+-    return this.textTransactions.read(gameName, path);
++  private async textContext(expectedWorkspaceId?: string) {
++    const selectedRoot = resolve(UserDataService.getGameRoot());
++    const root = await fs.realpath(selectedRoot);
++    // This opaque local namespace keeps browser recovery copies from unrelated
++    // author profiles apart when they reuse the same loopback port and game name.
++    const workspaceId = createHash('sha256').update(process.platform === 'win32' ? root.toLowerCase() : root).digest('hex');
++    const assertSelected = () => {
++      if (resolve(UserDataService.getGameRoot()) !== selectedRoot || (expectedWorkspaceId !== undefined && expectedWorkspaceId !== workspaceId)) {
++        throw new HttpException({ code: 'WORKSPACE_CHANGED', message: 'The author workspace changed. Back up the draft and reopen the editor.' }, 409);
++      }
++      return selectedRoot;
++    };
++    assertSelected();
++    return { workspaceId, assertSelected, transactions: new TextFileTransactions(assertSelected) };
++  }
++
++  async readTextSnapshot(gameName: string, path: string) {
++    const context = await this.textContext();
++    const snapshot = await context.transactions.read(gameName, path);
++    context.assertSelected();
++    return { ...snapshot, workspaceId: context.workspaceId };
+   }
+ 
+   validateSceneSnapshot(text: string) {
+@@ -59,10 +75,12 @@ export class WebgalFsService {
+     path: string,
+     text: string,
+     expectedRevision: string,
++    expectedWorkspaceId?: string,
+   ) {
+     if (typeof text !== 'string' || typeof expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(expectedRevision)) {
+       throw new BadRequestException({ code: 'INVALID_REQUEST', message: 'Text and a SHA256 expectedRevision are required.' });
+     }
++    const context = await this.textContext(expectedWorkspaceId);
+     // Scene files are active runtime source. Config/JSON/other assets retain the
+     // existing generic text transaction path and are not parsed as dialogue.
+     if (typeof path === 'string' && /^game\/scene\//i.test(path.replace(/\\/g, '/'))) {
+@@ -75,7 +93,7 @@ export class WebgalFsService {
+           analysis,
+         }, 422);
+       }
+-      const previous = await this.textTransactions.read(gameName, path);
++      const previous = await context.transactions.read(gameName, path);
+       // Keep the stale-write error contract even for changes to advanced blocks.
+       if (previous.revision !== expectedRevision) {
+         throw new HttpException({ code: 'REVISION_CONFLICT', message: 'The file changed since it was read.', expectedRevision, actualRevision: previous.revision }, 409);
+@@ -89,7 +107,7 @@ export class WebgalFsService {
+         }, 422);
+       }
+     }
+-    return this.textTransactions.save(gameName, path, text, expectedRevision);
++    return { ...await context.transactions.save(gameName, path, text, expectedRevision), workspaceId: context.workspaceId };
+   }
+ 
+   private sceneRevisionRequired(): never {

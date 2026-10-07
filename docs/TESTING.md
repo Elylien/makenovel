@@ -1,8 +1,8 @@
 # 测试入口与证据
 
-更新：2026-10-07，MakeNovel `0.0.3`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-07，MakeNovel `0.0.4`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-第三轮新增核心语法诊断、持久身份/局部写回的真实编辑链路，以及 Windows EXE 一槽正常退出重启读档。以下保留前两轮历史证据；任何子项通过都不表示 G0、G1 或完整 AT 整体验收通过。
+第四轮增加共享历史、浏览器草稿恢复副本、工作区写入前置检查与 runtime 菜单视口修复，代码回归 259 项、最终构建、有限真实 GUI 和两子仓独立重放均通过。下面按轮次保留历史证据；任何子项通过都不表示 G0、G1 或完整 AT 整体验收通过。
 
 ## 安装、补丁与构建
 
@@ -12,12 +12,22 @@
 pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL_Terre -Action Install
 pwsh -NoLogo -NoProfile -File scripts/Apply-Patches.ps1 -Check
 pwsh -NoLogo -NoProfile -File scripts/Apply-Patches.ps1 -Apply
+pwsh -NoLogo -NoProfile -File scripts/Apply-Patches.ps1 -Target WebGAL -Check
+pwsh -NoLogo -NoProfile -File scripts/Apply-Patches.ps1 -Target WebGAL -Apply
+pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action Install
+pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action Build
 pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL_Terre -Action Build
 ```
 
-补丁工具检查锁定 SHA、补丁摘要和已知补丁前缀；未知 tracked、untracked 或 staged 改动会拒绝，不会 reset/clean 用户修改。`-Check` 成功只代表当前为合法 base 或补丁前缀，剩余补丁需执行 `-Apply`。规则和导出流程见 [TERRE_PATCHES.md](integrations/TERRE_PATCHES.md)。
+补丁工具检查锁定 SHA、补丁摘要和已知补丁前缀；未知 tracked、untracked 或 staged 改动会拒绝，不会 reset/clean 用户修改。默认目标是 Terre，WebGAL 必须显式传 `-Target WebGAL`。`-Check` 成功只代表当前为合法 base 或补丁前缀，剩余补丁需执行 `-Apply`。第四轮 Terre 3/3、WebGAL 1/1 清单与独立重放均已核实；规则和导出流程见 [TERRE_PATCHES.md](integrations/TERRE_PATCHES.md)。
 
-Terre Build 串行构建前后端，避免共享 preview protocol 生成目录冲突；会更新引擎模板及本地化生成文件。不要并发运行两个 workspace build。需要单独构建时，在 `vendor/WebGAL_Terre` 运行 `corepack.cmd yarn workspace webgal-origine-2 build`，结束后再运行 `corepack.cmd yarn workspace webgal-terre-2 build`。
+已有运行中的编辑器须先用 `npm.cmd run editor:stop` 停止，再构建/同步模板。WebGAL Build 经 `scripts/Sync-Runtime.ps1 -Action Build` 核验补丁与锁定来源，构建后记录源码和非 game 产物 hash 至 `.local/runtime-sync/runtime-build.json`。Terre Build 先检查凭据，串行构建前后端，最后同步已核验的 runtime；缺失、源码过期或产物改动的凭据均拒绝同步。
+
+同步保留模板的 game 内容和非管理文件，不遍历或改写作者作品。没有自带 index.html 的普通作品运行/导出时使用共享模板，因此模板更新也影响这些旧作品的实际引擎；自带入口或衍生引擎作品保留其引擎。更新模板前停止服务，脚本不自动终止用户进程。
+
+不要并发运行 Terre 两个 workspace build。若直接运行上游 workspace build，其后端会刷新 npm 引擎模板；完成后必须在根目录运行 `pwsh -NoLogo -NoProfile -File scripts/Sync-Runtime.ps1 -Action Sync` 才恢复已核验 runtime。仅核查凭据用 `-Action Check`，源码/产物已改变时先重新 `npm.cmd run baseline:build`。
+
+完整同步来源、目录备份和失败边界见 [RUNTIME_PATCHES.md](integrations/RUNTIME_PATCHES.md)。
 
 ## 自动化回归
 
@@ -27,6 +37,8 @@ Terre Build 串行构建前后端，避免共享 preview protocol 生成目录�
 node integrations/terre-tests/run.cjs --no-cache
 node integrations/scene-document-tests/run-tests.mjs
 node integrations/scene-document-tests/run-message-tests.mjs
+npm.cmd run test:source-input
+npm.cmd run test:graph-input
 npm.cmd run test:identity
 pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-PatchReplay.ps1
 npm.cmd test
@@ -37,12 +49,12 @@ npm.cmd test
 机器可读报告：
 
 ```powershell
-$resultPath = Join-Path (Get-Location).Path 'docs/evidence/local/round3/terre-backend-all.json'
+$resultPath = Join-Path (Get-Location).Path 'docs/evidence/local/round4/terre-backend-all.json'
 node integrations/terre-tests/run.cjs --no-cache --json --outputFile $resultPath
 if ($LASTEXITCODE -ne 0) { throw 'Terre tests failed' }
 ```
 
-场景机制测试打包真实前端模块后使用 Node test runner；消息测试对 React、网络和 Monaco 边界使用测试替身，检查实际注册的回调及 iframe 脚本。不能替代浏览器渲染、IME 或实际预览验收。补丁夹具在 `.scratch/` 新 clone 测试，不修改开发 vendor；夹具通过也不能替代最终产品补丁的独立重放。
+场景机制测试打包真实前端模块后使用 Node test runner；消息/源码输入测试对 React、网络和 Monaco 边界使用测试替身，检查实际注册的回调、组合输入隔离及 iframe 脚本。`test:graph-input` 由 `integrations/scene-document-tests/run-graph-input-tests.mjs` 加载生产 TSX 事件处理逻辑，以边界替身验证图形控件输入。它们不能替代浏览器渲染、Windows 真实 IME 候选输入或实际预览验收。补丁夹具在 `.scratch/` 新 clone 测试，不修改开发 vendor；夹具通过也不能替代最终产品补丁的独立重放。
 
 ## 启动与真实服务检查
 
@@ -57,6 +69,37 @@ pwsh -NoLogo -NoProfile -File scripts/Start-Editor.ps1 -Stop
 默认编辑器为 `http://127.0.0.1:3001`，`-Port 3011` 可选择空闲端口。作者数据置于 `.local/editor-profile/`，进程状态和日志置于 `.local/editor-runtime/`；不使用既有全局作者目录，也不运行上游开放 host/80 代理入口。停止命令核对 PID、启动时间、进程名和入口。当前进程状态以现场为准，不依赖旧 PID。
 
 HTTP API 与两个 WebSocket gateway 使用同一个 loopback listener，并核验准确的 Host、Origin/Referer 与 Fetch Metadata。命令行 API 请求需带 `Origin: http://127.0.0.1:3001`；PowerShell 请求同时用 `-NoProxy`。这些限制防止其他网页从浏览器驱动本机接口，不认证可自行构造请求头的本地进程，也不隔离可信本地代码。详见 [启动器说明](../integrations/terre-launcher/README.md)。
+
+## 第四轮 0.0.4 实际结果
+
+| 检查 | 当前结果 | 范围与限制 |
+| --- | --- | --- |
+| 后端完整回归 | 通过：14 suites / 124 tests | 原业务与新增工作区 HTTP 防错写检查；`local/round4/round4-backend.log` |
+| 工作区真实 HTTP 回归 | 通过：9 项，其中本轮新增 3 项 | 同 root 的 workspaceId 读写稳定；不同 profile 同字节 revision 仍拒绝旧身份写入、双方文件不变；读取完成后切换 profile 返回 409、不贴错误标签 |
+| 共享文档 / 历史 | 通过：56 项 | history 100 步/2 MiB 增量、保存保留、冲突与异步完成保护 |
+| 浏览器 draft vault | 通过：10 项 | 工作区/路径/owner 隔离、手动恢复候选、旧 session 与单个存储失败降级；不淘汰其他副本 |
+| 源码输入 / 图形输入 | 通过：12 / 7 项 | 生产事件处理逻辑与边界替身；快捷键/组合输入等机制，不代替真实 Windows 中文候选交互 |
+| 消息 / 持久身份 / 源码实验 | 通过：3 / 28 / 19 项 | 真实 parser 身份/源范围与既有原型分别记账 |
+| 代码测试合计 | **259 项通过** | 124 + 56 + 10 + 3 + 12 + 7 + 28 + 19；不把构建、GUI、同步文件数或补丁重放项计入代码测试数 |
+| runtime 受控生产构建 | 通过：174.1 s，Yarn 97.9 s / Vite 47.0 s | 生成源码/非 game 产物凭据；前一次独立 GUI 构建为 76.38 s，不与受控整流程混记 |
+| 原菜单裁切复现 | 通过复现 | 1280×720、DPR 1.5，开始→简中→`getByText('存档').click()` 后 body.scrollTop 332.666656，root/menu.top -332.666687；`local/round4/menu-before-fix.json` 与 PNG |
+| 修复后浏览器视口 | 通过三个视口 | 1280×720、1600×900 存档菜单正常；1280×960 的 root/menu 为 (0,120,1280,720)，body 滚动均为 0；`menu-after-fix-1280.*`、`menu-after-fix-1600.json`、`menu-after-fix-4by3.*` |
+| 图形/源码历史 GUI | 通过有限场景 | 图形填中文后立即 Ctrl+S；源码撤销→图形旧值→重做回已保存；源码粘贴后 Ctrl+Z/Y/Z。撤销期间磁盘 hash 不变，`local/round4/undo-disk-check.json` |
+| 草稿恢复与隔离 GUI | 通过有限场景 | chapter-two 未保存后切 start/撤销不串稿；关闭真实标签后新开页面显示磁盘原文和恢复列表，明确选择恢复全句再保存；另一作品同名场景原文及副本不混入 |
+| runtime → Terre 模板同步 | 通过：25 个非 game 引擎文件 | 模板 game 逐文件 hash 不变；已保留 previous-template 和 sync-result。普通无自带入口作品随共享模板变化，不改作者文件 |
+| 同步负例 | 通过：缺失凭据、过期源码凭据、额外产物三类拒绝 | 原始检查见 `local/round4/runtime-sync-negative-checks.json`，临时负例改动已恢复 |
+| 完整 editor:build 与最终前端 | 通过：前端 262.08 s、后端 46.31 s、最后 Sync 25 文件；最终前端重编 2m53s | 最终真实页面使用重编产物；backend/runtime 沿用通过的同一源码 |
+| 新作品实际传播 | 通过 HTTP 25 文件与实际游戏 GUI | `makenovel-round4-template` 仅 game 目录、独立 Game_key；实际请求逐文件匹配 receipt，游戏菜单 fixed/root (0,0,1280,720)/body 0；`final-http-and-bytes.json`、`shared-template-menu.json` |
+| 最终场景字节 | 通过有限场景 | 两场景 BOM/节点 ID/CRLF 保留，start 10 个 CRLF、chapter-two 2 个，无单独 LF；`local/round4/final-http-and-bytes.json` |
+| 真实服务检查 | 通过：22 项 | PID 33200 仅监听 127.0.0.1:3001，专用 3000 已停，全局作者目录不存在；最后页面已保存，`local/round4/editor-ready.png` |
+| runtime 单补丁独立重放 | 通过：18 项，无 alternates / hardlinks | 0/1→1/1→幂等、临时 index 逆向回 base、fsck、开发树一致及两真实 index 保持；`local/round4/runtime-independent-replay.json`。此前 shared 报告仅为历史 |
+| Terre 三补丁独立重放 | 通过：17 项，无 alternates / hardlinks | 0/3→3/3→幂等、临时 index 逆序 3→2→1 回 base；最终树 `18b0104c074def8309016c95b9e6e173d743bd47` 与开发一致、两真实 index 不变；`local/round4/product-patch-replay.json` |
+| 存档兼容 | 源码审查与设计完成 | 见 [SAVE_COMPATIBILITY.md](SAVE_COMPATIBILITY.md)；版本门禁、旧档迁移、已读/收藏映射均未实现 |
+| 真实 Windows 中文候选输入、DPI/全屏、断网/干净机、新 EXE | 本轮未验收 | 中文填写/合成事件、浏览器三视口和第三轮 EXE 结果不能替代这些验收 |
+
+本轮记录见 [第四轮证据](evidence/2026-10-07-round4.md)。针对工作区回归，在根目录运行 `node integrations/terre-tests/run.cjs --no-cache --runTestsByPath src/Modules/webgal-fs/text-snapshot-api.spec.ts`。runner 的工作目录是 Terre backend，因此测试路径从 `src/` 开始。
+
+恢复副本验收应分别测试同标签刷新、关闭后新标签的手动选择、另一标签并行修改、旧 revision 冲突、另一工作区同名文件，以及 session/localStorage 单独不可用。不删除其他副本来制造容量通过；不得把浏览器存储称为项目文件系统恢复仓。
 
 ## 第三轮 0.0.3 实际结果
 
@@ -83,7 +126,7 @@ HTTP API 与两个 WebSocket gateway 使用同一个 loopback listener，并核�
 
 详情见 [第三轮记录](evidence/2026-10-07-round3.md) 与 [Windows 导出记录](evidence/2026-10-07-windows-export.md)。第三轮 UI 原始文件和截图在忽略目录 `docs/evidence/local/round3/`；各自动回归日志位置以第三轮记录为准。
 
-### 本轮新增边界与复现
+### 第三轮新增边界与复现
 
 `validateSceneSnapshot` 只分析、不写入或执行。`saveTextSnapshot` 对 `game/scene/**` 强制检查：无效核心语法/身份返回 `422 SCENE_VALIDATION_FAILED`，新增/改动未知前缀返回 `422 ADVANCED_CODE_REQUIRES_REVIEW`。已有高级块可以原样保留并修改邻段，整个分析仍不可预览。旧场景文本更新/替换、覆盖上传和清空已有文件返回 `428 SCENE_REVISION_REQUIRED`；新建与新文件导入保留，模板/config 不按对白解析。
 
@@ -133,7 +176,7 @@ WebGAL frozen install、原版生产构建、parser 34 项、根源码实验 19 
 
 原版 Terre Jest 仍有 3 套件加载 ESM-only `trash` 失败的可复现基线；本轮独立兼容配置使原断言全部执行通过。shared-cache 的 EEXIST 已通过隔离缓存重试处理，未删除全局缓存或更换锁文件。Vite CJS 废弃、大 bundle 和可选 Live2D 库警告仍保留。
 
-上一轮 IAB 实际窗口为 1280×720，打开存档菜单后 root/menu 的 y 约 -332.67；没有完成 1920×1080、DPI 矩阵或存读档恢复验收，本轮没有复测该裁切。需要重放原版播放器时：
+首轮 IAB 实际窗口为 1280×720，打开存档菜单后 root/menu 的 y 约 -332.67；该历史现象已在第四轮同条件复现并修复，结果见上表。DPI/全屏和完整窗口矩阵仍未验收。需要启动当前锁定播放器与已应用补丁时：
 
 ```powershell
 pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action Build
@@ -141,14 +184,14 @@ pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action
 pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action Preview
 ```
 
-Preview 限定 `127.0.0.1:3000`，端口占用时失败，显示原版示例，结束后 Ctrl+C 停止。
+Preview 限定 `127.0.0.1:3000`，端口占用时失败，显示上游示例与当前应用的 runtime 补丁，结束后 Ctrl+C 停止。
 
 ## 下一轮具体补测
 
 1. 扩大核心语法与未知代码边界用例，验证导入/多场景/所有预览入口；完整语言与插件能力单独登记。
-2. 扩大局部写回、IME、撤销、恢复和多语句操作；独立设计 ID 修订、旧存档与收藏迁移。
-3. 实现项目级恢复和三方合并，推进 JSON/模板/其他资源版本事务。
-4. 复测 1280×720 浏览器裁切和 DPI/窗口矩阵，扩大声音、分支、跨场景、多槽与异常存档验收。
+2. 完成真实 Windows 中文 IME 与多场景历史/恢复边界；100 步/2 MiB 历史及浏览器副本不代替全套作者操作验收。
+3. 依据存档兼容设计先做原生版本门禁、完整备份与两场景可靠恢复，暂不猜旧索引映射；项目文件系统恢复、三方合并和其他资源事务独立推进。
+4. 扩大 DPI/全屏与窗口矩阵，核对 runtime 修复进入新模板/新 EXE，补声音、分支、跨场景、多槽与异常存档验收。
 5. 用既有 Windows 导出入口验证全机断网或干净用户机器、只读安装位置与异常写盘；正式签名/安装仍为独立发行工作。
 
 第二轮正式产品补丁独立重放 10 项检查通过，开发树与全新 clone 树相同；见 `local/round2/product-patch-replay.json`。第二轮最终浏览器运行已保存对白通过；这些历史结果不替代第三轮两补丁与最终页面复查。

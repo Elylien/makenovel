@@ -31,10 +31,14 @@ try {
         }
         Build {
             if ($Target -eq 'WebGAL') {
-                Invoke-Checked 'corepack.cmd' @('yarn', 'build')
+                & (Join-Path $PSScriptRoot 'Sync-Runtime.ps1') -Action Build
             } else {
+                # Reject missing/stale runtime output before upstream's build
+                # replaces the default template with its npm engine dependency.
+                & (Join-Path $PSScriptRoot 'Sync-Runtime.ps1') -Action Check
                 Invoke-Checked 'corepack.cmd' @('yarn', 'workspace', 'webgal-origine-2', 'build')
                 Invoke-Checked 'corepack.cmd' @('yarn', 'workspace', 'webgal-terre-2', 'build')
+                & (Join-Path $PSScriptRoot 'Sync-Runtime.ps1') -Action Sync
             }
         }
         Test {

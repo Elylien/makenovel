@@ -8,6 +8,10 @@
     {
       "file": "0002-scene-contract-identities-windows-export.patch",
       "sha256": "0a61e99b72608d91a28d63b7411ef95e84670a496a5e399004cb8ed449e23459"
+    },
+    {
+      "file": "0003-document-history-draft-recovery.patch",
+      "sha256": "78408e0d6fbd4596a043616823a4eb6e6d3bf1cb3902dd04461f906ade677926"
     }
   ]
 }

@@ -24,7 +24,7 @@ pwsh -NoLogo -NoProfile -File scripts/Apply-Patches.ps1 -Check
 pwsh -NoLogo -NoProfile -File scripts/Apply-Patches.ps1 -Apply
 ```
 
-无参数等价于 `-Apply`。`-Check` 报告已经应用的数量和剩余可应用数量；返回成功表示当前状态是已审查的 base 或补丁前缀，不代表所有补丁已经应用。`Already applied` 表示全部补丁已在工作树中，重复调用不再写文件。测试新 clone 可额外指定绝对 `-RepositoryPath` 和 `-ManifestPath`。
+无参数等价于 `-Apply`，默认目标为 `WebGAL_Terre`。`-Target WebGAL` 使用独立的运行时清单，见 [运行时补丁与模板同步](RUNTIME_PATCHES.md)。`-Check` 报告已经应用的数量和剩余可应用数量；返回成功表示当前状态是已审查的 base 或补丁前缀，不代表所有补丁已经应用。`Already applied` 表示全部补丁已在工作树中，重复调用不再写文件。测试新 clone 可额外指定绝对 `-RepositoryPath` 和 `-ManifestPath`。
 
 ## 状态校验与失败处理
 
@@ -68,3 +68,13 @@ if ($LASTEXITCODE -ne 0) { throw 'Patch export failed' }
 2026-10-07 在无 alternates、无共享对象的独立干净 clone 中通过 17 项检查：纯检查 `Ready 0/2`、顺序应用 `Verified 2/2`、重复调用幂等、最终工作树和开发树一致、临时 index 逆序撤销 `0002 → 0001` 回到上游树。两个仓库的真实 index 前后 SHA256 完全一致。最终树为 `00be9825e28de33ef40b8e10bd2b7642fdfe9b35`；本地机器报告在 `docs/evidence/local/round3/product-patch-replay.json`。
 
 这是源码可重放检查，产品构建、198 项代码测试与 GUI 子项另见 [第三轮证据](../evidence/2026-10-07-round3.md)。
+
+## 第四轮产品补丁
+
+`0.0.4` 保留前两份补丁的原始字节和摘要，追加 `0003-document-history-draft-recovery.patch`。内容包括场景共享历史、组合输入边界、草稿恢复面板与存储，以及保存工作区前置条件。第三份从第二份应用后的完整树导出，不能直接相对原版 HEAD 导出后再追加，否则会重复包含旧修改。
+
+| 文件 | SHA256 |
+| --- | --- |
+| 0003 | `78408e0d6fbd4596a043616823a4eb6e6d3bf1cb3902dd04461f906ade677926` |
+
+三份补丁的最终树为 `18b0104c074def8309016c95b9e6e173d743bd47`。构建、独立重放和真实编辑器结果统一见 [第四轮证据](../evidence/2026-10-07-round4.md)。WebGAL 的画布修复使用自己的清单，不能与 Terre 补丁混用。

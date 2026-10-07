@@ -1,0 +1,9 @@
+{
+  "baseCommit": "d0318e6c4cdb8b04bb5d891f40368cff3c6efc85",
+  "patches": [
+    {
+      "file": "0001-fixed-player-viewport.patch",
+      "sha256": "a0de4fcea456534f1373492428d6ebc435b4b4374532a6007254691025f70f50"
+    }
+  ]
+}
