@@ -55,3 +55,16 @@ if ($LASTEXITCODE -ne 0) { throw 'Patch export failed' }
 可重复测试入口 `integrations/patch-tests/Test-PatchReplay.ps1` 在新的 shared clone 中生成两份有重叠修改的夹具补丁，包含新增 UTF-8 文本和二进制文件。测试覆盖纯检查、前缀识别、顺序应用、结果字节比对、二次幂等、真实 index 保持、反向恢复，以及 tracked、untracked、staged 用户改动拒绝。测试只操作新 clone，不修改工作中的 vendor。夹具保留在根 `.scratch/`，机器结果保留在忽略的证据目录，脚本不是发行验收。
 
 结果与原始日志：`docs/evidence/local/round2/patch-replay-result.json` 和 `patch-replay.log`。真实产品补丁的独立重放应在导出清单后另行执行并记录。
+
+## 第三轮产品补丁
+
+`0.0.3` 保留 `0001-local-editor-versioned-scenes.patch`，按顺序追加 `0002-scene-contract-identities-windows-export.patch`。第二份包含核心场景分析、持久节点身份及图形局部编辑、源码诊断和 Windows native ASAR 旁置修复。两个 submodule 的锁定提交均未改变。
+
+| 文件 | SHA256 |
+| --- | --- |
+| 0001 | `eb998275cca8241be8206ce85e3a0a9d1bb6371d72ea87d289906657d55a7da5` |
+| 0002 | `0a61e99b72608d91a28d63b7411ef95e84670a496a5e399004cb8ed449e23459` |
+
+2026-10-07 在无 alternates、无共享对象的独立干净 clone 中通过 17 项检查：纯检查 `Ready 0/2`、顺序应用 `Verified 2/2`、重复调用幂等、最终工作树和开发树一致、临时 index 逆序撤销 `0002 → 0001` 回到上游树。两个仓库的真实 index 前后 SHA256 完全一致。最终树为 `00be9825e28de33ef40b8e10bd2b7642fdfe9b35`；本地机器报告在 `docs/evidence/local/round3/product-patch-replay.json`。
+
+这是源码可重放检查，产品构建、198 项代码测试与 GUI 子项另见 [第三轮证据](../evidence/2026-10-07-round3.md)。

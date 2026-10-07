@@ -15,6 +15,7 @@ await build({
     sceneDocument: path.join(sourceRoot, 'SceneDocument/sceneDocument.ts'),
     sourceEdits: path.join(sourceRoot, 'SceneDocument/sourceEdits.ts'),
     graphText: path.join(sourceRoot, 'GraphicalEditor/utils/sceneTextProcessor.ts'),
+    graphEdits: path.join(sourceRoot, 'SceneDocument/graphicalSourceEdits.ts'),
   },
   outdir: bundleRoot,
   outExtension: { '.js': '.mjs' },

@@ -1,8 +1,8 @@
 # 测试入口与证据
 
-更新：2026-10-07，MakeNovel `0.0.2`。实测环境：Windows / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-07，MakeNovel `0.0.3`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-本轮完成隔离 Terre 的第一条图形修改、源码修改、手动保存、重开和外部修改冲突链路。子项通过不表示 G0、G1 或完整 AT 整体验收通过。
+第三轮新增核心语法诊断、持久身份/局部写回的真实编辑链路，以及 Windows EXE 一槽正常退出重启读档。以下保留前两轮历史证据；任何子项通过都不表示 G0、G1 或完整 AT 整体验收通过。
 
 ## 安装、补丁与构建
 
@@ -27,6 +27,7 @@ Terre Build 串行构建前后端，避免共享 preview protocol 生成目录�
 node integrations/terre-tests/run.cjs --no-cache
 node integrations/scene-document-tests/run-tests.mjs
 node integrations/scene-document-tests/run-message-tests.mjs
+npm.cmd run test:identity
 pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-PatchReplay.ps1
 npm.cmd test
 ```
@@ -36,7 +37,7 @@ npm.cmd test
 机器可读报告：
 
 ```powershell
-$resultPath = Join-Path (Get-Location).Path 'docs/evidence/local/round2/terre-backend-all.json'
+$resultPath = Join-Path (Get-Location).Path 'docs/evidence/local/round3/terre-backend-all.json'
 node integrations/terre-tests/run.cjs --no-cache --json --outputFile $resultPath
 if ($LASTEXITCODE -ne 0) { throw 'Terre tests failed' }
 ```
@@ -57,7 +58,47 @@ pwsh -NoLogo -NoProfile -File scripts/Start-Editor.ps1 -Stop
 
 HTTP API 与两个 WebSocket gateway 使用同一个 loopback listener，并核验准确的 Host、Origin/Referer 与 Fetch Metadata。命令行 API 请求需带 `Origin: http://127.0.0.1:3001`；PowerShell 请求同时用 `-NoProxy`。这些限制防止其他网页从浏览器驱动本机接口，不认证可自行构造请求头的本地进程，也不隔离可信本地代码。详见 [启动器说明](../integrations/terre-launcher/README.md)。
 
-## 本轮 0.0.2 实际结果
+## 第三轮 0.0.3 实际结果
+
+| 检查 | 结果 | 范围与限制 |
+| --- | --- | --- |
+| 后端完整回归 | 通过：14 suites / 121 tests | 包含原业务、事务/API、54 项核心分析/真实写入保护，以及真实 ASAR 旁置回归 |
+| 前端共享文档 | 通过：27 项 | 草稿保存、冲突、诊断阻断、预览状态与当前作品范围；机制测试不代替真实浏览器 |
+| iframe 消息边界 | 通过：3 项 | 原准确来源与载荷边界回归 |
+| 持久身份/局部写回 | 通过：28 项 | 真正调用锁定 parser；身份歧义/复制/移动与 token 保真等有限源编辑机制 |
+| 源码实验 | 通过：19 项 | 独立原型回归仍保留，不与正式产品接入混记 |
+| 代码测试合计 | **198 项通过** | 121 + 27 + 3 + 28 + 19；不把构建、GUI 步骤或包中文件数算入代码测试数 |
+| 最终后端构建 | 通过，13.04 s | 真实生产构建，未升级依赖锁 |
+| 最终前端构建 | 通过，101.38 s | 含当前作品范围的预览阻断修复；最终真实页面已复查 |
+| 图形身份/写回 GUI | 通过有限场景 | `凛:` 经明确操作转换为 `say` 后沿用 `rain-001`；登记 ID、改正文保留作者双空格尾注释；复制 `rain-002` 得新 ID，单独修改副本、键盘移动后身份不变 |
+| 错误草稿 GUI | 通过有限场景 | 第 10 行 `wait:not-a-number;` 被诊断且保存阻断；磁盘 hash 保持 `c1029804c3b739d23417029b64f45e2c2a81300129d2e643b4146f28c5e4bad6`；修复 `wait:100;` 并显式注释停用未知指令后保存成功 |
+| 最终刷新/跨作品 GUI | 通过有限场景 | 刷新后身份对白保持；新增普通对白自动新 ID 保存；同一 SPA 在含高级块 round2 和有效 round3 来回切换，后者无错误阻断；`local/round3/editor-ready.png` |
+| 两级补丁检查与产品重放 | 通过：2/2 匹配、17/17 重放检查 | 独立对象 clone，0/2→2/2→幂等→逆向恢复 base；最终树与开发一致，两真实 Git index SHA256 不变；`local/round3/product-patch-replay.json` |
+| 最终源码字节核对 | 通过有限场景 | BOM、10 个 CRLF、无单独 LF；旧/新节点 ID 与作者双空格尾注释保留 |
+| Windows 真实导出 | 通过有限本机范围 | 实际 Terre 导出链路，37/37 作品文件一致，原作者作品 hash 不变，.node/DLL 真实旁置 |
+| Windows 实际 GUI | 通过一槽闭环 | 无 3000/3001 listener，EXE 开始游戏→槽 1 存档→Alt+F4 退出→进程归零→重启读档恢复；语言也保留 |
+| 原 1280×720 浏览器裁切 | 未复测 | 1600×900 EXE 没有裁切不能记为同条件修复 |
+| 全量语言/插件、旧档迁移、音频、完整 AT | 未验收 | 核心诊断与注释身份不能替代完整语言或运行时协议验收 |
+| 全机断网/干净用户机器/签名安装发行 | 未验收 | CLI 子进程限制网络/PATH，与 GUI 停开发服务分别记录，未物理断网或卸载开发工具 |
+
+详情见 [第三轮记录](evidence/2026-10-07-round3.md) 与 [Windows 导出记录](evidence/2026-10-07-windows-export.md)。第三轮 UI 原始文件和截图在忽略目录 `docs/evidence/local/round3/`；各自动回归日志位置以第三轮记录为准。
+
+### 本轮新增边界与复现
+
+`validateSceneSnapshot` 只分析、不写入或执行。`saveTextSnapshot` 对 `game/scene/**` 强制检查：无效核心语法/身份返回 `422 SCENE_VALIDATION_FAILED`，新增/改动未知前缀返回 `422 ADVANCED_CODE_REQUIRES_REVIEW`。已有高级块可以原样保留并修改邻段，整个分析仍不可预览。旧场景文本更新/替换、覆盖上传和清空已有文件返回 `428 SCENE_REVISION_REQUIRED`；新建与新文件导入保留，模板/config 不按对白解析。
+
+分析复用原生范围，不执行表达式；仅拒绝确定的续行、JSON/shape、括号引号和尾运算符、赋值目标、有限数值、会使原生 choose 出错的缺分隔符等问题。完整表达式 token、变量实际值、资源存在性和插件未验证。未知前缀与人物名短写有歧义，只有作者明确转换才生成显式 `say`。首行 BOM 紧贴命令沿用原生风险，GUI 样例采用 BOM 加首行注释。
+
+```powershell
+npm.cmd run game:export -- -GamePath '.local/editor-profile/games/makenovel-round2'
+pwsh -NoLogo -NoProfile -File integrations/windows-export/Verify-Package.ps1 -PackagePath '.local/exports/<本次输出目录>'
+```
+
+Windows GUI 用 `%APPDATA%/webgal-electron-project` 玩家目录；CLI 烟测用 `.local/exports/player-profile-.../chromium`。CLI 两次受控终止与 GUI 正常退出属于不同证据。未签名开发包保留默认 Electron 图标/元数据，不记为正式发行。
+
+## 第二轮 0.0.2 历史结果
+
+以下表格和其后的事务说明保留第二轮时点；“未完成/未执行”不能覆盖第三轮已经明确增加的子项。
 
 | 检查 | 结果 | 证据与范围 |
 | --- | --- | --- |
@@ -86,7 +127,7 @@ HTTP API 与两个 WebSocket gateway 使用同一个 loopback listener，并核�
 
 图形编辑已验证简单场景中未修改的行和 BOM/CRLF 保留；修改语句仍使用上游 serializer，可能标准化空格、丢失重复参数或改变注释间距。因此不能据此宣称任意原生源码无损往返。
 
-## 上一轮基线与保留诊断
+## 第一轮基线与保留诊断
 
 WebGAL frozen install、原版生产构建、parser 34 项、根源码实验 19 项，以及 Terre frozen install/前后端构建均在上一轮通过，证据见 [基线汇总](evidence/2026-10-07-baseline.md) 与 [TERRE_BASELINE.md](TERRE_BASELINE.md)。本轮未重复执行的项目保留历史日期。
 
@@ -104,10 +145,10 @@ Preview 限定 `127.0.0.1:3000`，端口占用时失败，显示原版示例，�
 
 ## 下一轮具体补测
 
-1. 建立可诊断的草稿语法/命令有效性闸门，验证无效源码保存、预览、恢复的边界，继续保留未知命令原文。
-2. 补齐图形所编辑语句的局部写回、持久节点身份及插入/复制/移动证据；独立设计旧存档映射和迁移。
-3. 扩展 IME、更多语句类型、恢复重启与冲突合并；记录旧 JSON/模板写路径的事务改造范围。
-4. 定位存档菜单裁切，验证普通桌面视口、声音和真实存档关闭重启恢复。
-5. 制作 Windows 离线包，停止开发服务器，实测中文空格路径、非管理员写盘、异常写盘和离线重启。
+1. 扩大核心语法与未知代码边界用例，验证导入/多场景/所有预览入口；完整语言与插件能力单独登记。
+2. 扩大局部写回、IME、撤销、恢复和多语句操作；独立设计 ID 修订、旧存档与收藏迁移。
+3. 实现项目级恢复和三方合并，推进 JSON/模板/其他资源版本事务。
+4. 复测 1280×720 浏览器裁切和 DPI/窗口矩阵，扩大声音、分支、跨场景、多槽与异常存档验收。
+5. 用既有 Windows 导出入口验证全机断网或干净用户机器、只读安装位置与异常写盘；正式签名/安装仍为独立发行工作。
 
-正式产品补丁独立重放10项检查通过，开发树与全新clone树相同；具体见 `local/round2/product-patch-replay.json`。最终构建的浏览器重开及运行已保存对白通过，检查时控制台error记录为空；这不扩大为完整玩家验收。
+第二轮正式产品补丁独立重放 10 项检查通过，开发树与全新 clone 树相同；见 `local/round2/product-patch-replay.json`。第二轮最终浏览器运行已保存对白通过；这些历史结果不替代第三轮两补丁与最终页面复查。

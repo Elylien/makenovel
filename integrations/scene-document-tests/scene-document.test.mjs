@@ -7,6 +7,7 @@ const load = name => import(pathToFileURL(path.join(process.env.SCENE_DOCUMENT_T
 const { SceneDocument, parseScenePath } = await load('sceneDocument');
 const { applySourceEdits } = await load('sourceEdits');
 const { splitToArray, mergeToString, replaceLineRange, sceneBody, mergeSceneLines } = await load('graphText');
+const { registerSceneNodes, editGraphicalStatement, confirmSpeakerDialogue, nativeRanges } = await load('graphEdits');
 const A = 'a'.repeat(64);
 const B = 'b'.repeat(64);
 const C = 'c'.repeat(64);
@@ -18,7 +19,7 @@ function deferred() {
 }
 function harness(raw = null) {
   let stored = raw;
-  let disk = { text: '旁白:磁盘原文;', revision: A };
+  let disk = { text: 'say:磁盘原文 -clear;', revision: A };
   const calls = [];
   const transport = {
     read: async () => ({ ...disk }),
@@ -29,6 +30,68 @@ function harness(raw = null) {
   return { document, transport, storage, calls, stored: () => stored, setDisk: value => { disk = value; } };
 }
 const savedDraft = (text, revision = A) => JSON.stringify({ version: 1, text, revision });
+
+test('invalid core syntax keeps last saved file and draft, then applies the corrected version', async () => {
+  const h = harness();
+  await h.document.load();
+  h.document.edit('wait:not-a-number;');
+  assert.equal(h.document.getSnapshot().analysis.valid, false);
+  assert.equal(await h.document.save(), false);
+  assert.equal(h.calls.length, 0);
+  assert.equal(JSON.parse(h.stored()).text, 'wait:not-a-number;');
+  assert.equal(h.document.canPreview(), false);
+  h.document.edit('wait:100;');
+  assert.equal(await h.document.save(), true);
+  assert.equal(h.document.canPreview(), true);
+});
+
+test('saved advanced code blocks preview without pretending it is an unsaved draft', async () => {
+  const h = harness();
+  h.setDisk({ text: 'futureFx:keep -opaque=1;', revision: A });
+  await h.document.load();
+  assert.equal(h.document.getSnapshot().status, 'saved');
+  assert.equal(h.document.canPreview(), false);
+  assert.equal(h.document.hasUnsavedChanges(), false);
+  h.document.edit('futureFx:keep -opaque=1;\nsay:neighbor;');
+  assert.equal(await h.document.save(), true);
+  assert.equal(h.document.canPreview(), false);
+  h.document.edit('futureFx:changed -opaque=1;\nsay:neighbor;');
+  assert.equal(await h.document.save(), false);
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.document.hasUnsavedChanges(), true);
+});
+
+test('duplicate node identity blocks saving before transport', async () => {
+  const h = harness();
+  await h.document.load();
+  h.document.edit('say:first; @makenovel-node same\nsay:second; @makenovel-node same');
+  assert.equal(await h.document.save(), false);
+  assert.equal(h.calls.length, 0);
+  assert.ok(h.document.getSnapshot().analysis.diagnostics.some(item => item.code === 'DUPLICATE_ID'));
+});
+
+test('register and graphical body edit preserve BOM, mixed EOL, spacing, comment and unknown neighbor', () => {
+  const original = '\uFEFF; header\r\nsay: 原文   -speaker=凛  ; author  \nfutureFx:untouched -opaque=2;\r\n';
+  const registered = registerSceneNodes(original).source;
+  assert.equal(registered.split('\n').length, original.split('\n').length);
+  assert.ok(registered.includes('futureFx:untouched -opaque=2;\r\n'));
+  const edited = editGraphicalStatement(registered, 1, 'say:新文 -speaker=凛; serializer comment');
+  assert.equal(edited, registered.replace(' 原文   ', ' 新文   '));
+  const before = nativeRanges(registered).filter(item => !item.isLineBreakHolder);
+  const after = nativeRanges(edited).filter(item => !item.isLineBreakHolder);
+  assert.equal(after.length, before.length);
+});
+
+test('unknown command is readonly until explicit speaker confirmation and receives an inline ID', () => {
+  const source = '凛:你好 -volume=80; 原注释\r\n';
+  assert.throws(() => editGraphicalStatement(source, 0, 'say:改变;'));
+  const result = confirmSpeakerDialogue(source, 0);
+  assert.match(result, /^say:你好 -volume=80 -speaker=凛; 原注释; @makenovel-node node-/);
+  assert.ok(result.endsWith('\r\n'));
+  const sentence = nativeRanges(result)[0];
+  assert.equal(sentence.commandRaw, 'say');
+  assert.equal(sentence.args.find(arg => arg.key === 'speaker').value, '凛');
+});
 
 test('initial loading blocks edits and preview; overlapping loads share one read', async () => {
   const h = harness();
@@ -67,7 +130,7 @@ test('same-revision refresh retains local drafts; clean refresh loads external c
   await h.document.load();
   assert.equal(h.document.getSnapshot().text, 'local');
   assert.equal(h.document.getSnapshot().status, 'dirty');
-  h.document.edit('旁白:磁盘原文;');
+  h.document.edit('say:磁盘原文 -clear;');
   h.setDisk({ text: 'external', revision: B });
   await h.document.load();
   assert.equal(h.document.getSnapshot().text, 'external');

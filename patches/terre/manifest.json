@@ -4,6 +4,10 @@
     {
       "file": "0001-local-editor-versioned-scenes.patch",
       "sha256": "eb998275cca8241be8206ce85e3a0a9d1bb6371d72ea87d289906657d55a7da5"
+    },
+    {
+      "file": "0002-scene-contract-identities-windows-export.patch",
+      "sha256": "0a61e99b72608d91a28d63b7411ef95e84670a496a5e399004cb8ed449e23459"
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
   "name": "makenovel",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "description": "Visual novel authoring toolchain based on verified WebGAL and Terre baselines",
   "license": "MPL-2.0",
@@ -21,6 +21,8 @@
     "editor:stop": "pwsh -NoLogo -NoProfile -File scripts/Start-Editor.ps1 -Stop",
     "test:editor": "node integrations/terre-tests/run.cjs --no-cache",
     "test:documents": "node integrations/scene-document-tests/run-tests.mjs && node integrations/scene-document-tests/run-message-tests.mjs",
-    "test:patches": "pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-PatchReplay.ps1"
+    "test:patches": "pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-PatchReplay.ps1",
+    "test:identity": "node integrations/scene-identity-tests/run-tests.mjs",
+    "game:export": "pwsh -NoLogo -NoProfile -File scripts/Export-Game.ps1"
   }
 }

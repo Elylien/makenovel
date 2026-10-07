@@ -1,0 +1,2761 @@
+diff --git a/packages/origine2/src/locales/en.po b/packages/origine2/src/locales/en.po
+index 9c1b4326d5b31c774a1124af4b47c2fef6ed62cc..009818f929d429faf211a18039dfbc3ca08d9a88 100644
+--- a/packages/origine2/src/locales/en.po
++++ b/packages/origine2/src/locales/en.po
+@@ -137,6 +137,9 @@ msgstr "return:;"
+ msgid "RGB电影滤镜"
+ msgstr "RGB film"
+ 
++msgid "say:对话;"
++msgstr ""
++
+ msgid "setAnimation:选择动画文件;"
+ msgstr "setAnimation: Choose a file of animation;"
+ 
+@@ -2075,9 +2078,6 @@ msgstr "Coverage"
+ msgid "角色名，留空以继承上句"
+ msgstr "Role name, leave blank to inherit from previous sentence"
+ 
+-msgid "角色名，留空以继承上句:对话;"
+-msgstr "Role name, leave blank to inherit from previous sentence: Dialogue;"
+-
+ msgid "角色名内层文本"
+ msgstr "Role Name Inner Text"
+ 
+diff --git a/packages/origine2/src/locales/ja.po b/packages/origine2/src/locales/ja.po
+index 9394358a158b84d40cf61204faa94be3d9add099..c17e24c14130bd76a96400f5c5027a77ec8c0e76 100644
+--- a/packages/origine2/src/locales/ja.po
++++ b/packages/origine2/src/locales/ja.po
+@@ -137,6 +137,9 @@ msgstr "return:;"
+ msgid "RGB电影滤镜"
+ msgstr "RGB映画"
+ 
++msgid "say:对话;"
++msgstr ""
++
+ msgid "setAnimation:选择动画文件;"
+ msgstr "setAnimation: アニメーションを選択;"
+ 
+@@ -2075,9 +2078,6 @@ msgstr "カバレッジ"
+ msgid "角色名，留空以继承上句"
+ msgstr "キャラクター名を空白のままにすると前の文から継承"
+ 
+-msgid "角色名，留空以继承上句:对话;"
+-msgstr "キャラクター名を空白のままにすると前の文から継承;ダイアログ;"
+-
+ msgid "角色名内层文本"
+ msgstr "キャラクター名内側テキスト"
+ 
+diff --git a/packages/origine2/src/locales/ko.po b/packages/origine2/src/locales/ko.po
+index 99056f141c154eb40038927e1d022a1d98ec7947..d55b36744ad58dcebfcf692ae975db16747629f0 100644
+--- a/packages/origine2/src/locales/ko.po
++++ b/packages/origine2/src/locales/ko.po
+@@ -137,6 +137,9 @@ msgstr "return:;"
+ msgid "RGB电影滤镜"
+ msgstr "RGB 영화 필터"
+ 
++msgid "say:对话;"
++msgstr ""
++
+ msgid "setAnimation:选择动画文件;"
+ msgstr "setAnimation:애니메이션 파일 선택;"
+ 
+@@ -2075,9 +2078,6 @@ msgstr "덮어쓰기"
+ msgid "角色名，留空以继承上句"
+ msgstr "캐릭터 이름 (빈칸으로 두면 이전 문장에서 이어짐)"
+ 
+-msgid "角色名，留空以继承上句:对话;"
+-msgstr "캐릭터 이름, 이전 문장과 이으려면 빈칸:대화;"
+-
+ msgid "角色名内层文本"
+ msgstr "캐릭터 이름 내부 텍스트"
+ 
+diff --git a/packages/origine2/src/locales/zhCn.po b/packages/origine2/src/locales/zhCn.po
+index d06242210ad4c18c89c7903f0da98bf03fb1c292..f0227b5c32ecb2c1b466dbf37e944c8a3bdd979b 100644
+--- a/packages/origine2/src/locales/zhCn.po
++++ b/packages/origine2/src/locales/zhCn.po
+@@ -137,6 +137,9 @@ msgstr "return:;"
+ msgid "RGB电影滤镜"
+ msgstr "RGB电影滤镜"
+ 
++msgid "say:对话;"
++msgstr "say:对话;"
++
+ msgid "setAnimation:选择动画文件;"
+ msgstr "setAnimation:选择动画文件;"
+ 
+@@ -2075,9 +2078,6 @@ msgstr "覆盖"
+ msgid "角色名，留空以继承上句"
+ msgstr "角色名，留空以继承上句"
+ 
+-msgid "角色名，留空以继承上句:对话;"
+-msgstr "角色名，留空以继承上句:对话;"
+-
+ msgid "角色名内层文本"
+ msgstr "角色名内层文本"
+ 
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
+index 462bc90a856c1fb7d4fb0a84c95004c144e33f34..29a058e6d7640de64caf70cb153ae45ca03296f3 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
+@@ -2,7 +2,7 @@ import { parseScene } from "./parser";
+ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import { useVirtualizer } from "@tanstack/react-virtual";
+ import { EditorPreviewClient } from "../../../utils/editorPreviewClient";
+-import { mergeToString, replaceLineRange, splitToArray, sceneBody, mergeSceneLines } from "./utils/sceneTextProcessor";
++import { mergeToString, splitToArray, sceneBody } from "./utils/sceneTextProcessor";
+ import { sceneTextPreProcess } from "webgal-parser";
+ import styles from "./graphicalEditor.module.scss";
+ import { DragDropContext, Draggable, Droppable } from "@hello-pangea/dnd";
+@@ -13,12 +13,13 @@ import { AddSentenceButton, AddSentenceDialog, addSentenceType } from "./compone
+ import SentenceArgOption from "./components/SentenceArgOption";
+ import { editorLineHolder } from "@/runtime/WG_ORIGINE_RUNTIME";
+ import { eventBus } from "@/utils/eventBus";
+-import { createId } from "@/utils/createId";
+ import { t } from "@lingui/macro";
+ import { useSceneDocument } from "../SceneDocument/useSceneDocument";
+ import { DocumentBar } from "../SceneDocument/DocumentBar";
+ import { GlobalTerrePanel } from "./components/TerrePanel";
+ import { getArgByKey } from "./utils/getArgByKey";
++import { inspectSceneIdentity, duplicateNode, deleteNode, moveNode, insertSceneStatement, type SourceNode, type SceneBlock } from '../SceneDocument/sceneContract';
++import { registerSceneNodes, editGraphicalStatement, confirmSpeakerDialogue, nativeRanges, freshNodeId } from '../SceneDocument/graphicalSourceEdits';
+ 
+ import type { DragStart, DraggableProvided, DropResult } from '@hello-pangea/dnd';
+ 
+@@ -35,6 +36,11 @@ interface SentenceItem {
+ }
+ 
+ interface SentenceRowProps {
++  revision: string | null;
++  node?: SourceNode;
++  block?: SceneBlock;
++  onDuplicate: (index: number) => void;
++  onConfirmDialogue: (index: number) => void;
+   sentence: ISentence;
+   sentenceItem: SentenceItem;
+   /** 语句在图形编辑器中的序号；一条多行语句只占一行，因此它不等于文件行号 */
+@@ -63,8 +69,20 @@ interface SentenceRowContentProps extends SentenceRowProps {
+ 
+ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+   const { document, state } = useSceneDocument(props.targetPath);
+-  const [sentenceData, setSentenceData] = useState<SentenceItem[]>([]);
+-  const sentenceDataRef = useRef<SentenceItem[]>([]);
++  const [foldedNodes, setFoldedNodes] = useState<Record<string, boolean>>({});
++  const identity = useMemo(() => {
++    try { return inspectSceneIdentity(state.text, nativeRanges(state.text)); }
++    catch { return { nodes: [] as SourceNode[], diagnostics: [] }; }
++  }, [state.text]);
++  const nodesByLine = useMemo(() => new Map(identity.nodes.map(node => [node.startLine, node])), [identity]);
++  const identityValid = !identity.diagnostics.some(item => item.severity === 'error');
++  const sentenceData = useMemo(() => splitToArray(sceneBody(state.text)).map((content, line) => {
++    const node = nodesByLine.get(line);
++    const id = identityValid && node?.nodeId ? node.nodeId : `source-line-${line}`;
++    return { id, content, show: !foldedNodes[id] };
++  }), [state.text, nodesByLine, identityValid, foldedNodes]);
++  const sentenceDataRef = useRef<SentenceItem[]>(sentenceData);
++  sentenceDataRef.current = sentenceData;
+   const scrollElementRef = useRef<HTMLDivElement | null>(null);
+   const [draggingId, setDraggingId] = useState<string | null>(null);
+   const [addSentenceDialog, setAddSentenceDialog] = useState<{
+@@ -72,28 +90,7 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+     insertLine: number;
+   } | null>(null);
+ 
+-  const updateSentenceData = useCallback((newSentences: SentenceItem[]) => {
+-    sentenceDataRef.current = newSentences;
+-    setSentenceData(newSentences);
+-  }, []);
+-
+-  const generateSentenceItem = useCallback((content: string): SentenceItem => ({
+-    id: createId(),
+-    content,
+-    show: true,
+-  }), []);
+-
+   const fetchScene = useCallback(() => document.load(), [document]);
+-  useEffect(() => {
+-    if (!state.revision) return;
+-    const current = sentenceDataRef.current;
+-    const body = sceneBody(state.text);
+-    if (mergeToString(current.map(item => item.content)) === body) return;
+-    updateSentenceData(splitToArray(body).map((content, i) =>
+-      current[i]?.content === content ? current[i] : { id: createId(), content, show: current[i]?.show ?? true }
+-    ));
+-  }, [state.text, state.revision, updateSentenceData]);
+-
+   const mergedSceneText = useMemo(() => mergeToString(sentenceData.map(item => item.content)), [sentenceData]);
+ 
+   const parsedScene = useMemo(
+@@ -106,95 +103,67 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+    * 不单独成行；它们所占的行由所属语句的 startLine / endLine 描述。
+    */
+   const sentences = useMemo(
+-    () => parsedScene.sentenceList.filter(sentence => !sentence.isLineBreakHolder),
+-    [parsedScene]
++    () => parsedScene.sentenceList.filter(sentence => !sentence.isLineBreakHolder && !/^\s*;\s*@makenovel-node /.test(sentenceData[sentence.startLine]?.content ?? '')),
++    [parsedScene, sentenceData]
+   );
+ 
++  const nodeAt = (line: number) => nodesByLine.get(line);
++  const applySource = useCallback((operation: () => string) => {
++    try { document.edit(operation()); document.reportMessage('修改已进入草稿，保存后应用。'); }
++    catch (error) { document.reportMessage(error instanceof Error ? error.message : '操作未执行，请检查源码。'); }
++  }, [document]);
++  const registerNodes = () => applySource(() => registerSceneNodes(document.getSnapshot().text).source);
++
+   /**
+    * 预处理后的行：多行语句的内容全部折叠到它的首行。
+    * 按文本改写参数的编辑器（如 SentenceArgOption）拿到的是这份折叠后的单行。
+    */
+   const foldedLines = useMemo(() => splitToArray(sceneTextPreProcess(mergedSceneText)), [mergedSceneText]);
+ 
+-  /**
+-   * 写回场景，并让预览执行到刚编辑的语句。
+-   *
+-   * lineNumber 的语义是「执行完目标语句后的停止指针」，所以取语句末行 + 1，
+-   * 这样多行语句的续行占位也会被一并跨过。
+-   */
+-  const submitScene = useCallback((newSentences: SentenceItem[], startLine: number, endLine: number) => {
+-    const newScene = mergeSceneLines(newSentences.map(item => item.content), document.getSnapshot().text);
+-    const lineNumber = endLine + 1;
+-    editorLineHolder.recordSceneEditingLine(props.targetPath, lineNumber);
+-
+-    document.edit(newScene);
+-  }, [document, props.targetPath]);
+-
+-  /**
+-   * 改写语句时按位置复用它原来的行对象，只换 content。
+-   *
+-   * 行 id 是虚拟列表与拖拽的 key，重新生成 id 会让整条语句的编辑器被卸载重建，
+-   * 正在输入的文本、焦点、弹窗与折叠状态都会跟着丢失。只有语句变长时新增的行才需要新 id。
+-   */
+-  const rewriteLines = useCallback((target: { startLine: number; endLine: number }, contents: string[]) =>
+-    contents.map((content, i) => {
+-      const lineNumber = target.startLine + i;
+-      const existing = lineNumber <= target.endLine ? sentenceDataRef.current[lineNumber] : undefined;
+-      // Preserve the existing line ending; the document owns its BOM separately.
+-      const useCR = existing ? existing.content.endsWith('\r') : sentenceDataRef.current.some(line => line.content.endsWith('\r'));
+-      const preserved = content.replace(/\r$/, '') + (useCR ? '\r' : '');
+-      return existing ? { ...existing, content: preserved } : generateSentenceItem(preserved);
+-    }), [generateSentenceItem]);
+-
+   const updateSentenceByIndex = useCallback((newContent: string, updateIndex: number) => {
+     if (!document.getSnapshot().revision) return;
+     const target = sentences[updateIndex];
+     if (!target) return;
+-    const newLines = rewriteLines(target, splitToArray(newContent));
+-    const newSentences = replaceLineRange(sentenceDataRef.current, target, newLines);
+-    updateSentenceData(newSentences);
+-    submitScene(newSentences, target.startLine, target.startLine + newLines.length - 1);
+-  }, [rewriteLines, sentences, submitScene, updateSentenceData]);
+-
+-  // 判断是否为空 (识别含唯一空行的文件)
+-  function isEmpty(lines: SentenceItem[]): boolean {
+-    return !lines || (lines.length === 1 && lines[0].content === "");
+-  }
+-
+-  /** insertLine 是插入位置的文件行号（0-based） */
++    applySource(() => editGraphicalStatement(document.getSnapshot().text, target.startLine, newContent));
++  }, [document, sentences, applySource]);
++
++  /** Insert before the complete native block, including an attached legacy ID. */
+   const addOneSentence = useCallback((newContent: string, insertLine: number) => {
+-    const eol = sentenceDataRef.current.some(line => line.content.endsWith('\r')) ? '\r' : '';
+-    const newLines = splitToArray(newContent).map(content => generateSentenceItem(content.replace(/\r$/, '') + eol));
+-    const lines = sentenceDataRef.current;
+-    // 整个文件只有一个空行时，新语句直接顶替这一行，而不是插在它前面
+-    const shouldReplaceEmptyLine = isEmpty(lines);
+-    const startLine = shouldReplaceEmptyLine ? 0 : insertLine;
+-    const endLine = shouldReplaceEmptyLine ? 0 : insertLine - 1; // 纯插入不覆盖任何已有行
+-
+-    const newSentences = replaceLineRange(lines, { startLine, endLine }, newLines);
+-    updateSentenceData(newSentences);
+-    submitScene(newSentences, startLine, startLine + newLines.length - 1);
+-  }, [generateSentenceItem, submitScene, updateSentenceData]);
++    applySource(() => {
++      const source = document.getSnapshot().text;
++      const ranges = nativeRanges(source);
++      const beforeLine = insertLine >= sentenceDataRef.current.length ? null : insertLine;
++      return insertSceneStatement(source, ranges, beforeLine, newContent, freshNodeId, nativeRanges).source;
++    });
++  }, [document, applySource]);
+ 
+   const deleteOneSentence = useCallback((index: number) => {
+     const target = sentences[index];
+     if (!target) return;
+-    const newSentences = replaceLineRange(sentenceDataRef.current, target, []);
+-    updateSentenceData(newSentences);
+-    // 删除后原位置落到了下一条语句，同步到那里即可
+-    const focusLine = Math.min(target.startLine, newSentences.length - 1);
+-    submitScene(newSentences, focusLine, focusLine);
+-  }, [sentences, submitScene, updateSentenceData]);
++    applySource(() => {
++      const source = document.getSnapshot().text;
++      const ranges = nativeRanges(source);
++      const node = inspectSceneIdentity(source, ranges).nodes.find(item => item.startLine === target.startLine);
++      if (!node?.nodeId) throw new Error('请先登记节点身份，再删除。注释和高级源码请在源码模式处理。');
++      return deleteNode(source, ranges, node.nodeId).source;
++    });
++  }, [document, sentences, applySource]);
++
++  const duplicateSentence = (index: number) => applySource(() => {
++    const source = document.getSnapshot().text;
++    const ranges = nativeRanges(source);
++    const node = inspectSceneIdentity(source, ranges).nodes.find(item => item.startLine === sentences[index]?.startLine);
++    if (!node?.nodeId) throw new Error('请先登记节点身份，再复制。');
++    return duplicateNode(source, ranges, node.nodeId, freshNodeId).source;
++  });
++  const confirmDialogue = (index: number) => applySource(() => confirmSpeakerDialogue(document.getSnapshot().text, sentences[index].startLine));
+ 
+   const changeShowSentence = useCallback((index: number) => {
+     const target = sentences[index];
+-    const newSentences = [...sentenceDataRef.current];
+-    // 折叠状态记在语句的首行上
+-    const head = target && newSentences[target.startLine];
+-    if (!target || !head) return;
+-    newSentences[target.startLine] = { ...head, show: !head.show };
+-    updateSentenceData(newSentences);
+-  }, [sentences, updateSentenceData]);
++    const head = target && sentenceDataRef.current[target.startLine];
++    if (!head) return;
++    setFoldedNodes(current => ({ ...current, [head.id]: !current[head.id] }));
++  }, [sentences]);
+ 
+   // 重新记录数组顺序。拖拽以语句为单位，多行语句要整块搬走。
+   const reorder = useCallback((sourceIndex: number, destinationIndex: number) => {
+@@ -202,17 +171,21 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+     const destination = sentences[destinationIndex];
+     if (!source || !destination) return;
+ 
+-    const movedLines = sentenceDataRef.current.slice(source.startLine, source.endLine + 1);
+-    const restLines = replaceLineRange(sentenceDataRef.current, source, []);
+-    // 往后拖时，目标位置的行号要减去已被移走的行数
+-    const insertLine = destination.startLine > source.startLine
+-      ? destination.endLine + 1 - movedLines.length
+-      : destination.startLine;
+-
+-    const newSentences = replaceLineRange(restLines, { startLine: insertLine, endLine: insertLine - 1 }, movedLines);
+-    updateSentenceData(newSentences);
+-    submitScene(newSentences, insertLine, insertLine + movedLines.length - 1);
+-  }, [sentences, submitScene, updateSentenceData]);
++    applySource(() => {
++      const text = document.getSnapshot().text;
++      const ranges = nativeRanges(text);
++      const nodes = inspectSceneIdentity(text, ranges).nodes;
++      const moving = nodes.find(node => node.startLine === source.startLine);
++      const target = nodes.find(node => node.startLine === destination.startLine);
++      if (!moving?.nodeId || !target?.nodeId) throw new Error('拖动两端都需要已登记的节点身份；高级源码和注释请在源码模式移动。');
++      const before = sourceIndex < destinationIndex ? nodes[nodes.indexOf(target) + 1] : target;
++      if (before && !before.nodeId) throw new Error('目标后方含未登记节点，请先登记或改用源码模式。');
++      if (sourceIndex < destinationIndex && text.slice(target.blockEnd, before?.blockStart ?? text.length).trim()) {
++        throw new Error('目标后方有独立注释，为避免改变注释归属，请在源码模式移动。');
++      }
++      return moveNode(text, ranges, moving.nodeId, before?.nodeId ?? null).source;
++    });
++  }, [document, sentences, applySource]);
+ 
+   const onDragStart = useCallback((start: DragStart) => {
+     setDraggingId(start.draggableId);
+@@ -342,11 +315,18 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+   const getSentenceRowProps = (i: number): SentenceRowProps | null => {
+     const sentence = sentences[i];
+     // 语句的 id 与折叠状态都记在它的首行上
+-    const sentenceItem = sentence && sentenceData[sentence.startLine];
++    const item = sentence && sentenceData[sentence.startLine];
++    const node = sentence && nodeAt(sentence.startLine);
++    const sentenceItem = item;
+     if (!sentence || !sentenceItem) return null;
+     return {
++      revision: state.revision,
+       sentence,
+       sentenceItem,
++      node,
++      block: state.analysis.blocks.find(block => block.startLine === sentence.startLine + 1),
++      onDuplicate: duplicateSentence,
++      onConfirmDialogue: confirmDialogue,
+       index: i,
+       startLine: sentence.startLine,
+       foldedSentence: foldedLines[sentence.startLine] ?? sentenceItem.content,
+@@ -367,7 +347,10 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+   };
+ 
+   return <div className={styles.main} id="graphical-editor-main">
+-    <DocumentBar document={document} state={state} />
++    <DocumentBar document={document} state={state} onRegisterNodes={registerNodes} onLocate={(line) => {
++      const index = sentences.findIndex(sentence => sentence.startLine <= line - 1 && sentence.endLine >= line - 1);
++      if (index >= 0) rowVirtualizer.scrollToIndex(index, { align: 'center' });
++    }} />
+     <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
+       <Droppable
+         droppableId="droppable"
+@@ -453,7 +436,7 @@ const SentenceRowContent = (props: SentenceRowContentProps) => {
+           <AddSentenceButton
+             titleText={t`本句前插入句子`}
+             type={addSentenceType.forward}
+-            onClick={() => props.onAddBefore(t`本句前插入句子`, startLine)}
++            onClick={() => props.onAddBefore(t`本句前插入句子`, props.node?.markerKind === 'standalone' ? props.node.markerLine! : startLine)}
+           />
+         </div>
+       </div>
+@@ -466,7 +449,8 @@ const SentenceRowContent = (props: SentenceRowContentProps) => {
+       <div className={styles.seArea}>
+         <div className={styles.head}>
+           <div className={styles.title}>
+-            {sentenceConfig.title()}
++            {props.block?.graphicalEditable ? sentenceConfig.title() : props.block?.kind === 'comment' ? '源码注释' : props.block?.kind === 'blank' ? '空行' : '高级源码 · 只读'}
++            {props.node && <small style={{ marginLeft: 8, fontWeight: 'normal', fontSize: 11, display: 'inline-block', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'bottom' }} title={props.node.nodeId}>{props.node.nodeId ? `ID ${props.node.nodeId}` : '未登记身份'}</small>}
+           </div>
+           <div className={styles.optionButton}
+             onClick={() => props.onToggleShow(i)}>
+@@ -477,8 +461,9 @@ const SentenceRowContent = (props: SentenceRowContentProps) => {
+                 fill="#005CAF" />}
+           </div>
+           <div className={styles.optionButtonContainer}>
++            {props.node?.nodeId && props.block?.kind !== 'advanced' && <button type="button" onClick={() => props.onDuplicate(i)}>复制节点</button>}
+             <div className={styles.optionButton}
+-              onClick={() => props.onDelete(i)}>
++              onClick={() => { if (props.block?.kind !== 'advanced') props.onDelete(i); }}>
+               <DeleteFive strokeWidth={3} style={{ padding: "2px 4px 0 0" }} theme="outline" size="14"
+                 fill="var(--text)" />
+               <div>
+@@ -496,9 +481,13 @@ const SentenceRowContent = (props: SentenceRowContentProps) => {
+           </div>
+         </div>
+         {sentenceItem.show && <div className={styles.sentenceEditBody}>
+-          <SentenceEditor sentence={sentence} index={index} onSubmit={(newSentence) => {
++          {props.block?.graphicalEditable ? <SentenceEditor key={props.revision} sentence={sentence} index={index} onSubmit={(newSentence) => {
+             props.onUpdate(newSentence, i);
+-          }} targetPath={targetPath} sceneLabels={sceneLabels} extraOptions={argOption} />
++          }} targetPath={targetPath} sceneLabels={sceneLabels} extraOptions={argOption} /> : <div>
++            <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: '4px 0 10px' }}>{props.block?.raw ?? props.foldedSentence}</pre>
++            <p>原始文本已保留。复杂参数、多行或未知指令请在源码模式编辑。</p>
++            {props.block?.kind === 'advanced' && props.block.startLine === props.block.endLine && <button type="button" onClick={() => props.onConfirmDialogue(i)}>确认为角色对白</button>}
++          </div>}
+         </div>}
+       </div>
+     </div>
+@@ -506,7 +495,7 @@ const SentenceRowContent = (props: SentenceRowContentProps) => {
+ };
+ 
+ const SentenceRow = memo((props: SentenceRowProps) => {
+-  return <Draggable key={props.sentenceItem.id} draggableId={props.sentenceItem.id} index={props.index}>
++  return <Draggable key={props.sentenceItem.id} draggableId={props.sentenceItem.id} index={props.index} isDragDisabled={!props.node?.nodeId || props.block?.kind === 'advanced'}>
+     {(provided) => <SentenceRowContent provided={provided} {...props} />}
+   </Draggable>;
+ }, (prev, next) => (
+@@ -518,4 +507,6 @@ const SentenceRow = memo((props: SentenceRowProps) => {
+   prev.linkedWithPrevious === next.linkedWithPrevious &&
+   prev.targetPath === next.targetPath &&
+   prev.sceneLabels === next.sceneLabels
++  && prev.node === next.node && prev.block === next.block
++  && prev.revision === next.revision
+ ));
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Say.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Say.tsx
+index 636c58dbec46d8b8e69a8028a977eebc125bf259..e0bbba6e0ca76ff4aff20178cd3dd11946640a7d 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Say.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Say.tsx
+@@ -22,7 +22,7 @@ export default function Say(props: ISentenceEditorProps) {
+   const currentSpeaker = useValue(getArgByKey(props.sentence, "speaker").toString());
+   const vocal = useValue(getArgByKey(props.sentence, "vocal").toString() ?? "");
+   const volume = useValue(getArgByKey(props.sentence, "volume").toString() ?? "");
+-  const isNoSpeaker = useValue(props.sentence.commandRaw === "");
++  const isNoSpeaker = useValue(props.sentence.commandRaw === "" || (!!getArgByKey(props.sentence, "clear") && !getArgByKey(props.sentence, "speaker")));
+   const figureId = useValue(getArgByKey(props.sentence, "figureId").toString() ?? "");
+   const isClearSpeaker = useValue(!!getArgByKey(props.sentence, "clear"));
+   const figurePosition = useValue<FigurePosition>("");
+@@ -72,12 +72,12 @@ export default function Say(props: ISentenceEditorProps) {
+     const sayContent = commitValue.join("|");
+     const inheritSpeaker = !isNoSpeaker.value && currentSpeaker.value === "";
+     const submitString = combineSubmitString(
+-      inheritSpeaker ? undefined : (isNoSpeaker.value ? "" : currentSpeaker.value),
++      "say",
+       sayContent,
+       props.sentence.args,
+       [
+         // 移除 -speaker=somebody
+-        {key: "speaker", value: false},
++        {key: "speaker", value: isNoSpeaker.value ? false : currentSpeaker.value},
+         // 移除 -vocal=path/to/vocal.wav
+         {key: "vocal", value: false},
+         // 添加 -path/to/vocal.wav
+@@ -95,7 +95,7 @@ export default function Say(props: ISentenceEditorProps) {
+ 
+         {key: "concat", value: isConcat.value},
+         {key: "notend", value: isNotend.value},
+-        {key: "clear", value: isClearSpeaker.value},
++        {key: "clear", value: isNoSpeaker.value || isClearSpeaker.value},
+         {key: "fontSize", value: (fontSize.value !== "default" ? fontSize.value : "")},
+         ...Array.from(figurePositions.keys())
+           .filter((position) => position !== "")
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
+index ab52385cee3546faaf119b0bf99bc61f78f0bddc..78ec331754edcf67815b705e0786ee8307ef4e08 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
+@@ -87,7 +87,7 @@ export const sentenceEditorConfig: ISentenceEditorConfig[] = [
+   {
+     type: commandType.say,
+     title: () => t`普通对话`,
+-    initialText: () => t`角色名，留空以继承上句:对话;`,
++    initialText: () => t`say:对话;`,
+     component: Say,
+     icon: <CommentOne className={styles.iconSvg} theme="multi-color" size="24"/>,
+     descText: () => t`添加一句对话，可以附带语音`
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/DocumentBar.tsx b/packages/origine2/src/pages/editor/SceneDocument/DocumentBar.tsx
+index bde2de4c4d554ef24086317b16464d5f12f48bcb..26118849a2b1bf433e57a21e3fe144f5020f1b51 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/DocumentBar.tsx
++++ b/packages/origine2/src/pages/editor/SceneDocument/DocumentBar.tsx
+@@ -4,7 +4,7 @@ import styles from './documentBar.module.scss';
+ import { pendingScenePaths } from './sceneDocumentRegistry';
+ 
+ const labels = { loading: '正在读取', saved: '已保存', dirty: '未保存草稿', saving: '正在保存', conflict: '文件冲突 · 草稿已保留', error: '操作失败 · 草稿已保留' };
+-export function DocumentBar({ document, state }: { document: SceneDocument; state: DocumentState }) {
++export function DocumentBar({ document, state, onLocate, onRegisterNodes }: { document: SceneDocument; state: DocumentState; onLocate?: (line: number, column: number) => void; onRegisterNodes?: () => void }) {
+   const [backedUp, setBackedUp] = useState<string | null>(null);
+   const download = () => {
+     const url = URL.createObjectURL(new Blob([state.text], { type: 'text/plain;charset=utf-8' }));
+@@ -16,12 +16,20 @@ export function DocumentBar({ document, state }: { document: SceneDocument; stat
+     setBackedUp(state.text);
+   };
+   return <div className={styles.bar} data-status={state.status}>
+-    <div role="status" aria-live="polite"><strong>{labels[state.status]}</strong>{state.status === 'dirty' && <span>保存后可同步预览</span>}{state.status === 'saved' && pendingScenePaths().length > 0 && <span>预览暂停，请先处理其他脚本：{pendingScenePaths().join('、')}</span>}{state.message && <span>{state.message}</span>}{state.recoveryWarning && <span>{state.recoveryWarning}</span>}</div>
++    <div role="status" aria-live="polite"><strong>{labels[state.status]}</strong><span>{state.analysis.valid ? state.analysis.hasAdvanced ? '含高级代码 · 预览暂停' : '核心语法检查通过' : '脚本有错误 · 保存与预览暂停'}</span>{state.status === 'dirty' && <span>草稿保留在本标签页，保存后应用</span>}{state.status === 'saved' && state.analysis.previewable && pendingScenePaths(document.gameName).length > 0 && <span>预览暂停，请先处理其他脚本：{pendingScenePaths(document.gameName).join('、')}</span>}{state.message && <span>{state.message}</span>}{state.recoveryWarning && <span>{state.recoveryWarning}</span>}</div>
+     <div className={styles.actions}>
+       <button type="button" disabled={!state.revision || ['saved', 'loading', 'saving', 'conflict'].includes(state.status)} onClick={() => void document.save()}>保存脚本</button>
++      {onRegisterNodes && <button type="button" disabled={!state.revision || state.status === 'saving' || state.status === 'conflict'} onClick={onRegisterNodes}>登记节点身份</button>}
+       <button type="button" disabled={state.status === 'loading' || state.status === 'saving'} onClick={() => void document.load()}>检查磁盘版本</button>
+       <button type="button" disabled={!state.revision} onClick={download}>下载草稿</button>
+       {(state.status === 'conflict' || state.status === 'error') && <button type="button" disabled={backedUp !== state.text} title="请先下载当前草稿，再载入磁盘版本" onClick={() => void document.reloadDisk()}>已备份，载入磁盘版本</button>}
+     </div>
++    {state.analysis.diagnostics.length > 0 && <details className={styles.diagnostics} open={!state.analysis.valid}>
++      <summary>脚本诊断（{state.analysis.diagnostics.length}）</summary>
++      <ul>{state.analysis.diagnostics.map((item, index) => <li key={`${item.code}-${item.range.start.offset}-${index}`} data-severity={item.severity}>
++        {onLocate ? <button type="button" onClick={() => onLocate(item.range.start.line, item.range.start.column)}>第 {item.range.start.line} 行</button> : <strong>第 {item.range.start.line} 行</strong>}
++        {' '}{item.severity === 'error' ? '错误' : '提示'}：{item.message}
++      </li>)}</ul>
++    </details>}
+   </div>;
+ }
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/documentBar.module.scss b/packages/origine2/src/pages/editor/SceneDocument/documentBar.module.scss
+index bb3a7c9a3fc5a03e1f3e0b50240631825c81d912..b7d80c3ef46b21361913dcd0988771070065dfb8 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/documentBar.module.scss
++++ b/packages/origine2/src/pages/editor/SceneDocument/documentBar.module.scss
+@@ -17,3 +17,4 @@
+   button:focus-visible { outline: 2px solid #1971c2; outline-offset: 2px; }
+ }
+ .actions { display: flex; flex-wrap: wrap; gap: 6px; }
++.diagnostics { width: 100%; max-height: 140px; overflow: auto; line-height: 1.6; summary { cursor: pointer; } ul { margin: 4px 0; padding-left: 20px; } [data-severity='error'] { color: #ac2d27; } }
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/graphicalSourceEdits.ts b/packages/origine2/src/pages/editor/SceneDocument/graphicalSourceEdits.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..241800f0ca5722de2c06f74a6c42287b1021e16e
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/SceneDocument/graphicalSourceEdits.ts
+@@ -0,0 +1,44 @@
++import SceneParser, { SCRIPT_CONFIG, sceneTextPreProcess } from 'webgal-parser';
++import { analyzeScene, assignMissingNodeIds, inspectSceneIdentity } from './sceneContract';
++import { patchNodeStatement } from '../../../../../terre2/src/Modules/scene-identity/scene-identity';
++
++const parser = new SceneParser(undefined, name => name, [], SCRIPT_CONFIG);
++export const nativeRanges = (source: string) => parser.parse(source.replace(/^\uFEFF/, ''), 'editing', 'editing.txt').sentenceList;
++export const freshNodeId = () => `node-${crypto.randomUUID()}`;
++
++export function registerSceneNodes(source: string) {
++  const analysis = analyzeScene(source);
++  if (!analysis.valid) throw new Error('请先修复脚本错误，再登记节点身份。');
++  const eligibleStartLines = analysis.blocks.filter(block => block.kind === 'command' || block.kind === 'dialogue').map(block => block.startLine - 1);
++  return assignMissingNodeIds(source, nativeRanges(source), freshNodeId, { eligibleStartLines });
++}
++
++/** The serializer proposes semantics; only changed source tokens are applied. */
++export function editGraphicalStatement(source: string, startLine: number, replacement: string) {
++  const block = analyzeScene(source).blocks.find(item => item.startLine === startLine + 1);
++  if (!block?.graphicalEditable) throw new Error('该段源码无法安全投影为表单，请在源码模式编辑。');
++  const registered = assignMissingNodeIds(source, nativeRanges(source), freshNodeId, { eligibleStartLines: [startLine] }).source;
++  const ranges = nativeRanges(registered);
++  const node = inspectSceneIdentity(registered, ranges).nodes.find(item => item.startLine === startLine);
++  if (!node?.nodeId) throw new Error('无法确定节点身份，请在源码中检查标记。');
++  let folded = sceneTextPreProcess(replacement).split('\n')[0];
++  if (block.kind === 'dialogue' && !block.raw.split(/(?<!\\);/)[0].includes(':')) folded = folded.replace(/^say:/, '');
++  return patchNodeStatement(registered, ranges, { nodeId: node.nodeId, replacement: folded }, nativeRanges).source;
++}
++
++/** Explicit user confirmation resolves the native parser's unknown-command/speaker ambiguity. */
++export function confirmSpeakerDialogue(source: string, startLine: number) {
++  const block = analyzeScene(source).blocks.find(item => item.startLine === startLine + 1);
++  if (block?.kind !== 'advanced' || block.startLine !== block.endLine) throw new Error('只支持确认单行角色对白；复杂代码请在源码中处理。');
++  const comment = block.raw.search(/(?<!\\);/);
++  const code = comment < 0 ? block.raw : block.raw.slice(0, comment);
++  const colon = code.indexOf(':');
++  const speaker = code.slice(0, colon);
++  if (colon <= 0 || speaker !== speaker.trim() || /[=;\\\r\n]/.test(speaker) || speaker.includes(' -') || / -speaker(?:=|\s|$)/.test(code)) {
++    throw new Error('角色名或参数存在歧义，请在源码中明确写为 say:对白 -speaker=角色名。');
++  }
++  const next = `say:${code.slice(colon + 1)} -speaker=${speaker}${comment < 0 ? ';' : block.raw.slice(comment)}`;
++  const result = source.slice(0, block.range.start.offset) + next + source.slice(block.range.end.offset);
++  if (!analyzeScene(result).valid) throw new Error('转换后仍有脚本错误，请先在源码中修复。');
++  return assignMissingNodeIds(result, nativeRanges(result), freshNodeId, { eligibleStartLines: [startLine] }).source;
++}
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/sceneContract.ts b/packages/origine2/src/pages/editor/SceneDocument/sceneContract.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8b46d9954a69fa6943bdb0478753c7db51330bb4
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/SceneDocument/sceneContract.ts
+@@ -0,0 +1,5 @@
++// Pure source contracts shared with the local server; no filesystem or Node imports.
++export { analyzeScene, hasUnreviewedAdvancedChanges } from '../../../../../terre2/src/Modules/scene-document/scene-analysis';
++export type { SceneAnalysis, SceneDiagnostic, SceneBlock } from '../../../../../terre2/src/Modules/scene-document/scene-analysis';
++export { inspectSceneIdentity, assignMissingNodeIds, patchNodeDialogue, moveNode, duplicateNode, deleteNode, insertSceneStatement } from '../../../../../terre2/src/Modules/scene-identity/scene-identity';
++export type { SourceNode } from '../../../../../terre2/src/Modules/scene-identity/scene-identity';
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts b/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts
+index 13a7093ec1b19a19ba0c6e02cbb9e0a5c59809b8..191015cd47aad9d547c291a18a604b73a32974e4 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts
++++ b/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts
+@@ -1,3 +1,5 @@
++import { analyzeScene, hasUnreviewedAdvancedChanges, type SceneAnalysis } from './sceneContract';
++
+ export interface TextSnapshot { text: string; revision: string }
+ export interface SnapshotTransport {
+   read(): Promise<TextSnapshot>;
+@@ -15,22 +17,26 @@ export interface DocumentState {
+   status: DocumentStatus;
+   message: string;
+   recoveryWarning: string;
++  analysis: SceneAnalysis;
+ }
+ 
+ /** A single file session shared by both editor modes. Network completion never replaces newer input. */
+ export class SceneDocument {
+-  private state: DocumentState = { text: '', revision: null, status: 'loading', message: '', recoveryWarning: '' };
++  private state: DocumentState = { text: '', revision: null, status: 'loading', message: '', recoveryWarning: '', analysis: analyzeScene('') };
+   private listeners = new Set<() => void>();
+   private savedText = '';
+   private pendingRead: Promise<void> | null = null;
+   private pendingSave: Promise<boolean> | null = null;
+   private initialized = false;
+   private preserveUnknownDraft = false;
+-  constructor(private transport: SnapshotTransport, private storage: DraftStorage) {}
++  constructor(private transport: SnapshotTransport, private storage: DraftStorage, readonly gameName?: string) {}
+   getSnapshot = () => this.state;
+   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+-  canPreview = () => this.state.status === 'saved';
++  canPreview = () => this.state.status === 'saved' && this.state.analysis.previewable;
++  hasUnsavedChanges = () => !!this.state.revision && this.state.text !== this.savedText;
++  reportMessage = (message: string) => this.publish({ message });
+   private publish(next: Partial<DocumentState>) {
++    if (next.text !== undefined && next.text !== this.state.text) next.analysis = analyzeScene(next.text);
+     this.state = { ...this.state, ...next };
+     for (const listener of this.listeners) listener();
+   }
+@@ -98,6 +104,16 @@ export class SceneDocument {
+   save = (): Promise<boolean> => {
+     if (this.pendingSave) return this.pendingSave;
+     if (!this.state.revision || this.state.status === 'conflict' || this.state.status === 'loading' || this.pendingRead) return Promise.resolve(false);
++    if (!this.state.analysis.valid) {
++      this.publish({ message: '脚本检查发现错误，未写入磁盘。草稿已保留，请按行号修复后再保存。' });
++      this.persist();
++      return Promise.resolve(false);
++    }
++    if (hasUnreviewedAdvancedChanges(analyzeScene(this.savedText), this.state.analysis)) {
++      this.publish({ message: '新增或改写的高级代码尚未确认，未写入磁盘。角色名语句请在图形模式明确转换为对白。' });
++      this.persist();
++      return Promise.resolve(false);
++    }
+     if (this.state.status === 'saved') return Promise.resolve(true);
+     const submitted = this.state.text;
+     const expectedRevision = this.state.revision;
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts b/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts
+index e1152941b480588926ba49ccaf82c975e6987769..9117c2a280c091c5cc9e4667b66b917b9545e886 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts
++++ b/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts
+@@ -16,17 +16,17 @@ export function getDocument(path: string) {
+   const key = `makenovel.scene-draft.v1:${path}`;
+   document = new SceneDocument({ read: () => request('textSnapshot', {}), save: (text, expectedRevision) => request('saveTextSnapshot', { text, expectedRevision }) }, {
+     read: () => sessionStorage.getItem(key), write: value => sessionStorage.setItem(key, value), clear: () => sessionStorage.removeItem(key),
+-  });
++  }, address.gameName);
+   documents.set(path, document);
+   return document;
+ }
+ 
+ // One listener for the application; drafts are retained when closing an editor tab or changing modes.
+ window.addEventListener('beforeunload', event => {
+-  if ([...documents.values()].some(doc => !doc.canPreview() && doc.getSnapshot().revision)) { event.preventDefault(); event.returnValue = ''; }
++  if ([...documents.values()].some(doc => doc.hasUnsavedChanges())) { event.preventDefault(); event.returnValue = ''; }
+ });
+ 
+ 
+-export function canPreviewDocuments() { return [...documents.values()].every(document => document.canPreview()); }
++export function canPreviewDocuments(gameName?: string) { return [...documents.values()].filter(document => !gameName || document.gameName === gameName).every(document => document.canPreview()); }
+ 
+-export function pendingScenePaths() { return [...documents.entries()].filter(([, document]) => !document.canPreview()).map(([path]) => path); }
++export function pendingScenePaths(gameName?: string) { return [...documents.entries()].filter(([, document]) => (!gameName || document.gameName === gameName) && !document.canPreview()).map(([path]) => path); }
+diff --git a/packages/origine2/src/pages/editor/TextEditor/TextEditor.tsx b/packages/origine2/src/pages/editor/TextEditor/TextEditor.tsx
+index eeb52bbfa720544459e111fe75e14b537c827790..cb008a8e3ed9f2688f0e630db86436aa9d5720d5 100644
+--- a/packages/origine2/src/pages/editor/TextEditor/TextEditor.tsx
++++ b/packages/origine2/src/pages/editor/TextEditor/TextEditor.tsx
+@@ -17,6 +17,16 @@ export default function TextEditor(props: ITextEditorProps) {
+   const isAutoWarp = useEditorStore.use.isAutoWarp();
+   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+   const applyingSnapshot = useRef(false);
++  const applyDiagnostics = useCallback(() => {
++    const model = editorRef.current?.getModel();
++    if (!model) return;
++    monaco.editor.setModelMarkers(model, 'makenovel-core', document.getSnapshot().analysis.diagnostics.map(item => ({
++      message: item.message, code: item.code,
++      severity: item.severity === 'error' ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
++      startLineNumber: item.range.start.line, startColumn: item.range.start.column,
++      endLineNumber: item.range.end.line, endColumn: item.range.end.column,
++    })));
++  }, [document]);
+   const applySnapshot = useCallback(() => {
+     const model = editorRef.current?.getModel();
+     if (!model) return;
+@@ -47,10 +57,12 @@ export default function TextEditor(props: ITextEditorProps) {
+     domNode.addEventListener('drop', dropHandler);
+     editor.onDidDispose(() => { cursor.dispose(); domNode.removeEventListener('drop', dropHandler); });
+     applySnapshot();
++    applyDiagnostics();
+     editor.setPosition(editorLineHolder.getScenePosition(props.targetPath));
+   }
+ 
+   useEffect(applySnapshot, [applySnapshot, state.text, state.revision]);
++  useEffect(applyDiagnostics, [applyDiagnostics, state.analysis]);
+   useEffect(() => { editorRef.current?.updateOptions({ wordWrap: isAutoWarp ? 'on' : 'off' }); }, [isAutoWarp]);
+   const syncCurrentLine = useCallback(() => {
+     if (props.isHide || !document.canPreview()) return;
+@@ -60,7 +72,11 @@ export default function TextEditor(props: ITextEditorProps) {
+   useEffect(() => { eventBus.on('editor:sync-current-line', syncCurrentLine); return () => { eventBus.off('editor:sync-current-line', syncCurrentLine); }; }, [syncCurrentLine]);
+ 
+   return <div style={{ display: props.isHide ? 'none' : 'flex', flexDirection: 'column', overflow: 'hidden' }} className={styles.textEditor_main}>
+-    <DocumentBar document={document} state={state} />
++    <DocumentBar document={document} state={state} onLocate={(lineNumber, column) => {
++      editorRef.current?.setPosition({ lineNumber, column });
++      editorRef.current?.revealLineInCenter(lineNumber);
++      editorRef.current?.focus();
++    }} />
+     <div style={{ flex: 1, minHeight: 0 }}>
+       <Editor height="100%" width="100%" onMount={handleEditorDidMount} language="webgal" defaultValue=""
+         onChange={(_value, event) => { if (!applyingSnapshot.current && document.getSnapshot().revision) document.edit(applySourceEdits(document.getSnapshot().text, event.changes)); }} />
+diff --git a/packages/origine2/src/utils/editorPreviewClient.ts b/packages/origine2/src/utils/editorPreviewClient.ts
+index d1dfe57b6f3cb5fa2961386552150a6a35761976..f5d25434b1543d77983731bee4a00f941055784a 100644
+--- a/packages/origine2/src/utils/editorPreviewClient.ts
++++ b/packages/origine2/src/utils/editorPreviewClient.ts
+@@ -265,7 +265,7 @@ function sendPreviewCommand<TType extends PreviewCommandType>(
+   payload: RequestPayloadByType[TType],
+ ): boolean {
+   // All mutation entry points share the draft barrier, including effect panels and drag previews.
+-  if (!canPreviewDocuments()) return false;
++  if (!canPreviewDocuments(useEditorStore.getState().subPage)) return false;
+   ensureEditorPreviewClientStarted();
+   editorPreviewTransport?.ensureConnected();
+   if (!editorPreviewTransport) {
+diff --git a/packages/terre2/src/Modules/manage-game/export-asar.spec.ts b/packages/terre2/src/Modules/manage-game/export-asar.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e1f1f591afbc7f2046d7afd88121f1781f4539df
+--- /dev/null
++++ b/packages/terre2/src/Modules/manage-game/export-asar.spec.ts
+@@ -0,0 +1,56 @@
++import { ConsoleLogger } from '@nestjs/common';
++import * as asar from '@electron/asar';
++import * as fs from 'fs/promises';
++import * as os from 'os';
++import { join } from 'path';
++import { ManageGameService } from './manage-game.service';
++import { WebgalFsService } from '../webgal-fs/webgal-fs.service';
++
++describe('Windows Electron export ASAR', () => {
++  let root: string;
++
++  beforeEach(async () => {
++    root = await fs.mkdtemp(join(os.tmpdir(), 'webgal-asar-中文 空格-'));
++  });
++
++  afterEach(async () => {
++    if (!root?.startsWith(join(os.tmpdir(), 'webgal-asar-中文 空格-'))) {
++      throw new Error('Refusing cleanup outside the generated ASAR fixture');
++    }
++    await fs.rm(root, { recursive: true, force: true });
++  });
++
++  it('keeps native bindings with their DLLs outside ASAR and preserves game bytes', async () => {
++    const appDir = join(root, 'app');
++    const archive = join(root, 'app.asar');
++    const nativeDir = join('node_modules', 'steamworks.js', 'dist', 'win64');
++    const binding = join(nativeDir, 'steamworksjs.win32-x64-msvc.node');
++    const dll = join(nativeDir, 'steam_api64.dll');
++    const scene = join('public', 'game', 'scene', '中文 场景.txt');
++    const fixture = Buffer.from('\ufeff; preserve\r\nsay:离线打包验证;\r\n');
++    await fs.mkdir(join(appDir, nativeDir), { recursive: true });
++    await fs.mkdir(join(appDir, 'public', 'game', 'scene'), {
++      recursive: true,
++    });
++    await fs.writeFile(join(appDir, binding), Buffer.from([0x4d, 0x5a, 1, 2]));
++    await fs.writeFile(join(appDir, dll), Buffer.from([0x4d, 0x5a, 3, 4]));
++    await fs.writeFile(join(appDir, scene), fixture);
++    await fs.writeFile(join(appDir, 'main.js'), 'console.log("fixture");\n');
++    const logger = new ConsoleLogger('AsarTest', { logLevels: [] });
++    const service = new ManageGameService(logger, new WebgalFsService(logger));
++
++    await service['packElectronAppAsar'](appDir, archive);
++
++    expect(asar.statFile(archive, binding)).toMatchObject({ unpacked: true });
++    expect(asar.statFile(archive, dll)).toMatchObject({ unpacked: true });
++    expect(await fs.readFile(join(`${archive}.unpacked`, binding))).toEqual(
++      Buffer.from([0x4d, 0x5a, 1, 2]),
++    );
++    expect(await fs.readFile(join(`${archive}.unpacked`, dll))).toEqual(
++      Buffer.from([0x4d, 0x5a, 3, 4]),
++    );
++    expect(asar.extractFile(archive, scene)).toEqual(fixture);
++    expect(asar.statFile(archive, scene)).not.toMatchObject({ unpacked: true });
++    await expect(fs.access(appDir)).rejects.toMatchObject({ code: 'ENOENT' });
++  });
++});
+diff --git a/packages/terre2/src/Modules/manage-game/manage-game.controller.ts b/packages/terre2/src/Modules/manage-game/manage-game.controller.ts
+index afc16417ed9a550500c4a6c53e9f89b0fb7f1861..e5ec69f803e83f8b2b9f5699da0bda3f3581bb30 100644
+--- a/packages/terre2/src/Modules/manage-game/manage-game.controller.ts
++++ b/packages/terre2/src/Modules/manage-game/manage-game.controller.ts
+@@ -44,6 +44,7 @@ import {
+   ReadTextSnapshotDto,
+   SaveTextSnapshotDto,
+   TextSnapshotDto,
++  ValidateSceneSnapshotDto,
+ } from './manage-game.dto';
+ import { UserDataService } from '../user-data/user-data.service';
+ 
+@@ -64,11 +65,19 @@ export class ManageGameController {
+     return this.webgalFs.readTextSnapshot(request?.gameName, request?.path);
+   }
+ 
++  @Post('validateSceneSnapshot')
++  @HttpCode(200)
++  @ApiOperation({ summary: 'Analyze locked core scene syntax without writing or executing it' })
++  async validateSceneSnapshot(@Body() request: ValidateSceneSnapshotDto) {
++    return this.webgalFs.validateSceneSnapshot(request?.text);
++  }
++
+   @Post('saveTextSnapshot')
+   @HttpCode(200)
+   @ApiOperation({ summary: 'Save game text only when its byte revision still matches' })
+   @ApiResponse({ status: 200, type: TextSnapshotDto })
+   @ApiResponse({ status: 409, description: 'REVISION_CONFLICT or WRITE_LOCKED; file unchanged' })
++  @ApiResponse({ status: 422, description: 'SCENE_VALIDATION_FAILED or ADVANCED_CODE_REQUIRES_REVIEW; draft not applied' })
+   async saveTextSnapshot(@Body() request: SaveTextSnapshotDto) {
+     return this.webgalFs.saveTextSnapshot(
+       request?.gameName,
+diff --git a/packages/terre2/src/Modules/manage-game/manage-game.dto.ts b/packages/terre2/src/Modules/manage-game/manage-game.dto.ts
+index 74a2c5c3e049c53b3e604ae6f7ab579f90e61bdd..1c050bc917d98e6f9da0aa08563bfbdcaf8705ce 100644
+--- a/packages/terre2/src/Modules/manage-game/manage-game.dto.ts
++++ b/packages/terre2/src/Modules/manage-game/manage-game.dto.ts
+@@ -86,6 +86,11 @@ export class SaveTextSnapshotDto extends ReadTextSnapshotDto {
+   expectedRevision: string;
+ }
+ 
++export class ValidateSceneSnapshotDto {
++  @ApiProperty({ description: 'Scene draft to analyze without applying or executing it' })
++  text: string;
++}
++
+ export class TextSnapshotDto {
+   @ApiProperty({ description: 'Exact UTF-8 text, including BOM and line endings' })
+   text: string;
+diff --git a/packages/terre2/src/Modules/manage-game/manage-game.service.ts b/packages/terre2/src/Modules/manage-game/manage-game.service.ts
+index 5626080b2db35705e4dca46aafaadf2f9fe1ba4a..52273b3cda5c3704ac90c3b47835c6f1eb22005b 100644
+--- a/packages/terre2/src/Modules/manage-game/manage-game.service.ts
++++ b/packages/terre2/src/Modules/manage-game/manage-game.service.ts
+@@ -713,7 +713,9 @@ export class ManageGameService {
+ 
+   private async packElectronAppAsar(appDir: string, asarPath: string) {
+     await asar.createPackageWithOptions(appDir, asarPath, {
+-      unpack: '**/node_modules/steamworks.js/dist/**',
++      // ASAR normalizes file paths to the host separator before matching them.
++      // A slash-only glob misses Windows native modules and their sibling DLLs.
++      unpackDir: join('node_modules', 'steamworks.js', 'dist'),
+     });
+     await this.webgalFs.deleteFileOrDirectory(appDir);
+   }
+diff --git a/packages/terre2/src/Modules/scene-document/scene-analysis.spec.ts b/packages/terre2/src/Modules/scene-document/scene-analysis.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..fdbe3fb8b1e42e70d40580023ed34c1caa0af448
+--- /dev/null
++++ b/packages/terre2/src/Modules/scene-document/scene-analysis.spec.ts
+@@ -0,0 +1,246 @@
++import * as fs from 'fs';
++import { resolve } from 'path';
++import SceneParser, { SCRIPT_CONFIG } from 'webgal-parser';
++import { analyzeScene, hasUnreviewedAdvancedChanges } from './scene-analysis';
++
++const native = new SceneParser(undefined, (name) => name, [], SCRIPT_CONFIG);
++const runtimeRoot = resolve(__dirname, '../../../../../../WebGAL');
++
++describe('scene source contract (locked WebGAL parser, no execution)', () => {
++  it.each(['start.txt', 'var.txt', 'line-break.txt', 'long-script.txt'])(
++    'does not reject the upstream %s fixture and uses native physical ranges',
++    (fixture) => {
++      const text = fs.readFileSync(
++        resolve(runtimeRoot, 'packages/parser/test/test-resources', fixture),
++        'utf8',
++      );
++      const analysis = analyzeScene(text);
++      expect(
++        analysis.diagnostics.filter((item) => item.severity === 'error'),
++      ).toEqual([]);
++      const expected = native
++        .parse(text, 'fixture', 'fixture.txt')
++        .sentenceList.filter((sentence) => !sentence.isLineBreakHolder);
++      expect(
++        analysis.blocks.map((block) => [block.startLine, block.endLine]),
++      ).toEqual(
++        expected.map((sentence) => [
++          sentence.startLine + 1,
++          sentence.endLine + 1,
++        ]),
++      );
++      for (const block of analysis.blocks)
++        expect(
++          text.slice(block.range.start.offset, block.range.end.offset),
++        ).toBe(block.raw);
++    },
++  );
++
++  it('distinguishes deliberate malformed choice fixtures from successful parsing', () => {
++    const text = fs.readFileSync(
++      resolve(runtimeRoot, 'packages/parser/test/test-resources/choose.txt'),
++      'utf8',
++    );
++    expect(() => native.parse(text, 'fixture', 'fixture.txt')).not.toThrow();
++    expect(
++      analyzeScene(text)
++        .diagnostics.filter(
++          (item) => item.code === 'CHOICE_DESTINATION_MISSING',
++        )
++        .map((item) => item.range.start.line),
++    ).toEqual([1, 2, 2, 5]);
++  });
++
++  it('matches all registered commands in the locked runtime source', () => {
++    const registry = fs.readFileSync(
++      resolve(runtimeRoot, 'packages/webgal/src/Core/parser/sceneParser.ts'),
++      'utf8',
++    );
++    const tags = [...registry.matchAll(/^\s+(\w+): ScriptConfig/gm)]
++      .map((match) => match[1])
++      .filter((name) => name !== '__commment');
++    for (const command of tags) {
++      const body =
++        command === 'choose'
++          ? '选项:label'
++          : command === 'wait'
++          ? '10'
++          : command === 'setVar'
++          ? 'x='
++          : command === 'setTempAnimation'
++          ? '[]'
++          : command === 'setTransform'
++          ? '{}'
++          : '';
++      expect(analyzeScene(`${command}:${body};`).blocks[0].kind).not.toBe(
++        'advanced',
++      );
++    }
++    expect(
++      analyzeScene('if:x;\nchooseLabel:x;').blocks.every(
++        (block) => block.kind === 'advanced',
++      ),
++    ).toBe(true);
++  });
++
++  it('does not confuse an unregistered tag with a confirmed speaker', () => {
++    const analysis = analyzeScene(
++      'futureFoo:opaque -custom=keep;\n凛:你好;\nsay:你好 -speaker=凛;\n接下来的对白;',
++    );
++    expect(analysis.blocks.map((block) => block.kind)).toEqual([
++      'advanced',
++      'advanced',
++      'dialogue',
++      'dialogue',
++    ]);
++    expect(analysis).toMatchObject({
++      valid: true,
++      previewable: false,
++      hasAdvanced: true,
++    });
++    expect(
++      analysis.blocks.slice(0, 2).every((block) => !block.graphicalEditable),
++    ).toBe(true);
++  });
++
++  it('keeps BOM/CRLF and non-ASCII positions without normalization', () => {
++    const text =
++      '\uFEFF;保留\r\nsay:你好😀 -speaker=凛;  注释\r\nwait:nope;\r\n';
++    const analysis = analyzeScene(text);
++    const error = analysis.diagnostics.find(
++      (entry) => entry.code === 'INVALID_WAIT_DURATION',
++    );
++    expect(error?.range).toEqual({
++      start: { line: 3, column: 6, offset: text.indexOf('nope') },
++      end: { line: 3, column: 10, offset: text.indexOf('nope') + 4 },
++    });
++    expect(analysis.blocks[1].raw).toBe('say:你好😀 -speaker=凛;  注释');
++    expect(analysis.blocks[1].graphicalEditable).toBe(true);
++  });
++
++  it('uses native multiline grouping and protects it from graphical serialization', () => {
++    const text = 'setTransform:{"x":1}\r\n  -duration=100\r\nsay:下一句;';
++    expect(
++      analyzeScene(text).blocks.map((block) => [
++        block.startLine,
++        block.endLine,
++        block.graphicalEditable,
++      ]),
++    ).toEqual([
++      [1, 2, false],
++      [3, 3, true],
++    ]);
++  });
++
++  it('retains native concat exception and explicit continuation behavior', () => {
++    for (const text of [
++      'intro:aaa\n  |bbb -concat\n',
++      'intro:aaa\\\n|bbb\\\n|ccc -concat\n',
++    ]) {
++      expect(
++        analyzeScene(text).blocks.map((block) => [
++          block.startLine,
++          block.endLine,
++        ]),
++      ).toEqual(
++        native
++          .parse(text, '', '')
++          .sentenceList.filter((sentence) => !sentence.isLineBreakHolder)
++          .map((sentence) => [sentence.startLine + 1, sentence.endLine + 1]),
++      );
++    }
++  });
++
++  it.each([
++    ['say:unfinished\\', 'UNFINISHED_CONTINUATION'],
++    ['setTransform:{"x":', 'INVALID_JSON'],
++    ['setTransform:[];', 'INVALID_JSON_SHAPE'],
++    ['setTempAnimation:{"x":1};', 'INVALID_JSON_SHAPE'],
++    ['setVar: =1;', 'INVALID_ASSIGNMENT'],
++    ['setVar:x=(1+2;', 'INVALID_EXPRESSION'],
++    ['say:条件 -when=a>;', 'INVALID_EXPRESSION'],
++    ['say:条件 -when=(a>1];', 'INVALID_EXPRESSION'],
++    ['say:条件 -when=a=="unfinished;', 'INVALID_EXPRESSION'],
++    ['wait:NaN;', 'INVALID_WAIT_DURATION'],
++    ['changeBg:background.png -duration=bad;', 'INVALID_NUMERIC_ARGUMENT'],
++    ['choose:选项没有目标;', 'CHOICE_DESTINATION_MISSING'],
++  ])('keeps an invalid draft unapplied: %s', (text, code) => {
++    expect(analyzeScene(text)).toMatchObject({
++      valid: false,
++      previewable: false,
++    });
++    expect(
++      analyzeScene(text).diagnostics.some(
++        (item) => item.code === code && item.severity === 'error',
++      ),
++    ).toBe(true);
++  });
++
++  it.each([
++    'setVar:empty=;',
++    'setVar:words=他说“你好;',
++    'say:普通对白中的(和引号"不做表达式处理;',
++    'setVar:x=random(1,5);',
++    'setVar:x="a"+"b";',
++    'say:条件 -when=(a>1)&&(b<=2);',
++    'choose:(a>1)[b>2]->选项:label|另一选项:next.txt;',
++    'setTransform:;',
++    'setTransform:{"x":{position}};',
++    'setTransform:{变换};',
++    'wait:{time};',
++    'changeBg:bg.webp -duration=true;',
++    'say:转义分号\\;继续 -speaker=凛;',
++    'say:旁白 -clear;',
++    'say:继承名字;',
++  ])('accepts native-compatible core forms: %s', (text) =>
++    expect(analyzeScene(text).valid).toBe(true),
++  );
++
++  it('makes duplicated and unrecognized arguments read-only without rewriting them', () => {
++    for (const text of [
++      'say:对白 -speaker=甲 -speaker=乙;',
++      'say:对白 -future=keep;',
++    ]) {
++      expect(analyzeScene(text).blocks[0]).toMatchObject({
++        raw: text,
++        graphicalEditable: false,
++      });
++    }
++    expect(
++      analyzeScene('say:对白 -figureId=x -left14; @makenovel-node abc')
++        .blocks[0].graphicalEditable,
++    ).toBe(true);
++  });
++
++  it('allows unchanged advanced neighbors but rejects changes or extra copies', () => {
++    const original = analyzeScene(
++      'future: x -custom=keep;  untouched\r\nsay:old;',
++    );
++    expect(
++      hasUnreviewedAdvancedChanges(
++        original,
++        analyzeScene('future: x -custom=keep;  untouched\r\nsay:new;'),
++      ),
++    ).toBe(false);
++    expect(
++      hasUnreviewedAdvancedChanges(
++        original,
++        analyzeScene('future:x -custom=keep;  untouched\r\nsay:new;'),
++      ),
++    ).toBe(true);
++    expect(
++      hasUnreviewedAdvancedChanges(
++        original,
++        analyzeScene(
++          'future: x -custom=keep;  untouched\nfuture: x -custom=keep;  untouched',
++        ),
++      ),
++    ).toBe(true);
++    expect(
++      hasUnreviewedAdvancedChanges(
++        original,
++        analyzeScene('say:explicit -speaker=future;'),
++      ),
++    ).toBe(false);
++  });
++});
+diff --git a/packages/terre2/src/Modules/scene-document/scene-analysis.ts b/packages/terre2/src/Modules/scene-document/scene-analysis.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2bc7f1ea047b3f36b2851abeb2abffdfe0fadef0
+--- /dev/null
++++ b/packages/terre2/src/Modules/scene-document/scene-analysis.ts
+@@ -0,0 +1,586 @@
++import SceneParser, { SCRIPT_CONFIG, sceneTextPreProcess } from 'webgal-parser';
++import {
++  inspectSceneIdentity,
++  SceneIdentityError,
++} from '../scene-identity/scene-identity';
++
++/** UTF-16 offsets and 1-based positions, suitable for Monaco without conversion. */
++export interface ScenePosition {
++  line: number;
++  column: number;
++  offset: number;
++}
++export interface SceneRange {
++  start: ScenePosition;
++  end: ScenePosition;
++}
++export interface SceneDiagnostic {
++  code: string;
++  severity: 'error' | 'warning';
++  message: string;
++  range: SceneRange;
++}
++export interface SceneBlock {
++  kind: 'command' | 'dialogue' | 'comment' | 'blank' | 'advanced';
++  command?: string;
++  /** Inclusive, 1-based physical source lines. Identity is intentionally separate. */
++  startLine: number;
++  endLine: number;
++  range: SceneRange;
++  /** Exact source including internal EOLs, excluding the last line's EOL. */
++  raw: string;
++  graphicalEditable: boolean;
++}
++export interface SceneAnalysis {
++  valid: boolean;
++  previewable: boolean;
++  hasAdvanced: boolean;
++  coverage: 'locked-webgal-core';
++  diagnostics: SceneDiagnostic[];
++  blocks: SceneBlock[];
++}
++
++// The locked runtime does not register the legacy parser-only if/chooseLabel tags.
++// Keep this list visible and tested against its registry when the upstream changes.
++const runtimeCommands = new Set(
++  SCRIPT_CONFIG.map((item) => item.scriptString).filter(
++    (name) => name !== 'if' && name !== 'chooseLabel',
++  ),
++);
++const parser = new SceneParser(undefined, (name) => name, [], SCRIPT_CONFIG);
++
++const numericArguments: Record<string, string[]> = {
++  bgm: ['enter', 'volume'],
++  changeBg: ['duration', 'enterDuration', 'exitDuration', 'order'],
++  changeFigure: ['duration', 'enterDuration', 'exitDuration', 'zIndex'],
++  choose: ['defaultChoose'],
++  intro: ['delayTime'],
++  playEffect: ['volume'],
++  setComplexAnimation: ['duration'],
++  setTransform: ['duration'],
++  unlockCg: ['order'],
++  say: ['volume'],
++};
++const commonArguments = new Set(['next', 'continue', 'when']);
++const graphicalArguments: Record<string, string[]> = {
++  say: [
++    'speaker',
++    'vocal',
++    'fontSize',
++    'left',
++    'center',
++    'right',
++    'left14',
++    'left13',
++    'right13',
++    'right14',
++    'id',
++    'figureId',
++    'sayPlaceHolder',
++    'concat',
++    'notend',
++    'clear',
++    'volume',
++  ],
++  changeBg: [
++    'duration',
++    'enterDuration',
++    'exitDuration',
++    'order',
++    'transform',
++    'enter',
++    'exit',
++  ],
++  changeFigure: [
++    'id',
++    'left',
++    'center',
++    'right',
++    'zIndex',
++    'duration',
++    'enterDuration',
++    'exitDuration',
++    'transform',
++    'enter',
++    'exit',
++  ],
++  changeFigureDiff: ['id', 'left', 'center', 'right'],
++  bgm: ['enter', 'volume'],
++  playEffect: ['id', 'volume'],
++  playVideo: [],
++  miniAvatar: [],
++  intro: [
++    'fontSize',
++    'color',
++    'hold',
++    'animation',
++    'delayTime',
++    'backgroundColor',
++  ],
++  changeScene: [],
++  choose: ['defaultChoose'],
++  end: [],
++  label: [],
++  jumpLabel: [],
++  setVar: ['global', 'local'],
++  callScene: ['writeReturnTo'],
++  showVars: [],
++  unlockCg: ['name', 'series', 'order'],
++  unlockBgm: ['name', 'series'],
++  filmMode: [],
++  setTextbox: [],
++  setAnimation: ['target', 'keep', 'parallel', 'transformFrom'],
++  setComplexAnimation: ['target', 'duration'],
++  setTransform: [
++    'target',
++    'duration',
++    'ease',
++    'keep',
++    'parallel',
++    'transformFrom',
++    'writeDefault',
++    'ignoreDefault',
++  ],
++  setTempAnimation: [
++    'target',
++    'keep',
++    'parallel',
++    'transformFrom',
++    'writeDefault',
++    'ignoreDefault',
++  ],
++  setTransition: ['target', 'enter', 'exit', 'ignoreDefault'],
++  wait: ['nobreak'],
++  getUserInput: [
++    'title',
++    'buttonText',
++    'defaultValue',
++    'rule',
++    'ruleFlag',
++    'ruleText',
++    'ruleButtonText',
++  ],
++  applyStyle: [],
++  callSteam: [],
++  return: [],
++};
++
++/** No runtime evaluation, asset access or filesystem access occurs in this module. */
++export function analyzeScene(text: string): SceneAnalysis {
++  const lines = text.split('\n');
++  const offsets: number[] = [];
++  let offset = 0;
++  for (const line of lines) {
++    offsets.push(offset);
++    offset += line.length + 1;
++  }
++  const position = (index: number): ScenePosition => {
++    index = Math.max(0, Math.min(index, text.length));
++    let low = 0;
++    let high = offsets.length - 1;
++    while (low < high) {
++      const mid = Math.ceil((low + high) / 2);
++      if (offsets[mid] <= index) low = mid;
++      else high = mid - 1;
++    }
++    return { line: low + 1, column: index - offsets[low] + 1, offset: index };
++  };
++  const range = (start: number, end: number): SceneRange => ({
++    start: position(start),
++    end: position(end),
++  });
++  const diagnostics: SceneDiagnostic[] = [];
++  const blocks: SceneBlock[] = [];
++  const add = (
++    code: string,
++    severity: 'error' | 'warning',
++    message: string,
++    sourceRange: SceneRange,
++  ) => {
++    diagnostics.push({ code, severity, message, range: sourceRange });
++  };
++  const folded = sceneTextPreProcess(text).split('\n');
++  const native = parser.parse(
++    text,
++    'validation',
++    'validation.txt',
++  ).sentenceList;
++  for (const sentence of native) {
++    if (sentence.isLineBreakHolder) continue;
++    const startLine = sentence.startLine;
++    const endLine = sentence.endLine;
++    const lastPhysicalLine = lines[endLine] ?? '';
++    const end = offsets[endLine] + lastPhysicalLine.replace(/\r$/, '').length;
++    const sourceRange = range(offsets[startLine], end);
++    const raw = text.slice(offsets[startLine], end);
++    // Match the native immediate-backslash rule, including escaped semicolons.
++    const core = (folded[startLine] ?? '').split(/(?<!\\);/)[0];
++    const colon = core.indexOf(':');
++    const prefix = colon < 0 ? core : core.slice(0, colon);
++    const known = runtimeCommands.has(prefix);
++    let kind: SceneBlock['kind'];
++    if (!core.trim()) kind = raw.trim() ? 'comment' : 'blank';
++    else if (known) kind = prefix === 'say' ? 'dialogue' : 'command';
++    else
++      kind =
++        colon >= 0 || prefix === 'if' || prefix === 'chooseLabel'
++          ? 'advanced'
++          : 'dialogue';
++    const command = known ? prefix : kind === 'dialogue' ? 'say' : undefined;
++    const block: SceneBlock = {
++      kind,
++      command,
++      startLine: startLine + 1,
++      endLine: endLine + 1,
++      range: sourceRange,
++      raw,
++      graphicalEditable: false,
++    };
++    blocks.push(block);
++    if (kind === 'blank' || kind === 'comment') continue;
++    if (kind === 'advanced') {
++      add(
++        'AMBIGUOUS_OR_UNREGISTERED_COMMAND',
++        'warning',
++        '此行可能是角色名或未登记指令；原样保留。请明确转换为对白，或等待扩展登记后预览。',
++        sourceRange,
++      );
++      continue;
++    }
++    const errorCount = diagnostics.filter(
++      (entry) => entry.severity === 'error',
++    ).length;
++    const argsAt = core.indexOf(' -', colon >= 0 ? colon + 1 : 0);
++    const bodyStart = colon >= 0 ? colon + 1 : 0;
++    const body = core
++      .slice(bodyStart, argsAt >= 0 ? argsAt : undefined)
++      .trim()
++      .replace(/\\;/g, ';');
++    // Native parsing can fold lines; diagnostic ranges then cover the complete
++    // physical block rather than pretending folded offsets are source offsets.
++    const detailRange = (needle: string) => {
++      const found = raw.indexOf(needle);
++      return startLine === endLine && found >= 0
++        ? range(
++            offsets[startLine] + found,
++            offsets[startLine] + found + needle.length,
++          )
++        : sourceRange;
++    };
++    const parameters =
++      argsAt < 0
++        ? []
++        : core
++            .slice(argsAt + 2)
++            .split(' -')
++            .map((argument) => {
++              const equal = argument.indexOf('=');
++              return {
++                key: (equal < 0 ? argument : argument.slice(0, equal)).trim(),
++                value: equal < 0 ? undefined : argument.slice(equal + 1).trim(),
++                raw: argument,
++              };
++            });
++    const seen = new Set<string>();
++    // The caller must preserve the original comment tail when patching a block.
++    let unsafeProjection = startLine !== endLine;
++    for (const parameter of parameters) {
++      const vocalAlias = /\.(ogg|mp3|wav|opus)/i.test(parameter.key);
++      const key = vocalAlias ? 'vocal' : parameter.key;
++      if (seen.has(key)) {
++        unsafeProjection = true;
++        add(
++          'DUPLICATE_ARGUMENT',
++          'warning',
++          `参数 ${key} 重复；运行时使用首项，图形编辑可能合并参数，保留源码编辑。`,
++          detailRange(parameter.raw),
++        );
++      }
++      seen.add(key);
++      const allowed =
++        commonArguments.has(key) ||
++        (graphicalArguments[command ?? ''] ?? []).includes(key);
++      if (!allowed) unsafeProjection = true;
++      if (
++        key === 'when' &&
++        parameter.value !== undefined &&
++        parameter.value !== ''
++      ) {
++        const issue = expressionStructureIssue(parameter.value);
++        if (issue)
++          add(
++            'INVALID_EXPRESSION',
++            'error',
++            `条件表达式${issue}`,
++            detailRange(parameter.raw),
++          );
++      }
++      if (
++        (numericArguments[command ?? ''] ?? []).includes(key) &&
++        parameter.value !== undefined
++      ) {
++        if (
++          !hasInterpolation(parameter.value) &&
++          !['true', 'false'].includes(parameter.value) &&
++          !Number.isFinite(Number(parameter.value))
++        ) {
++          add(
++            'INVALID_NUMERIC_ARGUMENT',
++            'error',
++            `参数 ${key} 需要有限数值。`,
++            detailRange(parameter.raw),
++          );
++        }
++      }
++    }
++    if (
++      command === 'wait' &&
++      !hasInterpolation(body) &&
++      !Number.isFinite(Number(body))
++    ) {
++      add(
++        'INVALID_WAIT_DURATION',
++        'error',
++        'wait 的内容需要有限毫秒数值。',
++        detailRange(body),
++      );
++    }
++    if (command === 'setVar') {
++      const equal = body.indexOf('=');
++      if (equal < 0 || !body.slice(0, equal).trim()) {
++        add(
++          'INVALID_ASSIGNMENT',
++          'error',
++          'setVar 需要变量名和等号；空字符串值可以保留。',
++          detailRange(body),
++        );
++      } else {
++        // The native setVar treats values without arithmetic as literal strings;
++        // quote characters in such a literal are not evidence of broken syntax.
++        const value = body.slice(equal + 1);
++        if (/[+\-*/()]/.test(value)) {
++          const issue = expressionStructureIssue(value);
++          if (issue)
++            add(
++              'INVALID_EXPRESSION',
++              'error',
++              `变量表达式${issue}`,
++              detailRange(value),
++            );
++        }
++      }
++    }
++    if (command === 'setTransform' || command === 'setTempAnimation') {
++      if (body || command === 'setTempAnimation') {
++        try {
++          const parsed: unknown = JSON.parse(body);
++          const shapeValid =
++            command === 'setTransform'
++              ? parsed !== null &&
++                typeof parsed === 'object' &&
++                !Array.isArray(parsed)
++              : Array.isArray(parsed);
++          if (!shapeValid)
++            add(
++              'INVALID_JSON_SHAPE',
++              'error',
++              command === 'setTransform'
++                ? 'setTransform 需要 JSON 对象。'
++                : 'setTempAnimation 需要 JSON 帧数组。',
++              detailRange(body),
++            );
++        } catch {
++          if (isPotentialDynamicJson(body, command === 'setTempAnimation')) {
++            unsafeProjection = true;
++            add(
++              'DYNAMIC_VALUE_NOT_CHECKED',
++              'warning',
++              '该 JSON 来自运行时变量；静态检查不能验证最终值。',
++              detailRange(body),
++            );
++          } else
++            add(
++              'INVALID_JSON',
++              'error',
++              'JSON 内容未闭合或格式无效。',
++              detailRange(body),
++            );
++        }
++      }
++    }
++    if (command === 'choose') {
++      for (const option of body.split(/(?<!\\)\|/)) {
++        const parts = option.split('->');
++        const targetPart = parts.length > 1 ? parts[1] : parts[0];
++        // Native ChooseOption unconditionally reads jump.match(), so absent
++        // destination separators are a real runtime error, not a style rule.
++        if (!/(?<!\\):/.test(targetPart))
++          add(
++            'CHOICE_DESTINATION_MISSING',
++            'error',
++            '选项需要“显示文字:目标标签或场景”的分隔符。',
++            detailRange(option),
++          );
++        if (parts.length > 1) {
++          const issue = expressionStructureIssue(parts[0]);
++          if (issue)
++            add(
++              'INVALID_EXPRESSION',
++              'error',
++              `选项条件${issue}`,
++              detailRange(parts[0]),
++            );
++        }
++      }
++    }
++    block.graphicalEditable =
++      !unsafeProjection &&
++      diagnostics.filter((entry) => entry.severity === 'error').length ===
++        errorCount;
++  }
++  try {
++    const identity = inspectSceneIdentity(text, native);
++    for (const diagnostic of identity.diagnostics) {
++      if (diagnostic.severity !== 'error') continue;
++      const line = Math.max(0, Math.min(diagnostic.line, lines.length - 1));
++      add(
++        diagnostic.code,
++        'error',
++        diagnostic.message,
++        range(
++          offsets[line],
++          offsets[line] + lines[line].replace(/\r$/, '').length,
++        ),
++      );
++    }
++  } catch (error) {
++    if (!(error instanceof SceneIdentityError)) throw error;
++    const reportedLine =
++      typeof error.details.line === 'number' ? error.details.line : 0;
++    const line = Math.max(0, Math.min(reportedLine, lines.length - 1));
++    add(
++      error.code,
++      'error',
++      error.message,
++      range(
++        offsets[line],
++        offsets[line] + lines[line].replace(/\r$/, '').length,
++      ),
++    );
++  }
++  // The native preprocessor tolerates EOF after a backslash by flushing it.
++  // This editor treats an unfinished continuation as an unapplied draft.
++  let lastNonempty = lines.length - 1;
++  while (lastNonempty > 0 && lines[lastNonempty].replace(/\r$/, '') === '')
++    lastNonempty--;
++  if (lines[lastNonempty]?.replace(/\r$/, '').endsWith('\\')) {
++    const line = lines[lastNonempty].replace(/\r$/, '');
++    add(
++      'UNFINISHED_CONTINUATION',
++      'error',
++      '续行符后还没有完整的下一行；草稿保留，补完后再保存。',
++      range(
++        offsets[lastNonempty] + line.length - 1,
++        offsets[lastNonempty] + line.length,
++      ),
++    );
++  }
++  const valid = !diagnostics.some((entry) => entry.severity === 'error');
++  for (const block of blocks) {
++    if (
++      diagnostics.some(
++        (entry) =>
++          entry.severity === 'error' &&
++          entry.range.start.line <= block.endLine &&
++          entry.range.end.line >= block.startLine,
++      )
++    )
++      block.graphicalEditable = false;
++  }
++  const hasAdvanced = blocks.some((block) => block.kind === 'advanced');
++  return {
++    valid,
++    previewable: valid && !hasAdvanced,
++    hasAdvanced,
++    coverage: 'locked-webgal-core',
++    diagnostics,
++    blocks,
++  };
++}
++
++/** New/changed unregistered source needs explicit review; unchanged blocks survive. */
++export function hasUnreviewedAdvancedChanges(
++  previous: SceneAnalysis,
++  next: SceneAnalysis,
++): boolean {
++  const counts = new Map<string, number>();
++  for (const block of previous.blocks)
++    if (block.kind === 'advanced')
++      counts.set(block.raw, (counts.get(block.raw) ?? 0) + 1);
++  for (const block of next.blocks) {
++    if (block.kind !== 'advanced') continue;
++    const count = counts.get(block.raw) ?? 0;
++    if (!count) return true;
++    counts.set(block.raw, count - 1);
++  }
++  return false;
++}
++
++function hasInterpolation(value: string): boolean {
++  return /(?<!\\)\{[^{}]+\}/.test(value);
++}
++function isPotentialDynamicJson(value: string, array: boolean): boolean {
++  // Only identifier-shaped substitutions are treated as dynamic JSON. Arbitrary
++  // braces must not turn malformed object syntax into an unchecked expression.
++  const placeholder = /\{[\p{L}_$][\p{L}\p{N}_$.\[\]-]*\}/gu;
++  if (!placeholder.test(value)) return false;
++  placeholder.lastIndex = 0;
++  if (value.replace(placeholder, '') === '') return true;
++  try {
++    const replaced: unknown = JSON.parse(value.replace(placeholder, 'null'));
++    return array
++      ? Array.isArray(replaced)
++      : replaced !== null &&
++          typeof replaced === 'object' &&
++          !Array.isArray(replaced);
++  } catch {
++    return false;
++  }
++}
++
++/** Deliberately a structural check, not a second evaluator or variable resolver. */
++function expressionStructureIssue(value: string): string | undefined {
++  const stack: string[] = [];
++  let quote = '';
++  let escaped = false;
++  let lastOutside = '';
++  for (const char of value) {
++    if (escaped) {
++      escaped = false;
++      continue;
++    }
++    if (char === '\\') {
++      escaped = true;
++      continue;
++    }
++    if (quote) {
++      if (char === quote) quote = '';
++      continue;
++    }
++    if (char === '"' || char === "'") {
++      quote = char;
++      lastOutside = 'literal';
++      continue;
++    }
++    if ('([{'.includes(char)) stack.push(char);
++    if (')]}'.includes(char)) {
++      const expected = { ')': '(', ']': '[', '}': '{' }[char];
++      if (stack.pop() !== expected) return '存在不匹配的括号。';
++    }
++    if (char.trim()) lastOutside = char;
++  }
++  if (quote) return '字符串未闭合。';
++  if (stack.length) return '括号未闭合。';
++  if (/[+\-*/<>=!&|?:]$/.test(lastOutside)) return '在运算符后缺少内容。';
++  return undefined;
++}
+diff --git a/packages/terre2/src/Modules/scene-document/scene-write-validation.spec.ts b/packages/terre2/src/Modules/scene-document/scene-write-validation.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..207eef2215118103bbb5b93c174039f33f9dcabb
+--- /dev/null
++++ b/packages/terre2/src/Modules/scene-document/scene-write-validation.spec.ts
+@@ -0,0 +1,232 @@
++import { ConsoleLogger } from '@nestjs/common';
++import * as fs from 'fs/promises';
++import { tmpdir } from 'os';
++import { basename, dirname, join } from 'path';
++import { UserDataService } from '../user-data/user-data.service';
++import { WebgalFsService } from '../webgal-fs/webgal-fs.service';
++import { ManageGameController } from '../manage-game/manage-game.controller';
++
++describe('scene validation before real transactional save', () => {
++  const game = '中文作品';
++  const scene = 'game/scene/中文剧本.txt';
++  const original =
++    '\uFEFF;保留\r\nfuturePlugin:opaque -custom=keep; untouched\r\nsay:旧对白;\r\n';
++  let root: string;
++  let target: string;
++  let service: WebgalFsService;
++
++  beforeEach(async () => {
++    root = await fs.mkdtemp(join(tmpdir(), 'makenovel-scene-validation-'));
++    target = join(root, game, scene);
++    await fs.mkdir(dirname(target), { recursive: true });
++    await fs.writeFile(target, original, 'utf8');
++    jest.spyOn(UserDataService, 'getGameRoot').mockReturnValue(root);
++    jest
++      .spyOn(UserDataService, 'isPathInsideAllowedRoots')
++      .mockImplementation((path) => path.startsWith(root));
++    service = new WebgalFsService(new ConsoleLogger());
++  });
++  afterEach(async () => {
++    jest.restoreAllMocks();
++    await fs.rm(root, { recursive: true, force: true });
++  });
++
++  it('analyzes through the controller without touching disk', async () => {
++    const controller = new ManageGameController(
++      service,
++      undefined,
++      new ConsoleLogger(),
++    );
++    const analysis = await controller.validateSceneSnapshot({
++      text: 'setTransform:{"x":',
++    });
++    expect(analysis).toMatchObject({ valid: false, previewable: false });
++    expect(await fs.readFile(target, 'utf8')).toBe(original);
++  });
++
++  it.each([
++    'setTransform:{"x":',
++    'wait:NaN;',
++    'say:unfinished\\',
++    'say:a; @makenovel-node duplicate\nsay:b; @makenovel-node duplicate',
++  ])(
++    'rejects invalid core source with 422, retaining bytes and leaving no temporary file: %s',
++    async (text) => {
++      const previous = await service.readTextSnapshot(game, scene);
++      await expect(
++        service.saveTextSnapshot(game, scene, text, previous.revision),
++      ).rejects.toMatchObject({
++        status: 422,
++        response: {
++          code: 'SCENE_VALIDATION_FAILED',
++          analysis: { valid: false, previewable: false },
++        },
++      });
++      expect(await fs.readFile(target)).toEqual(Buffer.from(original, 'utf8'));
++      expect(await fs.readdir(dirname(target))).toEqual([basename(target)]);
++    },
++  );
++
++  it('allows a graphical neighbor change while retaining unknown source exactly', async () => {
++    const previous = await service.readTextSnapshot(game, scene);
++    const changed = original.replace('旧对白', '新对白');
++    const saved = await service.saveTextSnapshot(
++      game,
++      scene,
++      changed,
++      previous.revision,
++    );
++    expect(saved.text).toBe(changed);
++    expect(await fs.readFile(target)).toEqual(Buffer.from(changed, 'utf8'));
++    expect(service.validateSceneSnapshot(saved.text)).toMatchObject({
++      valid: true,
++      previewable: false,
++      hasAdvanced: true,
++    });
++  });
++
++  it.each([
++    original.replace('opaque', 'changed'),
++    original + 'newPlugin:hello;\r\n',
++    original + '凛:新对白;\r\n',
++  ])(
++    'keeps added or changed advanced code as an unapplied draft',
++    async (text) => {
++      const previous = await service.readTextSnapshot(game, scene);
++      await expect(
++        service.saveTextSnapshot(game, scene, text, previous.revision),
++      ).rejects.toMatchObject({
++        status: 422,
++        response: {
++          code: 'ADVANCED_CODE_REQUIRES_REVIEW',
++          analysis: { valid: true, previewable: false },
++        },
++      });
++      expect(await fs.readFile(target, 'utf8')).toBe(original);
++    },
++  );
++
++  it('permits an explicit speaker conversion and preserves transactional conflicts', async () => {
++    const previous = await service.readTextSnapshot(game, scene);
++    const converted = 'say:明确的角色对白 -speaker=凛;\r\n';
++    await service.saveTextSnapshot(game, scene, converted, previous.revision);
++    expect(service.validateSceneSnapshot(converted)).toMatchObject({
++      valid: true,
++      previewable: true,
++      hasAdvanced: false,
++    });
++    await expect(
++      service.saveTextSnapshot(game, scene, 'future:new;', previous.revision),
++    ).rejects.toMatchObject({
++      status: 409,
++      response: { code: 'REVISION_CONFLICT' },
++    });
++    expect(await fs.readFile(target, 'utf8')).toBe(converted);
++  });
++
++  it('does not parse config or JSON assets as scene scripts', async () => {
++    const asset = 'game/config.txt';
++    const file = join(root, game, asset);
++    await fs.writeFile(file, 'Game_name:old;');
++    const previous = await service.readTextSnapshot(game, asset);
++    await service.saveTextSnapshot(
++      game,
++      asset,
++      'Game_name:new;\r\nArbitraryAsset:{',
++      previous.revision,
++    );
++    expect(await fs.readFile(file, 'utf8')).toBe(
++      'Game_name:new;\r\nArbitraryAsset:{',
++    );
++  });
++
++  it('validates Windows separators and never accepts path aliases', async () => {
++    const previous = await service.readTextSnapshot(game, scene);
++    await expect(
++      service.saveTextSnapshot(
++        game,
++        scene.replace(/\//g, '\\'),
++        'wait:bad;',
++        previous.revision,
++      ),
++    ).rejects.toMatchObject({
++      status: 422,
++      response: { code: 'SCENE_VALIDATION_FAILED' },
++    });
++    await expect(
++      service.saveTextSnapshot(
++        game,
++        'game/./scene/中文剧本.txt',
++        'wait:bad;',
++        previous.revision,
++      ),
++    ).rejects.toMatchObject({
++      status: 400,
++      response: { code: 'INVALID_PATH' },
++    });
++  });
++
++  it('rejects legacy update, replace and truncate paths with 428 and unchanged bytes', async () => {
++    for (const action of [
++      () => service.updateTextFile(target, 'wait:broken;'),
++      () => service.replaceTextFile(target, '旧对白', 'not applied'),
++      () => service.createEmptyFile(target),
++      () =>
++        service.updateTextFile(
++          join(dirname(target), '..', 'scene', basename(target)),
++          'alias',
++        ),
++    ]) {
++      await expect(action()).rejects.toMatchObject({
++        status: 428,
++        response: { code: 'SCENE_REVISION_REQUIRED' },
++      });
++      expect(await fs.readFile(target, 'utf8')).toBe(original);
++    }
++  });
++
++  it('still creates a new empty scene and imports new files without overwriting scenes', async () => {
++    const created = join(dirname(target), '新建.txt');
++    await expect(service.createEmptyFile(created)).resolves.toBe('created');
++    expect(await fs.readFile(created, 'utf8')).toBe('');
++    const imported = Buffer.from('say:导入的新剧本;');
++    await expect(
++      service.writeFiles(dirname(target), [
++        { fileName: '导入.txt', file: imported },
++      ]),
++    ).resolves.toBe(true);
++    expect(await fs.readFile(join(dirname(target), '导入.txt'))).toEqual(
++      imported,
++    );
++    await expect(
++      service.writeFiles(dirname(target), [
++        { fileName: '不应部分写入.txt', file: imported },
++        { fileName: basename(target), file: Buffer.from('invalid') },
++      ]),
++    ).rejects.toMatchObject({
++      status: 428,
++      response: { code: 'SCENE_REVISION_REQUIRED' },
++    });
++    expect(await fs.readFile(target, 'utf8')).toBe(original);
++    await expect(
++      fs.stat(join(dirname(target), '不应部分写入.txt')),
++    ).rejects.toMatchObject({ code: 'ENOENT' });
++  });
++
++  it('allows legacy config and template writes and replacements', async () => {
++    for (const file of [
++      join(root, game, 'game', 'config.txt'),
++      join(root, 'templates', 'theme', 'game', 'scene', 'template.json'),
++    ]) {
++      await fs.mkdir(dirname(file), { recursive: true });
++      await fs.writeFile(file, 'old');
++      await expect(service.updateTextFile(file, 'new')).resolves.toBe(
++        'Updated.',
++      );
++      await expect(
++        service.replaceTextFile(file, 'new', 'replaced'),
++      ).resolves.toBe('Replaced.');
++      expect(await fs.readFile(file, 'utf8')).toBe('replaced');
++    }
++  });
++});
+diff --git a/packages/terre2/src/Modules/scene-identity/scene-identity.ts b/packages/terre2/src/Modules/scene-identity/scene-identity.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..fc6ded5cd813bee8cdc83d2ec590946c86e76215
+--- /dev/null
++++ b/packages/terre2/src/Modules/scene-identity/scene-identity.ts
+@@ -0,0 +1,593 @@
++/**
++ * Source identity and conservative text edits shared by the editor and server.
++ * Ranges MUST come from the locked native parser for this exact source string.
++ * Offsets are UTF-16 string offsets, not UTF-8 byte offsets. Valid UTF-8 source
++ * round-trips unchanged outside the listed edits; no second story parser lives here.
++ */
++export interface NativeSentenceRange {
++  startLine: number;
++  endLine: number;
++  commandRaw: string;
++  inlineComment?: string;
++  isLineBreakHolder?: boolean;
++}
++
++export interface IdentityDiagnostic {
++  code: string;
++  message: string;
++  severity: 'warning' | 'error';
++  /** Zero-based physical source line, as used by the native parser. */
++  line: number;
++  nodeId?: string;
++}
++
++export interface SourceNode {
++  nodeId?: string;
++  markerKind?: 'inline' | 'standalone';
++  markerLine?: number;
++  markerStart?: number;
++  markerEnd?: number;
++  startLine: number;
++  endLine: number;
++  /** Whole block including an immediately attached legacy marker, without BOM. */
++  blockStart: number;
++  blockEnd: number;
++  /** Native command source, excluding line terminator and legacy marker. */
++  start: number;
++  end: number;
++  commandRaw: string;
++}
++
++export interface SceneIdentity {
++  nodes: SourceNode[];
++  diagnostics: IdentityDiagnostic[];
++}
++
++export interface SourceChange {
++  start: number;
++  end: number;
++  before: string;
++  after: string;
++}
++
++export interface SourceEditResult {
++  source: string;
++  changes: SourceChange[];
++}
++
++export class SceneIdentityError extends Error {
++  readonly code: string;
++  readonly details: Record<string, unknown>;
++
++  constructor(code: string, message: string, details: Record<string, unknown> = {}) {
++    super(message);
++    this.name = 'SceneIdentityError';
++    this.code = code;
++    this.details = details;
++  }
++}
++
++interface SourceLine {
++  start: number;
++  end: number;
++  next: number;
++  text: string;
++  eol: string;
++}
++
++const markerPrefix = '@makenovel-node';
++const idPattern = /^[A-Za-z][A-Za-z0-9._:-]{0,95}$/;
++const markerPattern = /@makenovel-node ([A-Za-z][A-Za-z0-9._:-]{0,95})\s*$/;
++
++function fail(code: string, message: string, details: Record<string, unknown> = {}): never {
++  throw new SceneIdentityError(code, message, details);
++}
++
++function scanLines(source: string): SourceLine[] {
++  if (typeof source !== 'string' || /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(source)) {
++    fail('INVALID_SOURCE', '源码必须是有效的 Unicode 文本。');
++  }
++  const lines: SourceLine[] = [];
++  let start = source.startsWith('\uFEFF') ? 1 : 0;
++  for (let offset = start; offset <= source.length; offset += 1) {
++    if (offset !== source.length && source[offset] !== '\n') continue;
++    const end = offset < source.length && offset > start && source[offset - 1] === '\r' ? offset - 1 : offset;
++    const text = source.slice(start, end);
++    if (text.includes('\r')) fail('UNSUPPORTED_LINE_ENDING', '独立 CR 换行需要在源码中处理。', { line: lines.length });
++    const next = offset < source.length ? offset + 1 : offset;
++    lines.push({ start, end, next, text, eol: source.slice(end, next) });
++    start = next;
++  }
++  return lines;
++}
++
++/** First native comment delimiter; WebGAL deliberately checks one preceding slash. */
++function commentOffset(text: string): number {
++  for (let i = 0; i < text.length; i += 1) {
++    if (text[i] === ';' && text[i - 1] !== '\\') return i;
++  }
++  return -1;
++}
++
++function isComment(range: NativeSentenceRange, line: SourceLine): boolean {
++  return range.commandRaw === 'comment' && (line.text.trim() === '' || line.text.replace(/^\s+/, '').startsWith(';'));
++}
++
++function nativeHeads(ranges: readonly NativeSentenceRange[], lines: SourceLine[]): NativeSentenceRange[] {
++  const heads = ranges.filter(range => !range.isLineBreakHolder);
++  let lastEnd = -1;
++  for (const range of heads) {
++    if (!Number.isInteger(range.startLine) || !Number.isInteger(range.endLine)
++        || range.startLine <= lastEnd || range.startLine < 0 || range.endLine < range.startLine
++        || range.endLine >= lines.length) {
++      fail('INVALID_SOURCE_RANGES', '语句范围不属于当前源码；请重新解析后再编辑。');
++    }
++    lastEnd = range.endLine;
++  }
++  return heads;
++}
++
++function diagnostic(code: string, message: string, line: number, nodeId?: string): IdentityDiagnostic {
++  return { code, message, line, nodeId, severity: 'error' };
++}
++
++/** Read-only projection. Missing IDs are reported; source or text equality never invents identity. */
++export function inspectSceneIdentity(source: string, ranges: readonly NativeSentenceRange[]): SceneIdentity {
++  const lines = scanLines(source);
++  const heads = nativeHeads(ranges, lines);
++  const diagnostics: IdentityDiagnostic[] = [];
++  const nodes: SourceNode[] = [];
++  const legacy = new Map<number, { id: string; line: number; start: number; end: number }>();
++
++  for (const range of heads) {
++    const first = lines[range.startLine];
++    if (!isComment(range, first)) continue;
++    const raw = source.slice(first.start, lines[range.endLine].end);
++    if (!raw.includes(markerPrefix)) continue;
++    const match = /^\s*;\s*@makenovel-node ([A-Za-z][A-Za-z0-9._:-]{0,95})\s*$/.exec(raw);
++    if (!match || range.endLine !== range.startLine) {
++      diagnostics.push(diagnostic('INVALID_ID_MARKER', '身份注释格式不明确，请在源码中修复。', range.startLine));
++      continue;
++    }
++    const target = heads.find(head => head.startLine === range.endLine + 1);
++    if (!target || isComment(target, lines[target.startLine])) {
++      diagnostics.push(diagnostic('DANGLING_ID', '独立身份注释必须紧邻下一条命令。', range.startLine, match[1]));
++      continue;
++    }
++    const markerStart = first.start + raw.indexOf(markerPrefix);
++    legacy.set(target.startLine, { id: match[1], line: range.startLine, start: markerStart, end: markerStart + markerPrefix.length + 1 + match[1].length });
++  }
++
++  for (const range of heads) {
++    const first = lines[range.startLine];
++    const last = lines[range.endLine];
++    if (isComment(range, first)) continue;
++    const attached = legacy.get(range.startLine);
++    const node: SourceNode = {
++      startLine: range.startLine,
++      endLine: range.endLine,
++      blockStart: attached ? lines[attached.line].start : first.start,
++      blockEnd: last.next,
++      start: first.start,
++      end: last.end,
++      commandRaw: range.commandRaw,
++    };
++    if (attached) {
++      Object.assign(node, { nodeId: attached.id, markerKind: 'standalone', markerLine: attached.line, markerStart: attached.start, markerEnd: attached.end });
++    }
++    // The native parser owns what is comment text, including multiline folding.
++    const comment = range.inlineComment ?? (range.startLine === range.endLine && commentOffset(first.text) >= 0
++      ? first.text.slice(commentOffset(first.text) + 1).trim() : '');
++    const reservedCount = comment.split(markerPrefix).length - 1;
++    if (reservedCount > 0) {
++      const match = markerPattern.exec(comment);
++      const physicalMatch = markerPattern.exec(last.text);
++      if (range.startLine !== range.endLine && /^\s*;\s*@makenovel-node /.test(last.text)) {
++        diagnostics.push(diagnostic('UNSAFE_ID_MARKER', '独立身份注释被上一条续行吞入，不能确定它所属的命令。', range.endLine));
++      } else if (reservedCount !== 1 || !match || !physicalMatch || match[1] !== physicalMatch[1]) {
++        diagnostics.push(diagnostic('INVALID_ID_MARKER', '身份标记必须唯一并位于命令末尾的行内注释中。', range.endLine));
++      } else if (attached) {
++        diagnostics.push(diagnostic('AMBIGUOUS_ID', '同一命令同时带有独立和行内身份标记，请在源码中选择保留一项。', range.startLine, attached.id));
++      } else {
++        const markerStart = last.start + physicalMatch.index;
++        Object.assign(node, { nodeId: match[1], markerKind: 'inline', markerLine: range.endLine, markerStart, markerEnd: markerStart + markerPrefix.length + 1 + match[1].length });
++      }
++    }
++    if (!node.nodeId) {
++      diagnostics.push({ code: 'MISSING_ID', message: '这条命令尚未登记稳定身份。', line: range.startLine, severity: 'warning' });
++    }
++    nodes.push(node);
++  }
++
++  const seen = new Map<string, number>();
++  for (const node of nodes) {
++    if (!node.nodeId) continue;
++    const previous = seen.get(node.nodeId);
++    if (previous !== undefined) {
++      diagnostics.push(diagnostic('DUPLICATE_ID', '身份标记重复；复制的命令必须使用新的身份。', node.startLine, node.nodeId));
++    } else seen.set(node.nodeId, node.startLine);
++  }
++  return { nodes, diagnostics };
++}
++
++function checkedIdentity(source: string, ranges: readonly NativeSentenceRange[]): SceneIdentity {
++  const identity = inspectSceneIdentity(source, ranges);
++  const errors = identity.diagnostics.filter(item => item.severity === 'error');
++  if (errors.length) fail('IDENTITY_DIAGNOSTICS', '身份信息存在歧义，请先在源码中修复。', { diagnostics: errors });
++  return identity;
++}
++
++function requireNode(identity: SceneIdentity, nodeId: string): SourceNode {
++  const node = identity.nodes.find(item => item.nodeId === nodeId);
++  if (!node) fail('ID_NOT_FOUND', '找不到指定身份；不会按行号或相同台词猜测。', { nodeId });
++  return node;
++}
++
++function freshId(factory: () => string, occupied: Set<string>): string {
++  const id = factory();
++  if (!idPattern.test(id)) fail('INVALID_NEW_ID', '新身份必须以字母开头，并仅包含字母、数字和 ._:-。');
++  if (id.includes('-concat')) fail('UNSAFE_NEW_ID', '身份中不能包含会影响原生续行解析的 -concat。');
++  if (occupied.has(id)) fail('DUPLICATE_NEW_ID', '新生成的身份与现有身份重复，请重试。', { nodeId: id });
++  occupied.add(id);
++  return id;
++}
++
++/** Exact source ranges only. Overlap and stale expected slices reject the complete transaction. */
++export function applySourceChanges(source: string, changes: readonly SourceChange[]): SourceEditResult {
++  const sorted = [...changes].sort((a, b) => a.start - b.start || a.end - b.end);
++  let end = -1;
++  for (const change of sorted) {
++    if (!Number.isInteger(change.start) || !Number.isInteger(change.end) || change.start < 0
++        || change.end < change.start || change.end > source.length || change.start < end) {
++      fail('INVALID_SOURCE_CHANGE', '局部修改的范围无效或重叠。');
++    }
++    if (source.slice(change.start, change.end) !== change.before) fail('STALE_SOURCE_CHANGE', '局部源码已经改变，请重新解析。');
++    end = change.end;
++  }
++  let result = source;
++  for (const change of sorted.slice().reverse()) result = result.slice(0, change.start) + change.after + result.slice(change.end);
++  scanLines(result);
++  return { source: result, changes: sorted };
++}
++
++/** Explicit registration preserves existing IDs, comments, BOM and physical line count. */
++export function assignMissingNodeIds(source: string, ranges: readonly NativeSentenceRange[], factory: () => string, options: { eligibleStartLines?: readonly number[] } = {}): SourceEditResult & { assigned: Array<{ nodeId: string; startLine: number }> } {
++  const identity = checkedIdentity(source, ranges);
++  const lines = scanLines(source);
++  const occupied = new Set(identity.nodes.map(node => node.nodeId).filter((id): id is string => !!id));
++  const assigned: Array<{ nodeId: string; startLine: number }> = [];
++  const changes: SourceChange[] = [];
++  for (const node of identity.nodes) {
++    if (node.nodeId || (options.eligibleStartLines && !options.eligibleStartLines.includes(node.startLine))) continue;
++    const last = lines[node.endLine];
++    if (last.text.endsWith('\\')) fail('UNSAFE_CONTINUATION', '末尾续行未结束，请先在源码中修复。', { line: node.endLine });
++    const nodeId = freshId(factory, occupied);
++    // Always add a native comment delimiter. A preceding comment keeps it as
++    // comment text; no existing author whitespace or punctuation is rewritten.
++    changes.push({ start: last.end, end: last.end, before: '', after: `; ${markerPrefix} ${nodeId}` });
++    assigned.push({ nodeId, startLine: node.startLine });
++  }
++  return { ...applySourceChanges(source, changes), assigned };
++}
++
++export interface DialogueEdit {
++  nodeId: string;
++  text: string;
++  /** Only set after the caller has classified the native speaker/implicit dialogue as supported. */
++  allowImplicitDialogue?: boolean;
++}
++
++/** Narrow dialogue edit. Duplicate/unknown arguments and all author comments stay byte-identical. */
++export function patchNodeDialogue(source: string, ranges: readonly NativeSentenceRange[], edit: DialogueEdit): SourceEditResult {
++  const node = requireNode(checkedIdentity(source, ranges), edit.nodeId);
++  if (node.startLine !== node.endLine) fail('UNSUPPORTED_MULTILINE_EDIT', '多行命令请在源码模式中编辑。', { nodeId: edit.nodeId });
++  const raw = source.slice(node.start, node.end);
++  const comment = commentOffset(raw);
++  const codeEnd = comment >= 0 ? comment : raw.length;
++  const colon = raw.indexOf(':');
++  const hasColon = colon >= 0 && colon < codeEnd;
++  if (!(hasColon && raw.slice(0, colon) === 'say') && !edit.allowImplicitDialogue) {
++    fail('UNSUPPORTED_COMMAND_EDIT', '只有已确认的对话命令可局部修改正文；高级命令请使用源码模式。', { nodeId: edit.nodeId });
++  }
++  let start = hasColon ? colon + 1 : 0;
++  let end = codeEnd;
++  const argStart = raw.indexOf(' -', start);
++  if (argStart >= 0 && argStart < end) end = argStart;
++  while (start < end && raw[start].trim() === '') start += 1;
++  while (end > start && raw[end - 1].trim() === '') end -= 1;
++  const oldText = raw.slice(start, end).replace(/\\;/g, ';');
++  if (!oldText || oldText === 'none' || oldText.includes('\\') || /[\u0000-\u001f\u007f\u2028\u2029]/u.test(oldText)) {
++    fail('UNSUPPORTED_CONTENT_EDIT', '空值、保留值或高级转义内容请在源码模式中编辑。', { nodeId: edit.nodeId });
++  }
++  const text = edit.text;
++  if (typeof text !== 'string' || !text || text !== text.trim() || text === 'none'
++      || text.startsWith('-') || text.includes(' -') || text.includes('\\')
++      || /[\u0000-\u001f\u007f\u2028\u2029]/u.test(text)) {
++    fail('UNSUPPORTED_DIALOGUE_TEXT', '正文含无法安全投影的空白、转义或参数分隔符，请改用源码模式。', { nodeId: edit.nodeId });
++  }
++  // A colon changes implicit dialogue into command syntax unless there was
++  // already a command/speaker delimiter in the original statement.
++  if (!hasColon && text.includes(':')) fail('UNSUPPORTED_DIALOGUE_TEXT', '无前缀对话中的英文冒号会改变命令解释，请使用源码模式。');
++  if (!hasColon && raw.startsWith(' ') && text.startsWith('|')) fail('UNSUPPORTED_DIALOGUE_TEXT', '缩进对话开头的竖线会变成续行，请使用源码模式。');
++  scanLines(text); // Reject malformed Unicode before UTF-8 serialization.
++  return applySourceChanges(source, [{ start: node.start + start, end: node.start + end, before: raw.slice(start, end), after: text.replace(/;/g, '\\;') }]);
++}
++
++export interface NativeEditableSentence extends NativeSentenceRange {
++  command: number;
++  content: string;
++  args: readonly { key: string; value: string | number | boolean }[];
++}
++
++interface StatementParts {
++  contentStart: number;
++  contentEnd: number;
++  insertAt: number;
++  prefix: string | undefined;
++  tokens: Array<{ start: number; end: number; raw: string }>;
++}
++
++function statementParts(raw: string): StatementParts {
++  const comment = commentOffset(raw);
++  const codeEnd = comment >= 0 ? comment : raw.length;
++  const colon = raw.indexOf(':');
++  const hasColon = colon >= 0 && colon < codeEnd;
++  const prefix = hasColon ? raw.slice(0, colon) : undefined;
++  let contentStart = hasColon ? colon + 1 : 0;
++  const argStarts: number[] = [];
++  for (let offset = contentStart; offset < codeEnd - 1; offset += 1) {
++    if (raw[offset] === ' ' && raw[offset + 1] === '-') argStarts.push(offset);
++  }
++  let contentEnd = argStarts[0] ?? codeEnd;
++  while (contentStart < contentEnd && raw[contentStart].trim() === '') contentStart += 1;
++  while (contentEnd > contentStart && raw[contentEnd - 1].trim() === '') contentEnd -= 1;
++  let insertAt = codeEnd;
++  while (insertAt > 0 && raw[insertAt - 1].trim() === '') insertAt -= 1;
++  return {
++    contentStart, contentEnd, insertAt, prefix,
++    tokens: argStarts.map((start, index) => {
++      let end = argStarts[index + 1] ?? codeEnd;
++      while (end > start && raw[end - 1].trim() === '') end -= 1;
++      return { start, end, raw: raw.slice(start, end) };
++    }),
++  };
++}
++
++function uniqueArgs(sentence: NativeEditableSentence): Map<string, string | number | boolean> {
++  const result = new Map<string, string | number | boolean>();
++  for (const arg of sentence.args) {
++    if (result.has(arg.key)) fail('AMBIGUOUS_ARGUMENTS', '重复参数不能通过整句控件安全修改；可单独改正文或使用源码模式。', { key: arg.key });
++    if (!['string', 'number', 'boolean'].includes(typeof arg.value) || (typeof arg.value === 'number' && !Number.isFinite(arg.value))) {
++      fail('UNSUPPORTED_ARGUMENT_EDIT', '复杂参数值请使用源码模式。', { key: arg.key });
++    }
++    result.set(arg.key, arg.value);
++  }
++  return result;
++}
++
++function normalizedArgs(sentence: NativeEditableSentence): string {
++  return JSON.stringify([...uniqueArgs(sentence).entries()].sort(([left], [right]) => left.localeCompare(right)));
++}
++
++/**
++ * Conservatively project a graphical serializer proposal onto original tokens.
++ * The actual native parser validates both the proposal and the resulting whole
++ * scene. Caller folds its proposal first; multiline source remains source-only.
++ * Existing command spelling, argument order, untouched numeric/boolean spelling,
++ * whitespace and the complete author comment (including identity) are retained.
++ */
++export function patchNodeStatement(
++  source: string,
++  ranges: readonly NativeSentenceRange[],
++  edit: { nodeId: string; replacement: string },
++  parseNative: (source: string) => readonly NativeEditableSentence[],
++): SourceEditResult {
++  const node = requireNode(checkedIdentity(source, ranges), edit.nodeId);
++  if (node.startLine !== node.endLine || /[\r\n]/.test(edit.replacement)) {
++    fail('UNSUPPORTED_MULTILINE_EDIT', '多行源命令请使用源码模式；图形提案必须先经过原生折行预处理。');
++  }
++  scanLines(edit.replacement);
++  const raw = source.slice(node.start, node.end);
++  const originalParts = statementParts(raw);
++  const proposedParts = statementParts(edit.replacement);
++  const originalScene = parseNative(source);
++  const original = originalScene.find(sentence => sentence.startLine === node.startLine && !sentence.isLineBreakHolder);
++  const proposal = parseNative(edit.replacement);
++  if (!original || proposal.length !== 1 || proposal[0].isLineBreakHolder
++      || original.command !== proposal[0].command || proposal[0].commandRaw === 'comment') {
++    fail('UNSUPPORTED_COMMAND_EDIT', '图形提案改变了命令类型，请在源码模式中修改。');
++  }
++  const desired = proposal[0];
++  // Keep explicit say: when the legacy Say serializer emits a speaker prefix.
++  // Every other command prefix must stay unchanged; unknown speaker syntax is
++  // first explicitly confirmed and converted by the editor's source analysis.
++  if (originalParts.prefix !== proposedParts.prefix && originalParts.prefix !== 'say') {
++    fail('UNSUPPORTED_COMMAND_EDIT', '无法保留原命令前缀，请先在源码中确认命令类型。');
++  }
++  const originalArgs = uniqueArgs(original);
++  const desiredArgs = uniqueArgs(desired);
++  const tokenByKey = new Map<string, StatementParts['tokens'][number]>();
++  for (const token of originalParts.tokens) {
++    const tokenSentence = parseNative(`say:__makenovel_token__${token.raw}`)[0];
++    if (!tokenSentence || tokenSentence.args.length !== 1) fail('UNSUPPORTED_ARGUMENT_EDIT', '无法独立定位原始参数，请使用源码模式。');
++    const key = tokenSentence.args[0].key;
++    if (tokenByKey.has(key)) fail('AMBIGUOUS_ARGUMENTS', '重复参数请使用源码模式。', { key });
++    tokenByKey.set(key, token);
++  }
++  const changes: SourceChange[] = [];
++  const addChange = (start: number, end: number, after: string) => {
++    const before = raw.slice(start, end);
++    if (before !== after) changes.push({ start: node.start + start, end: node.start + end, before, after });
++  };
++  if (original.content !== desired.content) {
++    addChange(originalParts.contentStart, originalParts.contentEnd,
++      edit.replacement.slice(proposedParts.contentStart, proposedParts.contentEnd));
++  }
++  const keys = new Set([...originalArgs.keys(), ...desiredArgs.keys()]);
++  const additions: string[] = [];
++  for (const key of keys) {
++    if (originalArgs.has(key) === desiredArgs.has(key) && originalArgs.get(key) === desiredArgs.get(key)) continue;
++    const token = tokenByKey.get(key);
++    if (originalArgs.has(key) && !token) fail('UNSUPPORTED_ARGUMENT_EDIT', '隐式参数无法安全局部改写，请使用源码模式。', { key });
++    if (!desiredArgs.has(key)) {
++      if (token) addChange(token.start, token.end, '');
++      continue;
++    }
++    const value = String(desiredArgs.get(key));
++    if (!/^[A-Za-z][A-Za-z0-9_.-]*$/.test(key) || value.includes(' -') || /[\r\n\u0000-\u001f\u007f]/u.test(value) || value.includes('\\')) {
++      fail('UNSUPPORTED_ARGUMENT_EDIT', '参数包含无法安全写回的分隔符或转义，请使用源码模式。', { key });
++    }
++    const encoded = value.replace(/;/g, '\\;');
++    if (!token) {
++      additions.push(` -${key}=${encoded}`);
++      continue;
++    }
++    const equal = token.raw.indexOf('=');
++    const rawKey = token.raw.slice(2, equal >= 0 ? equal : undefined).trim();
++    if (rawKey !== key) {
++      // E.g. the native -voice.ogg shorthand maps to the vocal parameter.
++      addChange(token.start, token.end, ` -${key}=${encoded}`);
++    } else if (equal < 0) {
++      addChange(token.end, token.end, `=${encoded}`);
++    } else {
++      let valueStart = equal + 1;
++      while (valueStart < token.raw.length && token.raw[valueStart].trim() === '') valueStart += 1;
++      addChange(token.start + valueStart, token.end, encoded);
++    }
++  }
++  if (additions.length) addChange(originalParts.insertAt, originalParts.insertAt, additions.join(''));
++  const result = applySourceChanges(source, changes);
++  const afterScene = parseNative(result.source);
++  if (afterScene.length !== originalScene.length) fail('UNSAFE_NATIVE_PROJECTION', '局部修改改变了原生语句边界，请使用源码模式。');
++  for (let index = 0; index < originalScene.length; index += 1) {
++    const before = originalScene[index];
++    const after = afterScene[index];
++    if (before.startLine === node.startLine) {
++      if (after.command !== desired.command || after.content !== desired.content || normalizedArgs(after) !== normalizedArgs(desired)
++          || after.startLine !== before.startLine || after.endLine !== before.endLine || after.inlineComment !== before.inlineComment) {
++        fail('UNSAFE_NATIVE_PROJECTION', '无法在保留源码格式的同时实现这次图形修改，请使用源码模式。');
++      }
++    } else if (JSON.stringify(before) !== JSON.stringify(after)) {
++      fail('UNSAFE_NATIVE_PROJECTION', '这次修改影响了相邻语句，请使用源码模式。');
++    }
++  }
++  return result;
++}
++
++/** Delete the native range and its attached legacy marker together. */
++export function deleteNode(source: string, ranges: readonly NativeSentenceRange[], nodeId: string): SourceEditResult {
++  const node = requireNode(checkedIdentity(source, ranges), nodeId);
++  return applySourceChanges(source, [{ start: node.blockStart, end: node.blockEnd, before: source.slice(node.blockStart, node.blockEnd), after: '' }]);
++}
++
++function insertBlock(source: string, offset: number, block: string, eol: string): string {
++  // A final command without EOL must remain separate after moving or copying.
++  const prefix = offset > 0 && source[offset - 1] !== '\n' && source[offset - 1] !== '\uFEFF' ? eol : '';
++  const suffix = offset < source.length && block !== '' && !block.endsWith('\n') ? eol : '';
++  return prefix + block + suffix;
++}
++
++function assertClosedBlock(source: string, node: SourceNode): void {
++  if (source.slice(node.start, node.end).endsWith('\\')) {
++    fail('UNSAFE_CONTINUATION', '末尾续行未结束，移动或复制会吸收相邻命令；请先修复源码。', { nodeId: node.nodeId });
++  }
++}
++
++/**
++ * Insert one native statement at a current source boundary (null means EOF).
++ * The caller provides the actual parser so implicit continuation cannot absorb
++ * a neighbor. Original source is a single zero-width edit; only new text adopts
++ * the adjacent EOL. An existing standalone marker stays with its original node.
++ */
++export function insertSceneStatement(
++  source: string,
++  ranges: readonly NativeSentenceRange[],
++  beforeStartLine: number | null,
++  statement: string,
++  factory: () => string,
++  parseNative: (source: string) => readonly NativeSentenceRange[],
++): SourceEditResult & { nodeId: string } {
++  const existing = checkedIdentity(source, ranges);
++  const lines = scanLines(source);
++  const heads = nativeHeads(ranges, lines);
++  let offset = source.length;
++  let boundaryLine = lines.length - 1;
++  if (beforeStartLine !== null) {
++    const head = heads.find(item => item.startLine === beforeStartLine);
++    // Empty input may be projected as [] by an editor, but its only insertion
++    // boundary is still the beginning of the empty body after an optional BOM.
++    if (!head && !(beforeStartLine === 0 && source.replace(/^\uFEFF/, '') === '')) {
++      fail('INVALID_INSERT_BOUNDARY', '插入位置不是当前原生语句边界，请重新定位后再插入。');
++    }
++    const target = existing.nodes.find(item => item.startLine === beforeStartLine);
++    boundaryLine = target?.markerKind === 'standalone' ? target.markerLine as number : beforeStartLine;
++    offset = target?.blockStart ?? lines[boundaryLine].start;
++  }
++  const neighboringEol = lines[boundaryLine]?.eol
++    || lines.slice(0, boundaryLine + 1).reverse().find(line => !!line.eol)?.eol
++    || lines.find(line => !!line.eol)?.eol
++    || '\n';
++  if (statement.startsWith('\uFEFF')) fail('INVALID_INSERT_STATEMENT', '新语句不能携带文件 BOM。');
++  scanLines(statement);
++  const normalized = statement.replace(/\r?\n/g, neighboringEol);
++  const statementRanges = parseNative(normalized);
++  const incoming = checkedIdentity(normalized, statementRanges);
++  if (incoming.nodes.length !== 1 || incoming.nodes[0].nodeId) {
++    fail('INVALID_INSERT_STATEMENT', '一次只能插入一条尚未登记身份的原生命令；复制节点请使用复制操作。');
++  }
++  const occupied = new Set(existing.nodes.map(node => node.nodeId).filter((id): id is string => !!id));
++  const nodeId = freshId(factory, occupied);
++  const registered = assignMissingNodeIds(normalized, statementRanges, () => nodeId).source;
++  const inserted = insertBlock(source, offset, registered, neighboringEol);
++  const result = applySourceChanges(source, [{ start: offset, end: offset, before: '', after: inserted }]);
++  const after = checkedIdentity(result.source, parseNative(result.source));
++  if (after.nodes.length !== existing.nodes.length + 1 || !after.nodes.some(node => node.nodeId === nodeId)
++      || existing.nodes.some(node => node.nodeId && !after.nodes.some(candidate => candidate.nodeId === node.nodeId))) {
++    fail('UNSAFE_INSERT_BOUNDARY', '插入会改变相邻命令的续行或身份，请在源码模式处理。');
++  }
++  return { ...result, nodeId };
++}
++
++/** Move before another stable node; null places it at the end. Comments inside the block move with it. */
++export function moveNode(source: string, ranges: readonly NativeSentenceRange[], nodeId: string, beforeNodeId: string | null): SourceEditResult {
++  const identity = checkedIdentity(source, ranges);
++  const node = requireNode(identity, nodeId);
++  assertClosedBlock(source, node);
++  const before = beforeNodeId === null ? undefined : requireNode(identity, beforeNodeId);
++  if (before?.nodeId === nodeId || before?.blockStart === node.blockEnd || (!before && node.blockEnd === source.length)) return { source, changes: [] };
++  const block = source.slice(node.blockStart, node.blockEnd);
++  const without = source.slice(0, node.blockStart) + source.slice(node.blockEnd);
++  const oldOffset = before ? before.blockStart : source.length;
++  const offset = oldOffset > node.blockStart ? oldOffset - block.length : oldOffset;
++  const eol = scanLines(source).find(line => line.eol)?.eol ?? '\n';
++  const inserted = insertBlock(without, offset, block, eol);
++  return applySourceChanges(source, [
++    { start: node.blockStart, end: node.blockEnd, before: block, after: '' },
++    { start: oldOffset, end: oldOffset, before: '', after: inserted },
++  ]);
++}
++
++/** Copy immediately after a node. A fresh explicit identity replaces the copied marker. */
++export function duplicateNode(source: string, ranges: readonly NativeSentenceRange[], nodeId: string, factory: () => string): SourceEditResult & { nodeId: string } {
++  const identity = checkedIdentity(source, ranges);
++  const node = requireNode(identity, nodeId);
++  assertClosedBlock(source, node);
++  const newId = freshId(factory, new Set(identity.nodes.map(item => item.nodeId as string)));
++  const block = source.slice(node.blockStart, node.blockEnd);
++  if (node.markerStart === undefined || node.markerEnd === undefined) fail('ID_NOT_FOUND', '身份标记的源范围已失效。');
++  const copy = block.slice(0, node.markerStart - node.blockStart) + `${markerPrefix} ${newId}` + block.slice(node.markerEnd - node.blockStart);
++  const eol = scanLines(source).find(line => line.eol)?.eol ?? '\n';
++  const inserted = insertBlock(source, node.blockEnd, copy, eol);
++  return { ...applySourceChanges(source, [{ start: node.blockEnd, end: node.blockEnd, before: '', after: inserted }]), nodeId: newId };
++}
++
++/** Detect identity changes across explicit source revisions; never remap by text or row. */
++export function compareSceneIdentities(before: SceneIdentity, after: SceneIdentity): { removed: string[]; added: string[]; retained: string[] } {
++  const previous = new Set(before.nodes.map(node => node.nodeId).filter((id): id is string => !!id));
++  const current = new Set(after.nodes.map(node => node.nodeId).filter((id): id is string => !!id));
++  return {
++    removed: [...previous].filter(id => !current.has(id)),
++    added: [...current].filter(id => !previous.has(id)),
++    retained: [...previous].filter(id => current.has(id)),
++  };
++}
+diff --git a/packages/terre2/src/Modules/webgal-fs/text-snapshot-api.spec.ts b/packages/terre2/src/Modules/webgal-fs/text-snapshot-api.spec.ts
+index d60a2971dc064a0caaedf53d8583707a5525ddd6..d7f6f27f7550c55125b28bf7327f3ec859dc62f7 100644
+--- a/packages/terre2/src/Modules/webgal-fs/text-snapshot-api.spec.ts
++++ b/packages/terre2/src/Modules/webgal-fs/text-snapshot-api.spec.ts
+@@ -23,7 +23,7 @@ describe('Text snapshot HTTP API (real filesystem)', () => {
+     root = await fs.mkdtemp(join(tmpdir(), 'makenovel-text-api-'));
+     target = join(root, location.gameName, location.path);
+     await fs.mkdir(dirname(target), { recursive: true });
+-    await fs.writeFile(target, '\uFEFF角色:原文;\r\n');
++    await fs.writeFile(target, '\uFEFF;保留 BOM\r\nsay:原文 -speaker=角色;\r\n');
+     // Profile selection is the only boundary substituted. Every file operation,
+     // request parser, controller, service and error response remains real.
+     gameRoot = jest.spyOn(UserDataService, 'getGameRoot').mockReturnValue(root);
+@@ -51,9 +51,9 @@ describe('Text snapshot HTTP API (real filesystem)', () => {
+       .post('/api/manageGame/textSnapshot')
+       .send(location)
+       .expect(200);
+-    expect(before.body.text).toBe('\uFEFF角色:原文;\r\n');
++    expect(before.body.text).toBe('\uFEFF;保留 BOM\r\nsay:原文 -speaker=角色;\r\n');
+     expect(before.body.revision).toMatch(/^[a-f0-9]{64}$/);
+-    const next = '\uFEFF角色:新对白;\r\n';
++    const next = '\uFEFF;保留 BOM\r\nsay:新对白 -speaker=角色;\r\n';
+     const saved = await request(app.getHttpServer())
+       .post('/api/manageGame/saveTextSnapshot')
+       .send({ ...location, text: next, expectedRevision: before.body.revision })
+@@ -114,7 +114,7 @@ describe('Text snapshot HTTP API (real filesystem)', () => {
+       .post('/api/manageGame/textSnapshot')
+       .send({})
+       .expect(400);
+-    expect(await fs.readFile(target, 'utf8')).toBe('\uFEFF角色:原文;\r\n');
++    expect(await fs.readFile(target, 'utf8')).toBe('\uFEFF;保留 BOM\r\nsay:原文 -speaker=角色;\r\n');
+   });
+ 
+   it('reports a real read-only replacement failure with HTTP 403', async () => {
+@@ -135,7 +135,7 @@ describe('Text snapshot HTTP API (real filesystem)', () => {
+         .expect(403);
+       expect(result.body.code).toBe('TEXT_FILE_IO_ERROR');
+       expect(['EPERM', 'EACCES']).toContain(result.body.ioCode);
+-      expect(await fs.readFile(target, 'utf8')).toBe('\uFEFF角色:原文;\r\n');
++      expect(await fs.readFile(target, 'utf8')).toBe('\uFEFF;保留 BOM\r\nsay:原文 -speaker=角色;\r\n');
+     } finally {
+       await fs.chmod(target, 0o666);
+       await fs.chmod(dirname(target), 0o755);
+diff --git a/packages/terre2/src/Modules/webgal-fs/webgal-fs.service.ts b/packages/terre2/src/Modules/webgal-fs/webgal-fs.service.ts
+index d8991872cdfe77397a22167dd0f5778c16c46d76..5d76b41470be4370255925543f1a1c600ec97257 100644
+--- a/packages/terre2/src/Modules/webgal-fs/webgal-fs.service.ts
++++ b/packages/terre2/src/Modules/webgal-fs/webgal-fs.service.ts
+@@ -1,14 +1,15 @@
+-import { ConsoleLogger, Injectable } from '@nestjs/common';
++import { BadRequestException, ConsoleLogger, HttpException, Injectable } from '@nestjs/common';
+ import * as fs from 'fs/promises';
+ import archiver = require('archiver');
+ import AdmZip = require('adm-zip');
+-import { basename, dirname, extname, isAbsolute, join } from 'path';
++import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'path';
+ import { execFile } from 'child_process';
+ import { promisify } from 'util';
+ import { gzip, Z_BEST_COMPRESSION } from 'zlib';
+ import { UserDataService } from '../user-data/user-data.service';
+ import trash from 'trash';
+ import { TextFileTransactions } from './text-file-transaction';
++import { analyzeScene, hasUnreviewedAdvancedChanges } from '../scene-document/scene-analysis';
+ 
+ const pExecFile = promisify(execFile);
+ const pGzip = promisify(gzip);
+@@ -46,15 +47,77 @@ export class WebgalFsService {
+     return this.textTransactions.read(gameName, path);
+   }
+ 
+-  saveTextSnapshot(
++  validateSceneSnapshot(text: string) {
++    if (typeof text !== 'string') {
++      throw new BadRequestException({ code: 'INVALID_REQUEST', message: 'Scene text is required.' });
++    }
++    return analyzeScene(text);
++  }
++
++  async saveTextSnapshot(
+     gameName: string,
+     path: string,
+     text: string,
+     expectedRevision: string,
+   ) {
++    if (typeof text !== 'string' || typeof expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(expectedRevision)) {
++      throw new BadRequestException({ code: 'INVALID_REQUEST', message: 'Text and a SHA256 expectedRevision are required.' });
++    }
++    // Scene files are active runtime source. Config/JSON/other assets retain the
++    // existing generic text transaction path and are not parsed as dialogue.
++    if (typeof path === 'string' && /^game\/scene\//i.test(path.replace(/\\/g, '/'))) {
++      const analysis = this.validateSceneSnapshot(text);
++      if (!analysis.valid) {
++        throw new HttpException({
++          code: 'SCENE_VALIDATION_FAILED',
++          message: 'Scene contains incomplete or invalid core syntax; the draft was not applied.',
++          diagnostics: analysis.diagnostics,
++          analysis,
++        }, 422);
++      }
++      const previous = await this.textTransactions.read(gameName, path);
++      // Keep the stale-write error contract even for changes to advanced blocks.
++      if (previous.revision !== expectedRevision) {
++        throw new HttpException({ code: 'REVISION_CONFLICT', message: 'The file changed since it was read.', expectedRevision, actualRevision: previous.revision }, 409);
++      }
++      if (hasUnreviewedAdvancedChanges(analyzeScene(previous.text), analysis)) {
++        throw new HttpException({
++          code: 'ADVANCED_CODE_REQUIRES_REVIEW',
++          message: 'New or changed ambiguous/unregistered commands require explicit conversion or extension review; the draft was not applied.',
++          diagnostics: analysis.diagnostics,
++          analysis,
++        }, 422);
++      }
++    }
+     return this.textTransactions.save(gameName, path, text, expectedRevision);
+   }
+ 
++  private sceneRevisionRequired(): never {
++    throw new HttpException({
++      code: 'SCENE_REVISION_REQUIRED',
++      message: 'Active scene edits require textSnapshot/saveTextSnapshot with an expectedRevision. This legacy write was not applied.',
++    }, 428);
++  }
++
++  /** Legacy callers supply absolute paths. Check both logical and real targets. */
++  private async isActiveScenePath(filePath: string): Promise<boolean> {
++    let gameRoot: string;
++    try { gameRoot = UserDataService.getGameRoot(); }
++    catch { gameRoot = join(process.cwd(), 'public', 'games'); }
++    const lexicalRoot = resolve(gameRoot);
++    const lexicalTarget = resolve(filePath);
++    const [canonicalRoot, canonicalTarget] = await Promise.all([
++      fs.realpath(lexicalRoot).catch(() => lexicalRoot),
++      fs.realpath(lexicalTarget).catch(() => lexicalTarget),
++    ]);
++    const insideScene = (root: string, target: string) => {
++      const segments = relative(root, target).replace(/\\/g, '/').split('/');
++      return segments.length >= 4 && segments[0] !== '..' && !isAbsolute(segments[0])
++        && segments[1].toLowerCase() === 'game' && segments[2].toLowerCase() === 'scene';
++    };
++    return insideScene(lexicalRoot, lexicalTarget) || insideScene(canonicalRoot, canonicalTarget);
++  }
++
+   static checkFileName(name: string): boolean {
+     return name.search(/[\/\\\:\*\?"\<\>\|]/) === -1;
+   }
+@@ -363,8 +426,9 @@ export class WebgalFsService {
+    * @param path 文件路径
+    */
+   async createEmptyFile(path: string) {
++    const decodedPath = decodeURI(path);
++    if (await this.isActiveScenePath(decodedPath) && await this.exists(decodedPath)) this.sceneRevisionRequired();
+     try {
+-      const decodedPath = decodeURI(path);
+       if (!this.isPathInsideAllowedRoots(decodedPath)) {
+         throw new Error('Path is out of allowed roots');
+       }
+@@ -378,7 +442,7 @@ export class WebgalFsService {
+         this.logger.log(`创建目录: ${directory}`);
+       }
+ 
+-      await fs.writeFile(decodedPath, '');
++      await fs.writeFile(decodedPath, '', { flag: 'wx' });
+       this.logger.log(`创建空文件: ${decodedPath}`);
+       return 'created';
+     } catch (error) {
+@@ -393,6 +457,7 @@ export class WebgalFsService {
+    * @param content 文本内容
+    */
+   async updateTextFile(path: string, content: string) {
++    if (await this.isActiveScenePath(decodeURI(path))) this.sceneRevisionRequired();
+     return await new Promise(async (resolve) => {
+       fs.writeFile(decodeURI(path), content)
+         .then(() => {
+@@ -416,6 +481,7 @@ export class WebgalFsService {
+     text: RegExp | string | RegExp[] | string[],
+     newText: string | string[],
+   ) {
++    if (await this.isActiveScenePath(decodeURI(_path))) this.sceneRevisionRequired();
+     try {
+       const path = decodeURI(_path);
+ 
+@@ -483,15 +549,21 @@ export class WebgalFsService {
+       if (!this.isPathInsideAllowedRoots(targetPath)) {
+         throw new Error('Path is out of allowed roots');
+       }
++      const targets = await Promise.all(fileList.map(async (file) => {
++        const filePath = join(targetPath, decodeURI(file.fileName));
++        const scene = await this.isActiveScenePath(filePath);
++        if (scene && await this.exists(filePath)) this.sceneRevisionRequired();
++        return { file, filePath, scene };
++      }));
+       await fs.mkdir(targetPath, { recursive: true });
+       this.logger.log(`创建目录: ${targetPath}`);
+-      for (const file of fileList) {
+-        const filePath = `${targetPath}/${decodeURI(file.fileName)}`;
+-        await fs.writeFile(filePath, file.file);
++      for (const { file, filePath, scene } of targets) {
++        await fs.writeFile(filePath, file.file, scene ? { flag: 'wx' } : undefined);
+         this.logger.log(`写入文件: ${filePath}`);
+       }
+       return true;
+     } catch (error) {
++      if (error instanceof HttpException) throw error;
+       this.logger.error(`写入文件失败: ${String(error)}`);
+       return false;
+     }

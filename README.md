@@ -2,7 +2,7 @@
 
 面向 Windows 的视觉小说创作工具链：传统玩家体验、人工导演模式，以及共享同一份源码的 AI 创作接口。
 
-**当前版本 0.0.2：Terre 场景编辑已接入共享草稿、显式保存和外部修改冲突保护。** 图形编辑 → 源码编辑 → 保存重开已实机验证；完整导演工具、语法闸门与 Windows 离线发行包仍在开发。
+**当前版本 0.0.3：场景编辑已接入核心语法诊断、持久节点身份、局部写回与冲突保护，并生成可直接运行的本地 Windows 开发包。** 图形复制/移动、错误草稿修复和 EXE 一槽正常退出重启读档已实测；完整导演工具、插件、旧档迁移与正式发行仍在开发。
 
 ## 开始
 
@@ -29,14 +29,29 @@ npm.cmd run patch:apply
 npm.cmd run editor:build
 npm.cmd run test:editor
 npm.cmd run test:documents
+npm.cmd run test:identity
 npm.cmd run editor:start
 ```
 
 访问 `http://127.0.0.1:3001`。数据隔离在本项目 `.local/editor-profile/`，停止用 `npm.cmd run editor:stop`。这是本机开发预览，不是独立安装包。
 
-场景图形/源码模式共享草稿，修改后点击“保存脚本”（源码支持 Ctrl+S）。发生外部版本冲突时保留草稿并拒绝覆盖，先下载备份再载入磁盘版本。浏览器 sessionStorage 支持本标签页刷新恢复；关闭浏览器后的恢复和跨设备同步尚未验收。JSON 资源/模板仍沿用上游保存方式。完整限制见 [已知问题](docs/KNOWN_ISSUES.md)。
+场景图形/源码模式共享草稿，修改后点击“保存脚本”（源码支持 Ctrl+S）。核心语法或身份错误会显示位置并保留未应用草稿。未知前缀显示高级块；确认是人物台词后，可明确转换为 `say`，不自动把未知插件指令改成对白。已登记的节点复制时分配新 ID，移动时保留原 ID。
+
+发生外部版本冲突时保留草稿并拒绝覆盖，先下载备份再载入磁盘版本。sessionStorage 支持本标签页刷新恢复；项目级崩溃恢复与跨设备同步未验收。JSON/模板仍沿用上游保存方式；多行、不安全参数与未知代码保留源码编辑。完整限制见 [已知问题](docs/KNOWN_ISSUES.md)。
 
 Terre submodule 的 HEAD 仍是原版提交，工作树有意保留应用后的改动；公开源码在根仓库 [patches/terre](patches/terre/)。`npm.cmd run patch:check` 应报告完整匹配，不能把预期的 dirty 状态当成外部修改，也不能 reset。详见 [补丁机制](docs/integrations/TERRE_PATCHES.md)。
+
+## 导出 Windows 开发包
+
+完成编辑器构建后，使用实际作品目录运行：
+
+```powershell
+npm.cmd run game:export -- -GamePath '.local/editor-profile/games/你的作品目录'
+```
+
+入口调用原 Terre 导出服务，将包含 Electron 的未签名包放入 `.local/exports/`；首次构建壳需要下载依赖。玩家直接运行生成的 EXE，无需 Node/Yarn。当前开发包保留默认 Electron 图标/元数据，尚不是签名安装发行版。
+
+已在本机 Windows 11 x64 验证无本项目开发服务时开始游戏、槽 1 存档、正常退出并重启读档；全机断网、干净机器和全部存档边界尚未验收。重放与限制见 [Windows 导出说明](integrations/windows-export/README.md) 和 [实际证据](docs/evidence/2026-10-07-windows-export.md)。
 
 ## 项目导航
 
