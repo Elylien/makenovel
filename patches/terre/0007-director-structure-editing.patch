@@ -1,0 +1,439 @@
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
+index 7e0bb11b941d072242fa87026ef0b88bea0328a2..a6c66e03aa146b590c32a8498c1b6d76f5b95e83 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
+@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
+ import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle } from '@fluentui/react-components';
+ import { sentenceEditorConfig } from '../SentenceEditor';
+ import { getArgByKey } from '../utils/getArgByKey';
+-import { addDirectorSessionNode, removeDirectorSessionNode, editDirectorSession, commitDirectorSession, type DirectorSession, type DirectorSessionNode, type DirectorSourceFact } from '../../SceneDocument/directorSession';
++import { addDirectorSessionNode, removeDirectorSessionNode, deleteDirectorSessionNode, moveDirectorSessionNode, directorStructuralActions, editDirectorSession, commitDirectorSession, type DirectorSession, type DirectorSessionNode, type DirectorSourceFact } from '../../SceneDocument/directorSession';
+ import type { SceneDocument } from '../../SceneDocument/sceneDocument';
+ import { createDirectorSourceNavigation, type DirectorSourceNavigation } from '../../SceneDocument/directorNavigation';
+ import { holdScenePreview } from '../../SceneDocument/sceneDocumentRegistry';
+@@ -28,6 +28,7 @@ const additions = [
+   { command: 'playEffect', title: '效果音', basePath: 'vocal', extensions: extNameMap.get('audio'), next: false },
+ ] as const;
+ type Addition = typeof additions[number];
++interface DeleteReview { nodeId: string; source: string }
+ interface PendingAddition { token: symbol; definition: Addition; error?: string }
+ const invalidAssetControl = /[\u0000-\u001f\u007f\uFEFF]/;
+ 
+@@ -107,7 +108,18 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+   const [controlEpochs, setControlEpochs] = useState<Record<string, number>>({});
+   const controlEpochsRef = useRef(controlEpochs);
+ 
++  const [deleteReview, setDeleteReview] = useState<DeleteReview | null>(null);
++  const deleteReviewRef = useRef(deleteReview);
++  const structureQueued = useRef(false);
++  const rowElements = useRef(new Map<string, HTMLDetailsElement>());
++  const focusAfterStructure = useRef<string | null>(null);
++  const setReview = (next: DeleteReview | null) => {
++    deleteReviewRef.current = next;
++    setDeleteReview(next);
++  };
++
+   const setLocalSession = (next: DirectorSession) => {
++    if (next !== sessionRef.current) setReview(null);
+     sessionRef.current = next;
+     setSession(next);
+   };
+@@ -124,8 +136,17 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+   }, [targetPath]);
+   useLayoutEffect(() => { addedRow.current?.scrollIntoView({ block: 'nearest' }); }, [lastAddedNodeId]);
+ 
++  useLayoutEffect(() => {
++    const id = focusAfterStructure.current;
++    if (!id) return;
++    focusAfterStructure.current = null;
++    const row = rowElements.current.get(id);
++    row?.querySelector('summary')?.focus();
++    row?.scrollIntoView({ block: 'nearest' });
++  }, [session]);
++
+   const updateNode = (nodeId: string, replacement: string) => {
+-    // A removed new row may still emit blur/cleanup work. Its identity must not
++    // A removed row may still emit blur/cleanup work. Its identity must not
+     // migrate to the line which moved into that position, or leave a ghost error.
+     const node = sessionRef.current.nodes.find(item => item.nodeId === nodeId);
+     if (closed.current || !node) return false;
+@@ -148,6 +169,7 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+ 
+   const beginAddition = (definition: Addition) => {
+     if (closed.current || pendingAdditionRef.current) return;
++    if (deleteReviewRef.current) { setMessage('请先确认移除或保留该设置。'); return; }
+     if (composing.current) { setMessage('请先完成中文候选输入，再新增设置。'); return; }
+     setPending({ token: Symbol('director-addition'), definition });
+     setMessage('');
+@@ -198,6 +220,59 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+     }
+   };
+ 
++  const changeStructure = (nodeId: string, action: 'review' | 'delete' | 'up' | 'down', review?: DeleteReview) => {
++    if (closed.current || structureQueued.current) return;
++    if (composing.current || document.getSnapshot().isComposing) {
++      setMessage('请先完成中文候选输入，再调整顺序或移除设置。'); return;
++    }
++    structureQueued.current = true;
++    // Flush native buffers before computing positions or presenting deletion.
++    const active = globalThis.document.activeElement;
++    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) active.blur();
++    queueMicrotask(() => queueMicrotask(() => {
++      structureQueued.current = false;
++      if (closed.current) return;
++      if (composing.current || document.getSnapshot().isComposing) {
++        setMessage('请先完成中文候选输入，再调整顺序或移除设置。'); return;
++      }
++      if (pendingAdditionRef.current || Object.keys(errorsRef.current).length) {
++        setMessage('面板还有未完成的输入。请先完成素材选择并修正输入，再调整顺序或移除设置。'); return;
++      }
++      if (action === 'delete' && (!review || deleteReviewRef.current !== review || sessionRef.current.source !== review.source)) {
++        setMessage('设置已变化，请重新查看移除影响。'); return;
++      }
++      if (action !== 'delete' && deleteReviewRef.current) {
++        setMessage('请先确认移除或保留该设置。'); return;
++      }
++      const current = document.getSnapshot();
++      if (!current.revision || ['loading', 'saving', 'conflict'].includes(current.status)) {
++        setMessage('主文档正在读取、保存或存在冲突。面板内容已保留，请处理后重试。'); return;
++      }
++      try {
++        commitDirectorSession(current.text, current.historyVersion, sessionRef.current);
++        const capabilities = directorStructuralActions(sessionRef.current, nodeId);
++        if (action === 'review') {
++          if (!capabilities.canDelete) throw new Error(capabilities.deleteReason || '该设置不能移除。');
++          setReview({ nodeId, source: sessionRef.current.source });
++          setMessage('');
++          return;
++        }
++        const next = action === 'delete'
++          ? deleteDirectorSessionNode(sessionRef.current, nodeId)
++          : moveDirectorSessionNode(sessionRef.current, nodeId, action);
++        if (action === 'delete') focusAfterStructure.current = next.selectedNodeId;
++        setLocalSession(next);
++        const nextErrors = { ...errorsRef.current };
++        delete nextErrors[nodeId];
++        errorsRef.current = nextErrors;
++        setErrors(nextErrors);
++        setMessage('');
++      } catch (error) {
++        setMessage(error instanceof Error ? error.message : '无法调整该设置，面板内容已保留。');
++      }
++    }));
++  };
++
+   const cancel = () => {
+     if (closed.current) return;
+     closed.current = true;
+@@ -222,6 +297,7 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+         setMessage('请先完成中文候选输入，再应用到草稿。');
+         return;
+       }
++      if (deleteReviewRef.current) { setMessage('请先确认移除或保留该设置，再应用到草稿。'); return; }
+       if (pendingAdditionRef.current) {
+         setMessage('新增设置尚未选择素材。请选择素材，或撤掉这项新增设置。');
+         return;
+@@ -259,7 +335,7 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+       if (composing.current || document.getSnapshot().isComposing) {
+         setMessage('请先完成中文候选输入，再定位来源。'); return;
+       }
+-      if (pendingAdditionRef.current || Object.keys(errorsRef.current).length) {
++      if (deleteReviewRef.current || pendingAdditionRef.current || Object.keys(errorsRef.current).length) {
+         setMessage('面板还有未完成的输入。请先完成并应用，或取消本次修改，再定位来源。'); return;
+       }
+       const current = document.getSnapshot();
+@@ -312,7 +388,7 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+         <DialogTitle>舞台与声音</DialogTitle>
+         <div className={styles.heading}>
+           <p className={styles.dialogue} title={selected.sentence.content}>{selected.sentence.content || '（空白对白）'}</p>
+-          <p className={styles.explanation}>集中编辑本句前的 {editableCount} 项设置与本句语音；新增设置按添加顺序放在本句之前，原有顺序与等待保持原样。</p>
++          <p className={styles.explanation}>集中编辑本句前的 {editableCount} 项设置与本句语音。可移除设置或交换相邻舞台命令；等待、独立注释与对白是顺序边界。</p>
+           <p className={styles.hint}>面板打开期间不能执行到此句或修改舞台预览。应用只进入场景草稿；保存后再预览。Ctrl+S 同样只应用到草稿。</p>
+         </div>
+         <DialogContent className={styles.content}>
+@@ -358,12 +434,18 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+           {session.nodes.map(node => {
+             const Editor = editorByCommand.get(node.sentence.command);
+             const controlEpoch = controlEpochs[node.nodeId] ?? 0;
++            const structure = node.role === 'stage' ? directorStructuralActions(session, node.nodeId) : null;
++            const reviewing = deleteReview?.nodeId === node.nodeId ? deleteReview : null;
+             const addition = node.origin === 'inserted' ? additions.find(item => item.command === node.command) : undefined;
+             if (!node.editable) return <div key={node.nodeId} className={styles.readOnly}>
+               <span>{rowTitle(node)}</span><small>{rowSummary(node)}</small>
+             </div>;
+-            return <details key={node.nodeId} ref={node.nodeId === lastAddedNodeId ? addedRow : undefined}
+-              className={styles.card} open={node.role === 'dialogue' || node.origin === 'inserted'}>
++            return <details key={node.nodeId} ref={element => {
++                if (element) rowElements.current.set(node.nodeId, element);
++                else rowElements.current.delete(node.nodeId);
++                if (node.nodeId === lastAddedNodeId) addedRow.current = element;
++              }}
++              className={styles.card} data-director-node={node.nodeId} open={node.role === 'dialogue' || node.origin === 'inserted'}>
+               <summary>
+                 <span className={styles.rowTitle}>{rowTitle(node)}</span>
+                 <span className={styles.summary}>{rowSummary(node)}</span>
+@@ -382,6 +464,33 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+                     updateNode(node.nodeId, replacement);
+                   }} />}
+                 {errors[node.nodeId] && <p role="alert" className={styles.error}>{errors[node.nodeId]}</p>}
++                {structure && <div className={styles.structure}>
++                  <div className={styles.additionActions}>
++                    <Button size="small" aria-label={`上移${rowTitle(node)}，第 ${node.startLine + 1} 行`}
++                      disabled={!structure.canMoveUp || !!deleteReview || !!pendingAddition}
++                      title={structure.upReason || '与紧邻的上一条舞台命令交换'}
++                      onClick={() => changeStructure(node.nodeId, 'up')}>上移</Button>
++                    <Button size="small" aria-label={`下移${rowTitle(node)}，第 ${node.startLine + 1} 行`}
++                      disabled={!structure.canMoveDown || !!deleteReview || !!pendingAddition}
++                      title={structure.downReason || '与紧邻的下一条舞台命令交换'}
++                      onClick={() => changeStructure(node.nodeId, 'down')}>下移</Button>
++                    {node.origin === 'existing' && <Button size="small" aria-label={`移除${rowTitle(node)}，第 ${node.startLine + 1} 行`}
++                      disabled={!structure.canDelete || !!deleteReview || !!pendingAddition} title={structure.deleteReason || '先查看影响，再从面板草稿移除'}
++                      onClick={() => changeStructure(node.nodeId, 'review')}>移除设置…</Button>}
++                  </div>
++                  <p className={styles.hint}>交换会改变原生执行先后及等待效果；同一位置的后一个设置可能覆盖前一个。只允许交换紧邻舞台命令。</p>
++                  {reviewing && <section className={styles.deleteReview} aria-label="移除设置影响" role="region">
++                    <strong>移除{rowTitle(node)} · {rowSummary(node)}</strong>
++                    <p>这条命令将不再执行，也可能影响后续对白。移除最后一条本地设置可能恢复较早来源，并不会自动清空舞台；请保存后预览确认。</p>
++                    <pre className={styles.sourcePreview} aria-label="将移除的命令"><code>{node.raw.trimEnd()}</code></pre>
++                    <p>{structure.preservesComment ? '这条命令的作者注释会留为独立注释。' : '独立注释和等待保持原样。'}命令身份随命令移除，其余节点身份保留。</p>
++                    <p>确认后只改变面板草稿；可取消整批修改，应用后可在场景中一次撤销。</p>
++                    <div className={styles.additionActions}>
++                      <Button size="small" onClick={() => { if (deleteReviewRef.current === reviewing) { setReview(null); setMessage(''); } }}>保留该设置</Button>
++                      <Button size="small" appearance="primary" onClick={() => changeStructure(node.nodeId, 'delete', reviewing)}>确认移除</Button>
++                    </div>
++                  </section>}
++                </div>}
+                 {node.origin === 'inserted' && <div className={styles.removeAddition}>
+                   <Button aria-label={`撤掉新增${rowTitle(node)}`} onClick={() => removeAddition(node.nodeId)}>撤掉本次新增</Button>
+                 </div>}
+@@ -391,9 +500,9 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+         </DialogContent>
+         {message && <p role="alert" className={styles.error}>{message}</p>}
+         <DialogActions className={styles.actions}>
+-          <span className={styles.pending}>{pendingAddition ? '新增设置待选素材' : session.changed ? '面板修改尚未应用' : '尚未修改场景'}</span>
++          <span className={styles.pending}>{deleteReview ? '请确认移除影响' : pendingAddition ? '新增设置待选素材' : session.changed ? '面板修改尚未应用' : '尚未修改场景'}</span>
+           <Button onClick={cancel}>取消</Button>
+-          <Button appearance="primary" disabled={!!pendingAddition} onClick={apply}>应用到草稿</Button>
++          <Button appearance="primary" disabled={!!pendingAddition || !!deleteReview} onClick={apply}>应用到草稿</Button>
+         </DialogActions>
+       </DialogBody>
+     </DialogSurface>
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss b/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss
+index 38e2d8aaad95762f304a3bd3c745b8bcad00ef1e..8de3a68980529c4c78703381872be4c24cd1b9a2 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss
+@@ -55,3 +55,9 @@
+   .body.body { max-height: calc(100dvh - 62px); }
+   .line { width: 100%; padding-left: 18px; }
+ }
++
++.structure { margin-top: 12px; padding-top: 10px; border-top: var(--border-md); }
++.deleteReview { margin-top: 10px; padding: 12px; border: 1px solid var(--primary); border-radius: var(--radius-md); background: var(--bg-card); font-size: 12px; line-height: 1.6; }
++.deleteReview p { margin: 6px 0; }
++
++.sourcePreview { white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px; border: var(--border-md); border-radius: 4px; font-size: 11px; }
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts b/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
+index 8fc88376fd7fcc3d7b718175e5f16de0be81a15a..ab150796ac1d7d491d2772d6e79e0aa50da82835 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
++++ b/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
+@@ -1,5 +1,5 @@
+ import type { ISentence } from 'webgal-parser/src/interface/sceneInterface';
+-import { analyzeScene, assignMissingNodeIds, inspectSceneIdentity, insertSceneStatement, deleteNode, type SceneBlock } from './sceneContract';
++import { analyzeScene, assignMissingNodeIds, inspectSceneIdentity, insertSceneStatement, deleteNode, type SceneBlock, type SourceNode } from './sceneContract';
+ import { editGraphicalStatement, freshNodeId, nativeRanges } from './graphicalSourceEdits';
+ import { applySourceChanges } from '../../../../../terre2/src/Modules/scene-identity/scene-identity';
+ 
+@@ -54,6 +54,15 @@ const hasArgument = (sentence: ISentence, keys: ReadonlySet<string>) => sentence
+ const conditional = new Set(['when']);
+ export const directorInsertCommands = ['changeBg', 'changeFigure', 'bgm', 'playEffect'] as const;
+ export type DirectorInsertCommand = typeof directorInsertCommands[number];
++export interface DirectorStructuralActions {
++  readonly canDelete: boolean;
++  readonly canMoveUp: boolean;
++  readonly canMoveDown: boolean;
++  readonly preservesComment: boolean;
++  readonly deleteReason: string | null;
++  readonly upReason: string | null;
++  readonly downReason: string | null;
++}
+ const imageFile = /\.(png|jpg|jpeg|webp|svg)$/i;
+ const audioFile = /\.(mp3|ogg|wav|opus)$/i;
+ 
+@@ -305,7 +314,7 @@ export function addDirectorSessionNode(session: DirectorSession, statement: stri
+   return refreshNodes({ ...session, nodes }, result.source);
+ }
+ 
+-/** Removing an original source row is deliberately outside this transaction. */
++/** Cancel only a session insertion; existing rows use the guarded delete API below. */
+ export function removeDirectorSessionNode(session: DirectorSession, nodeId: string): DirectorSession {
+   const selected = session.nodes.find(node => node.nodeId === nodeId);
+   if (selected?.origin !== 'inserted') throw new Error('只能撤掉本次面板中新建的命令；原有语句保持原位。');
+@@ -317,6 +326,168 @@ export function removeDirectorSessionNode(session: DirectorSession, nodeId: stri
+   return refreshNodes({ ...session, nodes }, result.source);
+ }
+ 
++interface StructuralContext {
++  readonly source: string;
++  readonly ranges: ReturnType<typeof nativeRanges>;
++  readonly identity: ReturnType<typeof inspectSceneIdentity>;
++  readonly analysis: ReturnType<typeof checkedAnalysis>;
++}
++// Sessions are immutable snapshots. Opening a large group or changing only a
++// confirmation message should parse its source once, not once per row/button.
++const structuralContexts = new WeakMap<DirectorSession, StructuralContext>();
++function structuralContext(session: DirectorSession): StructuralContext {
++  const cached = structuralContexts.get(session);
++  if (cached?.source === session.source) return cached;
++  const analysis = checkedAnalysis(session.source);
++  const ranges = nativeRanges(session.source);
++  const context = { source: session.source, ranges, analysis, identity: inspectSceneIdentity(session.source, ranges) };
++  structuralContexts.set(session, context);
++  return context;
++}
++
++function structuralTarget(session: DirectorSession, nodeId: string) {
++  const node = session.nodes.find(item => item.nodeId === nodeId);
++  if (!node || !node.editable || node.role !== 'stage' || !stageCommands.has(node.command)) {
++    throw new Error('只能删除或调整本组支持的舞台与声音设置；对白、等待和注释保持原位。');
++  }
++  if ([node.sentence.content, ...node.sentence.args.map(arg => String(arg.value))].some(value => /[{}]/.test(value))
++    || node.sentence.args.some(arg => arg.key === 'continue')) {
++    throw new Error('含变量或连续执行参数的设置请在原有编辑方式中处理；本面板不删除或重排它。');
++  }
++  const { ranges, identity, analysis } = structuralContext(session);
++  const identified = identity.nodes.find(item => item.startLine === node.startLine);
++  if (!identified || (node.registered ? identified.nodeId !== node.nodeId : !!identified.nodeId)
++    || session.source.slice(identified.start, identified.end) !== node.raw) {
++    throw new Error('设置的位置或身份已改变，面板草稿保持原样，请重新打开。');
++  }
++  const block = analysis.blocks.find(item => item.startLine === node.startLine + 1);
++  if (!block || !acceptedStage(block, node.sentence)) {
++    throw new Error('该设置超出本面板的安全单行范围，请使用原有编辑方式。');
++  }
++  return { node, identified, ranges };
++}
++
++/** The native parser owns the delimiter rule; only the exact comment tail is projected. */
++function retainedAuthorComment(node: DirectorSessionNode, identified: SourceNode): string | null {
++  // Session insertions cannot carry author comments, and their cancel operation
++  // must restore the original source exactly, including its original whitespace.
++  if (node.origin === 'inserted') return null;
++  const offset = node.raw.search(/(?<!\\);/);
++  if (offset < 0) return null;
++  const suffix = node.raw.slice(offset);
++  if (suffix === ';') return null; // A bare native statement terminator.
++  let comment = suffix;
++  if (identified.markerKind === 'inline') {
++    const markerStart = identified.markerStart! - identified.start - offset;
++    const markerEnd = identified.markerEnd! - identified.start - offset;
++    // A single delimiter followed only by this identity is metadata. Additional
++    // delimiters or whitespace before an author note are not normalized away.
++    if (/^;\s*$/.test(suffix.slice(0, markerStart))) return null;
++    comment = suffix.slice(0, markerStart) + suffix.slice(markerEnd);
++  }
++  return (node.raw.match(/^[ \t]*/)?.[0] ?? '') + comment;
++}
++
++function structuralPair(session: DirectorSession, nodeId: string, direction: 'up' | 'down') {
++  const current = structuralTarget(session, nodeId);
++  const stages = session.nodes.filter(node => node.role === 'stage');
++  const index = stages.findIndex(node => node.nodeId === nodeId);
++  const neighbor = stages[index + (direction === 'up' ? -1 : 1)];
++  if (!neighbor) throw new Error(`已到达本组可调整范围的${direction === 'up' ? '上' : '下'}边界。`);
++  const other = structuralTarget(session, neighbor.nodeId);
++  const left = direction === 'up' ? other : current;
++  const right = direction === 'up' ? current : other;
++  if (left.identified.blockEnd !== right.identified.blockStart) {
++    throw new Error('不能跨越等待演出、独立注释、空行或对白移动设置。');
++  }
++  return { left, right };
++}
++
++/** Capabilities describe only current local source; operations recheck them. */
++export function directorStructuralActions(session: DirectorSession, nodeId: string): DirectorStructuralActions {
++  let deleteReason: string | null = null;
++  let preservesComment = false;
++  try {
++    const { node, identified } = structuralTarget(session, nodeId);
++    preservesComment = retainedAuthorComment(node, identified) !== null;
++  } catch (error) {
++    deleteReason = error instanceof Error ? error.message : '该行不能在导演面板删除或调整。';
++  }
++  const moveReason = (direction: 'up' | 'down') => {
++    if (deleteReason) return deleteReason;
++    try { structuralPair(session, nodeId, direction); return null; }
++    catch (error) { return error instanceof Error ? error.message : '该设置不能移动到此位置。'; }
++  };
++  const upReason = moveReason('up');
++  const downReason = moveReason('down');
++  return { canDelete: deleteReason === null, canMoveUp: upReason === null, canMoveDown: downReason === null,
++    preservesComment, deleteReason, upReason, downReason };
++}
++
++function assertNativeStructure(source: string, expected: readonly ISentence[]) {
++  const actual = nativeRanges(source);
++  if (actual.length !== expected.length || actual.some((sentence, index) => JSON.stringify(sentence) !== JSON.stringify(expected[index]))) {
++    throw new Error('该操作会改变相邻原生语句的含义，面板草稿保持原样。');
++  }
++}
++
++/** Delete one supported setting, preserving its author note as a read-only row. */
++export function deleteDirectorSessionNode(session: DirectorSession, nodeId: string): DirectorSession {
++  const { node, identified, ranges } = structuralTarget(session, nodeId);
++  if (node.origin === 'inserted') return removeDirectorSessionNode(session, nodeId);
++  const comment = retainedAuthorComment(node, identified);
++  const firstLine = identified.markerLine !== undefined && identified.markerKind === 'standalone' ? identified.markerLine : node.startLine;
++  const removedLineCount = identified.endLine - firstLine + 1;
++  const lineDelta = (comment === null ? 0 : 1) - removedLineCount;
++  const remapLine = (line: number) => line > identified.endLine ? line + lineDelta : line;
++  const result = applySourceChanges(session.source, [{
++    start: identified.blockStart, end: identified.blockEnd,
++    before: session.source.slice(identified.blockStart, identified.blockEnd),
++    after: comment === null ? '' : comment + session.source.slice(identified.end, identified.blockEnd),
++  }]);
++  const expected = ranges.filter(sentence => sentence.startLine < firstLine || sentence.startLine > identified.endLine)
++    .map(sentence => ({ ...sentence, startLine: remapLine(sentence.startLine), endLine: remapLine(sentence.endLine) }));
++  const nodes = session.nodes.filter(item => item.nodeId !== nodeId && item.startLine !== (identified.markerKind === 'standalone' ? identified.markerLine : -1))
++    .map(item => ({ ...item, startLine: remapLine(item.startLine) }));
++  if (comment !== null) {
++    const sentence = nativeRanges(comment).find(item => !item.isLineBreakHolder)!;
++    expected.push({ ...sentence, startLine: firstLine, endLine: firstLine });
++    const reservedId = freshNodeId();
++    if (session.nodes.some(item => item.nodeId === reservedId)) throw new Error('无法创建唯一的注释会话身份，请重新打开面板。');
++    nodes.push({ origin: 'existing', nodeId: reservedId, startLine: firstLine, command: sentence.commandRaw,
++      sentence, raw: comment, originalRaw: comment, originallyRegistered: false, registered: false, editable: false, role: 'comment' });
++  }
++  expected.sort((left, right) => left.startLine - right.startLine);
++  nodes.sort((left, right) => left.startLine - right.startLine);
++  assertNativeStructure(result.source, expected);
++  return refreshNodes({ ...session, nodes }, result.source);
++}
++
++/** Swap adjacent complete native blocks; comments, waits and dialogue are barriers. */
++export function moveDirectorSessionNode(session: DirectorSession, nodeId: string, direction: 'up' | 'down'): DirectorSession {
++  if (direction !== 'up' && direction !== 'down') throw new Error('移动方向无效，面板草稿保持原样。');
++  const { left, right } = structuralPair(session, nodeId, direction);
++  const firstLine = left.identified.markerKind === 'standalone' ? left.identified.markerLine! : left.node.startLine;
++  const middleLine = right.identified.markerKind === 'standalone' ? right.identified.markerLine! : right.node.startLine;
++  const leftLineCount = middleLine - firstLine;
++  const rightLineCount = right.identified.endLine - middleLine + 1;
++  const remapLine = (line: number) => line >= firstLine && line < middleLine ? line + rightLineCount
++    : line >= middleLine && line <= right.identified.endLine ? line - leftLineCount : line;
++  const before = session.source.slice(left.identified.blockStart, right.identified.blockEnd);
++  const after = session.source.slice(right.identified.blockStart, right.identified.blockEnd)
++    + session.source.slice(left.identified.blockStart, left.identified.blockEnd);
++  // Swapping byte-identical unregistered rows must not silently exchange their
++  // reserved local identities when no source transaction actually occurred.
++  if (before === after) return session;
++  const result = applySourceChanges(session.source, [{ start: left.identified.blockStart, end: right.identified.blockEnd, before, after }]);
++  const expected = left.ranges.map(sentence => ({ ...sentence, startLine: remapLine(sentence.startLine), endLine: remapLine(sentence.endLine) }))
++    .sort((a, b) => a.startLine - b.startLine);
++  assertNativeStructure(result.source, expected);
++  const nodes = session.nodes.map(node => ({ ...node, startLine: remapLine(node.startLine) }))
++    .sort((a, b) => a.startLine - b.startLine);
++  return refreshNodes({ ...session, nodes }, result.source);
++}
++
+ /** Caller commits the returned text with exactly one shared document.edit(). */
+ export function commitDirectorSession(currentSource: string, currentHistoryVersion: number, session: DirectorSession): string {
+   if (currentSource !== session.expectedSource || currentHistoryVersion !== session.historyVersion) {

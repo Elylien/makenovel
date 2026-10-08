@@ -24,6 +24,10 @@
     {
       "file": "0006-director-source-navigation.patch",
       "sha256": "90d536c4550d1860944e121ce1e44dd587ed96bc18b466804331b90457bd2ad4"
+    },
+    {
+      "file": "0007-director-structure-editing.patch",
+      "sha256": "32d9a1cd5bca8394e1b1e701d8572b2171b6652722139da7590a696786396ae4"
     }
   ]
 }

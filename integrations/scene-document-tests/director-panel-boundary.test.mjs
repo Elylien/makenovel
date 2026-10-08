@@ -559,3 +559,108 @@ test('asset control characters and extra script lines cannot become a truncated 
   assert.equal(h.closed,1);assert.match(h.document.getSnapshot().text,/changeBg:fixed.svg/);
   assert.doesNotMatch(h.document.getSnapshot().text,/injected|ab.svg/);h.hooks.unmount();
 });
+
+const structuralButton=(tree,prefix,line)=>collect(tree,node=>node.type==='button'&&node.props['aria-label']?.startsWith(prefix)&&node.props['aria-label']?.endsWith(`第 ${line} 行`))[0];
+const stageRows=tree=>collect(tree,node=>node.type==='director-editor'&&node.props.sentence.commandRaw!=='say');
+
+test('existing deletion presents bound impact and only confirmation changes the local transaction',async()=>{
+  const h=await harness();
+  structuralButton(h.tree,'移除背景，',1).props.onClick();await flush();
+  let tree=h.render();assert.ok(button(tree,'确认移除'));assert.equal(button(tree,'应用到草稿').props.disabled,true);
+  button(tree,'应用到草稿').props.onClick();await flush();assert.equal(h.closed,0);assert.equal(h.document.getSnapshot().text,source);
+  button(h.render(),'保留该设置').props.onClick();assert.ok(form(h.render(),'changeBg'));assert.equal(button(h.render(),'确认移除'),undefined);
+  structuralButton(h.render(),'移除背景，',1).props.onClick();await flush();button(h.render(),'确认移除').props.onClick();await flush();
+  assert.equal(form(h.render(),'changeBg'),undefined);assert.equal(h.document.getSnapshot().text,source);
+  button(h.render(),'取消').props.onClick();assert.equal(h.document.getSnapshot().canUndo,false);h.hooks.unmount();
+});
+
+test('move and delete apply atomically and undo restores exact source and identities',async()=>{
+  const h=await harness();
+  structuralButton(h.tree,'下移背景，',1).props.onClick();await flush();
+  assert.equal(stageRows(h.render())[0].props.sentence.content,'lin.svg');
+  structuralButton(h.render(),'移除背景音乐，',4).props.onClick();await flush();button(h.render(),'确认移除').props.onClick();await flush();
+  const version=h.document.getSnapshot().historyVersion;
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  const actual=h.document.getSnapshot().text,lines=source.split('\r\n');
+  assert.equal(actual,[lines[1],lines[0],lines[2],lines[4],lines[5]].join('\r\n'));
+  assert.equal(h.document.getSnapshot().historyVersion,version+1);assert.equal(h.writes,0);
+  h.document.undo();assert.equal(h.document.getSnapshot().text,source);assert.equal(h.document.getSnapshot().canUndo,false);
+  h.document.redo();assert.equal(h.document.getSnapshot().text,actual);h.hooks.unmount();
+});
+
+test('structural controls flush real native buffers before moving and preserve callback identity',async()=>{
+  const h=await harness();const oldSubmit=form(h.tree,'bgm').props.onSubmit;
+  const active=new HTMLInputElement();let blurred=0;active.blur=()=>{blurred++;oldSubmit('bgm:music.wav -volume=57;');};globalThis.document.activeElement=active;
+  structuralButton(h.tree,'上移背景音乐，',4).props.onClick();await flush();globalThis.document.activeElement=null;
+  assert.equal(blurred,1);assert.equal(form(h.render(),'bgm').props.index,2);
+  oldSubmit('bgm:music.wav -volume=63;');
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.match(h.document.getSnapshot().text.split('\r\n')[2],/bgm:music.wav -volume=63; @makenovel-node music/);
+  assert.match(h.document.getSnapshot().text.split('\r\n')[3],/yu.svg/);h.hooks.unmount();
+});
+
+test('removed existing row late callback cannot resurrect command or leave ghost errors',async()=>{
+  const h=await harness();const late=form(h.tree,'bgm').props.onSubmit;
+  structuralButton(h.tree,'移除背景音乐，',4).props.onClick();await flush();button(h.render(),'确认移除').props.onClick();await flush();
+  late('bgm:evil.wav -volume=broken;');late('bgm:other.wav -volume=70;');
+  assert.equal(form(h.render(),'bgm'),undefined);assert.equal(alerts(h.render()),'');
+  button(h.render(),'应用到草稿').props.onClick();await flush();assert.equal(h.closed,1);assert.doesNotMatch(h.document.getSnapshot().text,/bgm:/);h.hooks.unmount();
+});
+
+test('editing after review invalidates the old confirmation without deleting another row',async()=>{
+  const h=await harness();structuralButton(h.tree,'移除背景音乐，',4).props.onClick();await flush();
+  const oldConfirm=button(h.render(),'确认移除').props.onClick;
+  form(h.render(),'bgm').props.onSubmit('bgm:music.wav -volume=49;');assert.equal(button(h.render(),'确认移除'),undefined);
+  oldConfirm();await flush();assert.ok(form(h.render(),'bgm'));assert.match(alerts(h.render()),/设置已变化/);
+  button(h.render(),'应用到草稿').props.onClick();await flush();assert.match(h.document.getSnapshot().text,/volume=49/);h.hooks.unmount();
+});
+
+test('pending material, invalid values and composition prevent structural actions',async()=>{
+  for(const state of ['pending','invalid','ime','document-ime']) {
+    const h=await harness();
+    if(state==='pending') button(h.tree,'新增背景').props.onClick();
+    if(state==='invalid') form(h.tree,'bgm').props.onSubmit('bgm:music.wav -volume=broken;');
+    if(state==='ime') surface(h.tree).props.onCompositionStartCapture();
+    if(state==='document-ime') h.document.setComposing(true);
+    structuralButton(h.render(),'下移背景，',1).props.onClick();await flush();
+    structuralButton(h.render(),'移除背景，',1).props.onClick();await flush();
+    assert.equal(stageRows(h.render())[0].props.sentence.content,'day.svg');assert.equal(button(h.render(),'确认移除'),undefined);
+    assert.match(alerts(h.render()),state.includes('ime')?/中文候选/:/未完成的输入/);
+    assert.equal(h.document.getSnapshot().text,source);h.hooks.unmount();
+  }
+});
+
+test('wait boundary is visible and enforced even if disabled move callback is invoked',async()=>{
+  const h=await harness();const move=structuralButton(h.tree,'下移背景音乐，',4);assert.equal(move.props.disabled,true);assert.ok(move.props.title);
+  move.props.onClick();await flush();assert.match(alerts(h.render()),/等待|边界|相邻|跨越/);
+  assert.equal(form(h.render(),'bgm').props.index,3);assert.equal(structuralButton(h.render(),'移除等待',5),undefined);h.hooks.unmount();
+});
+
+test('confirmation detects main-document ABA and cancel beats queued structural work',async()=>{
+  const h=await harness();structuralButton(h.tree,'移除背景，',1).props.onClick();await flush();
+  h.document.edit(source.replace('第一句','外部'));h.document.undo();
+  button(h.render(),'确认移除').props.onClick();await flush();assert.ok(form(h.render(),'changeBg'));assert.match(alerts(h.render()),/主文档已改变/);
+  button(h.render(),'取消').props.onClick();h.hooks.unmount();
+  const fresh=await harness();structuralButton(fresh.tree,'下移背景，',1).props.onClick();button(fresh.tree,'取消').props.onClick();await flush();
+  assert.equal(fresh.closed,1);assert.equal(fresh.document.getSnapshot().text,source);fresh.hooks.unmount();
+});
+
+test('deleting a latest source retains author comment and reveals earlier inheritance in the panel',async()=>{
+  const initial='\uFEFF; 来源测试\r\nchangeBg:day.svg -next; @makenovel-node earlier\r\nsay:前句;\r\nchangeBg:night.svg -next; 夜景备注 ; @makenovel-node night\r\nsay:目标; @makenovel-node target\r\n';
+  const h=await harness(initial,4);structuralButton(h.tree,'移除背景，',4).props.onClick();await flush();
+  button(h.render(),'确认移除').props.onClick();await flush();
+  const sourceRow=collect(h.render(),node=>typeof node.type==='function'&&node.props.title==='背景'&&node.props.fact)[0];
+  assert.equal(sourceRow.props.fact.content,'day.svg');assert.equal(sourceRow.props.fact.scope,'earlier');
+  locateButton(h.render()).props.onClick();await flush();assert.equal(h.navigations.length,0);
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.match(h.document.getSnapshot().text,/; 夜景备注 /);assert.doesNotMatch(h.document.getSnapshot().text,/@makenovel-node night/);
+  h.document.undo();assert.equal(h.document.getSnapshot().text,initial);h.hooks.unmount();
+});
+
+test('two rapid structural clicks execute once and review confirmation cannot be replayed',async()=>{
+  const h=await harness();const move=structuralButton(h.tree,'下移背景，',1).props.onClick;move();move();await flush();
+  assert.equal(form(h.render(),'changeBg').props.index,1);
+  structuralButton(h.render(),'移除背景，',2).props.onClick();await flush();const confirm=button(h.render(),'确认移除').props.onClick;
+  confirm();confirm();await flush();confirm();await flush();
+  assert.equal(form(h.render(),'changeBg'),undefined);assert.equal(stageRows(h.render()).length,3);h.hooks.unmount();
+});

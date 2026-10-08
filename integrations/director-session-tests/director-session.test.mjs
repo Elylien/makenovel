@@ -5,7 +5,8 @@ import path from 'node:path';
 
 const load = name => import(pathToFileURL(path.join(process.env.DIRECTOR_SESSION_TEST_BUNDLE, `${name}.mjs`)));
 const { createDirectorSession: open, editDirectorSession: edit, commitDirectorSession: commit,
-  addDirectorSessionNode: add, removeDirectorSessionNode: remove } = await load('director');
+  addDirectorSessionNode: add, removeDirectorSessionNode: remove,
+  deleteDirectorSessionNode: deleteSetting, moveDirectorSessionNode: moveSetting, directorStructuralActions: actions } = await load('director');
 const { createDirectorSourceNavigation: navigation, resolveDirectorNavigation: locate } = await load('navigation');
 const { SceneDocument } = await load('document');
 const { nativeRanges } = await load('graph');
@@ -296,6 +297,275 @@ test('removing added rows in any order preserves original whitespace and never d
   session = remove(session, added[2].nodeId);
   assert.equal(commit(source, 0, session), source);
   assert.equal(session.changed, false);
+});
+
+test('deleting an unregistered setting removes only that row and keeps all retained identities local', () => {
+  const source = 'changeBg:day.svg;\nbgm:rain.wav;\nsay:正文;\nsay:后文;';
+  const session = open(source, 2, 0);
+  const id = target(session, 'changeBg').nodeId;
+  const result = deleteSetting(session, id);
+  assert.equal(result.source, 'bgm:rain.wav;\nsay:正文;\nsay:后文;');
+  assert.equal(result.nodes.some(node => node.nodeId === id), false);
+  assert.deepEqual(result.nodes.map(node => node.nodeId), session.nodes.slice(1).map(node => node.nodeId));
+  assert.equal(result.nodes.every(node => !node.registered), true);
+  assert.equal(session.source, source);
+  assert.equal(session.changed, false);
+  assert.equal(result.selectedNodeId, session.selectedNodeId);
+  assert.equal(result.changed, true);
+});
+
+test('deleting preserves exact inline author bytes, escaped semicolons, BOM, CRLF and unknown outside source', () => {
+  const source = '\uFEFF; 原始标头\r\nfutureFx:keep -future=opaque; untouched\r\nchangeBg:day\\;v2.svg -next;  作者 ; 尾注  ; @makenovel-node bg  \r\nsay:正文; @makenovel-node say\r\nfutureFx:after; keep\r\n';
+  const session = open(source, 3, 0);
+  assert.equal(actions(session, 'bg').preservesComment, true);
+  const result = deleteSetting(session, 'bg');
+  assert.equal(result.source, source.replace('changeBg:day\\;v2.svg -next;  作者 ; 尾注  ; @makenovel-node bg  ', ';  作者 ; 尾注  ;   '));
+  assert.equal(result.nodes.find(node => node.role === 'comment').raw, ';  作者 ; 尾注  ;   ');
+  assert.equal(result.nodes.find(node => node.role === 'comment').nodeId === 'bg', false);
+  assert.equal(result.nodes.find(node => node.nodeId === 'say').registered, true);
+  assert.throws(() => edit(result, 'bg', 'changeBg:ghost.svg;'), /仅供参考/);
+  assert.deepEqual(semantics(nativeRanges(result.source)), semantics(runtimeParse(result.source)));
+});
+
+test('deleting a legacy setting retires its metadata row while retaining independent and inline author notes', () => {
+  const source = '; independent\r\n; @makenovel-node effect\r\nplayEffect:bell.wav;  效果音作者注释  \r\n; @makenovel-node dialogue\r\nsay:正文;\r\n';
+  const session = open(source, 4, 0);
+  const removedMetadataId = session.nodes.find(node => node.startLine === 1).nodeId;
+  const keptMetadataId = session.nodes.find(node => node.startLine === 3).nodeId;
+  const result = deleteSetting(session, 'effect');
+  assert.equal(result.source, '; independent\r\n;  效果音作者注释  \r\n; @makenovel-node dialogue\r\nsay:正文;\r\n');
+  assert.equal(result.nodes.some(node => node.nodeId === removedMetadataId), false);
+  assert.equal(result.nodes.some(node => node.nodeId === 'effect'), false);
+  assert.equal(result.nodes.find(node => node.nodeId === keptMetadataId).startLine, 2);
+  assert.equal(result.nodes.find(node => node.nodeId === 'dialogue').startLine, 3);
+  assert.equal(result.nodes[0].nodeId, session.nodes[0].nodeId);
+  assert.equal(result.nodes.filter(node => node.registered).length, 1);
+});
+
+test('deleting a setting removes exclusive identity metadata but preserves other punctuation and whitespace tails', () => {
+  for (const [statement, expected, preservesComment] of [
+    ['changeBg:day.svg; @makenovel-node bg  ', '', false],
+    ['changeBg:day.svg;; @makenovel-node bg  ', ';;   \n', true],
+    ['changeBg:day.svg;  ', ';  \n', true],
+    ['changeBg:day.svg; ;', '; ;\n', true],
+    ['changeBg:day.svg;', '', false],
+  ]) {
+    const session = open(`${statement}\nsay:正文;`, 1, 0);
+    const id = target(session, 'changeBg').nodeId;
+    assert.equal(actions(session, id).preservesComment, preservesComment, statement);
+    assert.equal(deleteSetting(session, id).source, `${expected}say:正文;`, statement);
+  }
+});
+
+test('deleting an edited previously unregistered setting removes its new identity without touching other rows', () => {
+  const source = 'bgm:rain.wav -volume = 080; note\nchangeBg:day.svg;\nsay:正文;';
+  const initial = open(source, 2, 0);
+  const id = target(initial, 'bgm').nodeId;
+  const edited = edit(initial, id, 'bgm:rain.wav -volume=42;');
+  assert.equal(edited.nodes.find(node => node.nodeId === id).registered, true);
+  const result = deleteSetting(edited, id);
+  assert.equal(result.source, '; note; \nchangeBg:day.svg;\nsay:正文;');
+  assert.equal(result.source.includes('@makenovel-node'), false);
+  assert.equal(result.nodes.filter(node => node.editable).every(node => !node.registered), true);
+});
+
+test('deletion recalculates sources and exposes earlier settings instead of treating removal as explicit none', () => {
+  const source = 'bgm:earlier.wav -volume=28;\nchangeBg:day.svg;\nsay:先前;\nbgm:none;\nchangeBg:night.svg;\nsay:当前;';
+  let session = open(source, 5, 0);
+  assert.equal(session.inheritance.bgm.status, 'none');
+  session = deleteSetting(session, target(session, 'bgm').nodeId);
+  assert.equal(session.inheritance.bgm.content, 'earlier.wav');
+  assert.equal(session.inheritance.bgm.status, 'source');
+  assert.equal(session.inheritance.bgm.scope, 'earlier');
+  session = deleteSetting(session, target(session, 'changeBg').nodeId);
+  assert.equal(session.inheritance.background.content, 'day.svg');
+  assert.equal(session.inheritance.background.startLine, 1);
+  assert.equal(session.inheritance.background.scope, 'earlier');
+});
+
+test('structural actions reject dialogue, wait, comments, foreign and retired IDs without mutations', () => {
+  const source = 'changeBg:day.svg;\n; 作者\nwait:200;\nsay:正文;';
+  const session = open(source, 3, 0);
+  for (const id of [...session.nodes.filter(node => node.role !== 'stage').map(node => node.nodeId), 'missing']) {
+    const capability = actions(session, id);
+    assert.equal(capability.canDelete, false);
+    assert.equal(capability.canMoveUp, false);
+    assert.equal(capability.canMoveDown, false);
+    assert.match(capability.deleteReason, /只能删除或调整/);
+    assert.throws(() => deleteSetting(session, id), /只能删除或调整/);
+    assert.throws(() => moveSetting(session, id, 'up'), /只能删除或调整/);
+  }
+  const deletedId = target(session, 'changeBg').nodeId;
+  const result = deleteSetting(session, deletedId);
+  assert.throws(() => deleteSetting(result, deletedId), /只能删除或调整/);
+  assert.throws(() => moveSetting(result, deletedId, 'down'), /只能删除或调整/);
+  assert.equal(session.source, source);
+});
+
+test('dynamic and continue stage settings form structural boundaries while retaining their existing edit capability', () => {
+  for (const statement of ['changeBg:{scene}.svg;', 'bgm:rain.wav -volume={level};', 'changeFigure:lin.svg -id={actor};',
+    'changeBg:day.svg -continue;', 'changeBg:day.svg -continue=false;']) {
+    const source = `bgm:earlier.wav;\n${statement}\nplayEffect:bell.wav;\nsay:正文;`;
+    const session = open(source, 3, 0);
+    const guarded = session.nodes.find(node => node.startLine === 1);
+    assert.equal(guarded.editable, true, statement);
+    assert.equal(actions(session, guarded.nodeId).canDelete, false, statement);
+    assert.match(actions(session, guarded.nodeId).deleteReason, /含变量或连续执行/);
+    assert.equal(actions(session, session.nodes[0].nodeId).canMoveDown, false, statement);
+    assert.equal(actions(session, target(session, 'playEffect').nodeId).canMoveUp, false, statement);
+    assert.throws(() => deleteSetting(session, guarded.nodeId), /含变量或连续执行/);
+    assert.throws(() => moveSetting(session, guarded.nodeId, 'down'), /含变量或连续执行/);
+    assert.equal(session.source, source);
+  }
+});
+
+test('swapping adjacent unregistered commands changes native order without registering any row', () => {
+  const source = 'changeFigure:neutral.svg -left -next;\nchangeFigure:smile.svg -left -next;\nsay:正文;';
+  const session = open(source, 2, 0);
+  const first = session.nodes[0];
+  const second = session.nodes[1];
+  assert.equal(actions(session, first.nodeId).canMoveDown, true);
+  assert.equal(actions(session, first.nodeId).canMoveUp, false);
+  const result = moveSetting(session, second.nodeId, 'up');
+  assert.equal(result.source, 'changeFigure:smile.svg -left -next;\nchangeFigure:neutral.svg -left -next;\nsay:正文;');
+  assert.deepEqual(result.nodes.map(node => node.nodeId), [second.nodeId, first.nodeId, session.selectedNodeId]);
+  assert.equal(result.nodes.every(node => !node.registered), true);
+  assert.equal(result.inheritance.figures.find(fact => fact.target === 'position:left').content, 'neutral.svg');
+  assert.equal(result.inheritance.figures.find(fact => fact.target === 'position:left').nodeId, first.nodeId);
+  const roundtrip = moveSetting(result, second.nodeId, 'down');
+  assert.equal(roundtrip.source, source);
+  assert.equal(roundtrip.changed, false);
+  assert.deepEqual(roundtrip.nodes.map(node => node.nodeId), session.nodes.map(node => node.nodeId));
+});
+
+test('a byte-identical unregistered swap is an exact session no-op without invisible local identity exchange', () => {
+  const session = open('bgm:rain.wav;\nbgm:rain.wav;\nsay:正文;', 2, 0);
+  const result = moveSetting(session, session.nodes[0].nodeId, 'down');
+  assert.equal(result, session);
+  assert.equal(result.changed, false);
+  assert.equal(result.source.includes('@makenovel-node'), false);
+});
+
+test('swapping complete legacy blocks moves metadata rows with their commands and preserves exact mixed line endings', () => {
+  const source = '\uFEFF; heading\r\n; @makenovel-node first\nchangeFigure:neutral.svg -left; one\r\n; @makenovel-node second\r\nchangeFigure:smile.svg -left; two\n; @makenovel-node dialogue\r\nsay:正文;\r\n';
+  const session = open(source, 6, 0);
+  const firstMetadata = session.nodes.find(node => node.startLine === 1).nodeId;
+  const secondMetadata = session.nodes.find(node => node.startLine === 3).nodeId;
+  const result = moveSetting(session, 'first', 'down');
+  assert.equal(result.source, '\uFEFF; heading\r\n; @makenovel-node second\r\nchangeFigure:smile.svg -left; two\n; @makenovel-node first\nchangeFigure:neutral.svg -left; one\r\n; @makenovel-node dialogue\r\nsay:正文;\r\n');
+  assert.equal(result.nodes.find(node => node.nodeId === firstMetadata).startLine, 3);
+  assert.equal(result.nodes.find(node => node.nodeId === secondMetadata).startLine, 1);
+  assert.equal(result.nodes.find(node => node.nodeId === 'first').startLine, 4);
+  assert.equal(result.nodes.find(node => node.nodeId === 'second').startLine, 2);
+  assert.equal(result.nodes.find(node => node.nodeId === 'dialogue').startLine, 6);
+  assert.equal(moveSetting(result, 'first', 'up').source, source);
+});
+
+test('swapping one legacy and one inline block preserves all identities and updates differently sized ranges', () => {
+  const source = 'changeBg:day.svg; @makenovel-node bg\n; @makenovel-node bgm\nbgm:rain.wav; 作者\nsay:正文;';
+  const session = open(source, 3, 0);
+  const result = moveSetting(session, 'bgm', 'up');
+  assert.equal(result.source, '; @makenovel-node bgm\nbgm:rain.wav; 作者\nchangeBg:day.svg; @makenovel-node bg\nsay:正文;');
+  assert.equal(result.nodes.find(node => node.nodeId === 'bgm').startLine, 1);
+  assert.equal(result.nodes.find(node => node.nodeId === 'bg').startLine, 2);
+  assert.equal(moveSetting(result, 'bgm', 'down').source, source);
+  const edited = edit(result, 'bg', 'changeBg:night.svg;');
+  assert.equal(edited.nodes.find(node => node.nodeId === 'bg').sentence.content, 'night.svg');
+  assert.equal(edited.nodes.find(node => node.nodeId === 'bgm').sentence.content, 'rain.wav');
+});
+
+test('wait, author comment and blank rows are hard reorder barriers even inside the same director group', () => {
+  for (const barrier of ['wait:250 -nobreak;', '; independent author note', '']) {
+    const source = `changeBg:day.svg;\n${barrier}\nbgm:rain.wav;\nsay:正文;`;
+    const session = open(source, 3, 0);
+    const bg = target(session, 'changeBg').nodeId;
+    const bgm = target(session, 'bgm').nodeId;
+    assert.equal(actions(session, bg).canMoveDown, false, barrier);
+    assert.equal(actions(session, bgm).canMoveUp, false, barrier);
+    assert.match(actions(session, bg).downReason, /不能跨越/);
+    assert.throws(() => moveSetting(session, bg, 'down'), /不能跨越/);
+    assert.throws(() => moveSetting(session, bgm, 'up'), /不能跨越/);
+    assert.equal(session.source, source);
+  }
+});
+
+test('retained deletion notes become reorder barriers and the removed ID can never edit the comment', () => {
+  const source = 'bgm:rain.wav;\nchangeBg:day.svg; 保留注释\nplayEffect:bell.wav;\nsay:正文;';
+  const session = open(source, 3, 0);
+  const removedId = target(session, 'changeBg').nodeId;
+  const result = deleteSetting(session, removedId);
+  assert.equal(result.source, 'bgm:rain.wav;\n; 保留注释\nplayEffect:bell.wav;\nsay:正文;');
+  assert.equal(actions(result, target(result, 'bgm').nodeId).canMoveDown, false);
+  assert.throws(() => edit(result, removedId, 'changeBg:ghost.svg;'), /仅供参考/);
+  const note = result.nodes.find(node => node.role === 'comment');
+  assert.throws(() => edit(result, note.nodeId, 'changeBg:ghost.svg;'), /仅供参考/);
+});
+
+test('known difference and explicit close commands can be deleted or swapped without inferring their runtime result', () => {
+  const source = 'changeFigure:lin.svg -left;\nchangeFigureDiff:smile.svg -left;\nchangeBg:none;\nsay:正文;';
+  const session = open(source, 3, 0);
+  const diffId = target(session, 'changeFigureDiff').nodeId;
+  assert.equal(actions(session, diffId).canDelete, true);
+  const moved = moveSetting(session, diffId, 'down');
+  assert.equal(moved.inheritance.figures.find(fact => fact.target === 'position:left').status, 'unknown');
+  const removed = deleteSetting(moved, diffId);
+  assert.equal(removed.inheritance.figures.find(fact => fact.target === 'position:left').content, 'lin.svg');
+  assert.equal(removed.inheritance.background.status, 'none');
+});
+
+test('inserted rows can join adjacent reorder but cancellation still restores their exact original whitespace', () => {
+  const source = 'bgm:rain.wav;\nsay:正文;';
+  const session = open(source, 1, 0);
+  const added = add(session, 'changeBg:night.svg;');
+  const addedId = added.nodes.find(node => node.origin === 'inserted').nodeId;
+  const moved = moveSetting(added, addedId, 'up');
+  assert.equal(moved.nodes[0].nodeId, addedId);
+  const deleted = deleteSetting(moved, addedId);
+  assert.equal(deleted.source, source);
+  assert.equal(deleted.changed, false);
+  assert.deepEqual(deleted.nodes.map(node => node.nodeId), session.nodes.map(node => node.nodeId));
+});
+
+test('structural operations refuse stale local ranges and invalid directions atomically', () => {
+  const session = open('changeBg:day.svg;\nbgm:rain.wav;\nsay:正文;', 2, 0);
+  const id = target(session, 'changeBg').nodeId;
+  for (const changed of ['changeBg:night.svg;\nbgm:rain.wav;\nsay:正文;', '; shifted\n' + session.source]) {
+    const stale = { ...session, source: changed };
+    assert.equal(actions(stale, id).canDelete, false);
+    assert.throws(() => deleteSetting(stale, id), /位置或身份已改变/);
+    assert.throws(() => moveSetting(stale, id, 'down'), /位置或身份已改变/);
+  }
+  assert.throws(() => moveSetting(session, id, 'sideways'), /移动方向无效/);
+  assert.equal(session.changed, false);
+});
+
+test('delete, reorder, insert and text edit share one atomic undo with source and ABA guards unchanged', async () => {
+  const source = '\uFEFF; header\r\nchangeBg:day.svg; 背景作者\r\nchangeFigure:neutral.svg -left; @makenovel-node neutral\r\nchangeFigure:smile.svg -left;\r\nwait:200;\r\nsay:正文;\r\n';
+  const h = await documentFor(source);
+  const before = h.document.getSnapshot();
+  let session = open(source, 5, before.historyVersion);
+  session = moveSetting(session, 'neutral', 'down');
+  session = deleteSetting(session, target(session, 'changeBg').nodeId);
+  session = add(session, 'playEffect:bell.wav;');
+  session = edit(session, session.selectedNodeId, 'say:新正文;');
+  assert.equal(h.document.getSnapshot(), before);
+  assert.equal(h.stored(), null);
+  assert.equal(h.writes.length, 0);
+  assert.throws(() => commit(source + '; external', before.historyVersion, session), /主文档已改变/);
+  assert.throws(() => commit(source, before.historyVersion + 2, session), /主文档已改变/);
+  const applied = commit(source, before.historyVersion, session);
+  h.document.edit(applied, { resyncControls: true });
+  assert.equal(h.document.canPreview(), false);
+  assert.equal(h.document.undo(), true);
+  assert.equal(h.document.getSnapshot().text, source);
+  assert.equal(h.document.undo(), false);
+  assert.throws(() => commit(source, h.document.getSnapshot().historyVersion, session), /主文档已改变/);
+  assert.equal(h.document.redo(), true);
+  assert.equal(h.document.getSnapshot().text, applied);
+  assert.equal(h.disk().text, source);
+  assert.equal(await h.document.save(), true);
+  assert.equal(h.disk().text, applied);
+  assert.deepEqual(semantics(nativeRanges(applied)), semantics(runtimeParse(applied)));
 });
 
 test('new commands reject incomplete assets, unsupported syntax, dynamic values and source injection atomically', () => {

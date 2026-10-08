@@ -1,6 +1,6 @@
 # 交接与恢复
 
-记录：2026-10-09，MakeNovel `0.0.9` / `main`，远端 `https://github.com/Elylien/makenovel.git`。提交与推送以现场 Git 核对为准。
+记录：2026-10-09，MakeNovel `0.0.10` / `main`，远端 `https://github.com/Elylien/makenovel.git`。提交与推送以现场 Git 核对为准。
 
 ## 恢复先核查
 
@@ -13,38 +13,38 @@ Get-Content -LiteralPath .local/editor-runtime/process.json
 Get-NetTCPConnection -State Listen -LocalPort 3000,3001 -ErrorAction SilentlyContinue
 ```
 
-先读 PROJECT_STATUS、DEVELOPMENT_PLAN、TESTING、DIRECTOR_EDITING、KNOWN_ISSUES。原始输入只在忽略的 `docs/private/`，不得 stage/upload。vendor HEAD 仍锁定原版，工作树有意应用补丁；不要 reset/clean、暂存 gitlink 或创建嵌套提交。
+先读 PROJECT_STATUS、DEVELOPMENT_PLAN、TESTING、DIRECTOR_EDITING、KNOWN_ISSUES。私有输入仅在忽略的 `docs/private/`，不得 stage/upload。vendor HEAD 保持锁定上游，工作树有意应用补丁；不要 reset/clean、暂存 gitlink 或创建嵌套提交。
 
-## 第九轮结果
+## 第十轮结果
 
-来源定位与返回已接入，守卫完整源文/历史/真实身份/原文/revision/文档实例/场景生命周期；未登记行不会因定位补 ID。局部草稿、pending、错误输入和 IME 先处理。延迟焦点另复核输入和保存状态。具体差分未知可定位，边界未知不可伪造目标。面板 backdropClick 阻止关闭，明确取消/Escape 保留。
+已有安全舞台命令可确认删除、相邻原块交换，作者注释保留，legacy 身份随所属命令，未登记行不因结构改动补 ID。等待/独立注释/空行/对白和动态/continue 均有边界。所有保留原生句子/位置复核；失焦/IME/pending/错误/旧确认与文本历史守卫生效。源文分析按不可变会话缓存。
 
-实际第 88 行跨 80 句跳到背景第 2 行、BGM 第 5 行并返回，焦点与高亮通过；双击新素材保留草稿、拒绝未应用跳出、Popover Escape 优先、修改及撤销 ABA 失效、unknown/diff 边界均完成。两份场景最终原始字节不变，清单 verify 通过。详见 [第九轮证据](evidence/2026-10-09-round9.md)。
+真实界面执行夜景及 legacy SE 删除、表情顺序交换；取消无副作用，一次撤销回原已保存稿，重做保存重开成功。目标与后继原生预览从夜景/笑脸变为日景/常态；BGM缓冲和确认失效、高级/变量边界现场通过。两作者注释保留，14条其他原行原字节保持，剩余3个ID无新增。详见 [第十轮证据](evidence/2026-10-09-round10.md)。
 
-本轮 **500/500** = 作者 387（导演64/图形71）+ 样片9 + 资源/恢复104。前端 tsc、受控 runtime→Terre 构建、模板同步、HTTP25/25、服务22/22、六补丁独立重放18/18均通过。未重跑完整 runtime339，未导新 Windows 包；第八轮 EXE 正常退出重启恢复是历史证据。
+代码 **531/531** = 作者415（导演82/图形81）+样片12+资源/恢复104。前端tsc、受控runtime→Terre构建/同步、HTTP25/25、服务22/22、七补丁独立重放18/18通过。未重跑完整runtime339，未出新Windows包；第八轮EXE验收保持历史性质。
 
-新0006 SHA `90d536c4550d1860944e121ce1e44dd587ed96bc18b466804331b90457bd2ad4`，完整tree `cae19ae2f2d9619016fbb726b442923a28fdbb4d`，增量基树 `40dc0cb9472a10018d43e16eb462dc2d5e4ba79e`；旧Terre1–5与runtime1–4字节不变。两上游 HEAD：Terre `cf73dd58535d3ef15bddf0852adee153fa92d7da`，WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`。
+新0007 SHA `32d9a1cd5bca8394e1b1e701d8572b2171b6652722139da7590a696786396ae4`，完整tree `88fc8d1c98e50326f2028d390683bb2fece1ca37`，增量基树 `cae19ae2f2d9619016fbb726b442923a28fdbb4d`。Terre1–6与runtime1–4旧字节不变。两上游HEAD：Terre `cf73dd58535d3ef15bddf0852adee153fa92d7da`，WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`。
 
 ## 当前进程与作品
 
-编辑器 PID **11936**，启动 UTC **2026-10-08T17:00:48.9615331Z**，入口 `vendor/WebGAL_Terre/packages/terre2/dist/src/main.js`，仅 `127.0.0.1:3001`；无3000服务。停止前必须重新核对PID/时间/入口。没有本轮新测试 EXE。
+编辑器 PID **27532**，启动UTC **2026-10-08T17:53:45.2043555Z**，入口 `vendor/WebGAL_Terre/packages/terre2/dist/src/main.js`，仅 `127.0.0.1:3001`，无3000服务。停止前重新核对PID/时间/入口。无本轮测试EXE。
 
-作者作品 `.local/editor-profile/games/makenovel-round9`，显示名“MakeNovel 第九轮导演来源定位验证”，projectId `e339ae06-90ed-4987-9de9-7bd7469d1ae2`，Game_key `makenovel-round9-b5842111-27d5-452b-8836-946b3ffea529`，manifest `69d8fd653186ae87d5bdc16fbc0f912b388287fb65288f9f87daaa938debdebe`。起点与最终相同，19个登记文件。start目标初始第88行、readonly差分第4行。不要重新生成覆盖此目录。
+作品 `.local/editor-profile/games/makenovel-round10`，显示名“MakeNovel 第十轮导演删除与排序验证”，projectId `6b240ecf-6024-4f6c-a150-e7b0984e6b1f`，Game_key `makenovel-round10-4982aa24-fa7b-42ad-98fa-84170e069281`。初始manifest `1b6abc47729eec3000b3a15b628aa02b178883d4d1c312a837c3e8fb45dc3d69`；GUI真实保存后已Update封存并verify，最终manifest **`0a81a06bf67b1d2260e1aa3e095ffa4df163d2729bf2b9c7acd93d76fe418193`**，19文件。原manifest备份位于 `.local/manifest-backups/6b240ecf-6024-4f6c-a150-e7b0984e6b1f/`，不要重新生成覆盖作者目录。
 
-入口 `http://127.0.0.1:3001/#/game/makenovel-round9`，页面已刷新重开、无未保存草稿、预览关闭；截图与日志在 `docs/evidence/local/round9/`。start SHA `8abb79693cce0105aa8dd691ceb4ad2e7afd4e90add59897eba6c3b6afa4511f`，readonly SHA `3c1ccb686264e1dda62f66c82f073034235ea31ef65f75f7f63c32b44edf41d9`。
+start最终SHA `6acc359007854a2f7a073648db0a011f5a765a32569f57309eed872115130e26`，目标已从17移到16，后继17；smile仍带r10-smile在12、neutral未登记在13，注释在9/15。readonly未变，SHA `83dde74c379af86e6022890016c9b31d597be0d1c1b6d214c71cbf65b30079ff`。GUI最后处于start场景、已保存、无撤销/重做、预览关闭、面板关闭。浏览器tab11为本轮交付，截图 `docs/evidence/local/round10/07-final-panel.png`；日志、初末源码与GUI记录同目录，均忽略。
 
-引擎25文件签名 `aa10038a666fcea893a5501f09723d2427aabee4b433bd0122060e0ea7264e93`，收据 `.local/runtime-sync/runtime-build.json`，本轮同步备份 `.local/runtime-sync/20261008-170003-69e7021d69854e1cb2ed00f83d9e2dc8/previous-template`。第八轮作者作品、Windows开发包、槽1与快档继续保留，精确路径与哈希见 [第八轮证据](evidence/2026-10-09-round8.md)，不要删除玩家 `%APPDATA%/webgal-electron-project` 数据。
+引擎25文件签名 `aa10038a666fcea893a5501f09723d2427aabee4b433bd0122060e0ea7264e93`，收据 `.local/runtime-sync/runtime-build.json`，同步备份 `.local/runtime-sync/20261008-175320-20e1be6f7af846689fd49d1f26f4a0aa/previous-template`。旧轮作者作品、Windows开发包、槽位与 `%APPDATA%/webgal-electron-project` 数据继续保留。
 
 ## 下一具体单元
 
 ```powershell
-node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round9
+node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round10
 npm.cmd run test:director
 npm.cmd run test:graph-input
 ```
 
-优先设计并实现**已有导演命令删除/重排**的明确影响、稳定身份、注释/等待保留与整批撤销契约。先划分可安全支持的原生命令和边界，不能通过删除未知语句或重解释原生顺序实现。来源跳转可复用本轮基础，跨分支继承、完整时间轴和AI接力仍分开实施。真实系统IME、复杂演出与资源超时继续独立验收。
+下一作者单元优先检查原生 `wait`、`next`、动作时长及 `nobreak` 的实际关系，设计**有限等待时长编辑及执行顺序说明**。新契约落地前等待仍只读、不可删不可跨越。对每条可编辑时序明确单位、局部影响、IME缓冲、完整原生语义与一批撤销；实际执行和保存恢复另测。跨分支舞台、完整时间轴、面板内历史/恢复、AI接力保持独立范围，不用独立解析器或执行器替换上游。
 
-修改 vendor 后从本轮完整tree增量导出新补丁，停editor再 `baseline:build` → `editor:build`。不要并发两个Terre workspace build；不要在runtime重建时运行依赖parser的测试/封存/生成器。模板备份和作者文件必须保留，普通作品共用模板，自带入口另行升级。
+修改vendor后从本轮完整tree增量导出新补丁，停editor后 `baseline:build` → `editor:build`。不并发Terre两workspace，不在runtime重建parser时运行依赖parser的测试/封存/生成器。保留模板备份和作者文件；普通作品共用模板，自带入口另行升级。
 
-作品如有实际保存改动，暂停写入后显式 `npm.cmd run game:seal -- -GamePath '<作品目录>' -Action Update` 并重开。版本门禁不推断旧档跨版本兼容。用户已授权公开Git、工具安装与Computer Use，无需重复确认；付费服务和正式发行另行处理。
+作品实际保存改动后暂停写入，显式 `npm.cmd run game:seal -- -GamePath '<作品目录>' -Action Update` 并重开。版本门禁不推断旧档兼容。用户已授权公开Git、工具安装与Computer Use；付费服务和正式发行另行处理。

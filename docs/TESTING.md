@@ -1,14 +1,29 @@
 # 测试入口与证据
 
-更新：2026-10-09，MakeNovel `0.0.9`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-09，MakeNovel `0.0.10`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-第九轮完成同场景来源定位、返回与素材草稿保护。代码 **500/500** = 作者387 + 三套样片9 + runtime资源/恢复104；Terre六补丁重放18/18、HTTP25/25、服务22/22分别通过。长场景源行/返回真实焦点、选材双击、Escape优先、草稿拒跳、修改后失效与unknown/diff均现场完成，两场景逐字节保持。完整runtime339和新Windows包本轮未重复执行；旧轮结果保留为历史。完整G1/G2/AT仍未验收，见 [第九轮证据](evidence/2026-10-09-round9.md)。
+第十轮完成已有导演设置删除、相邻原块交换和影响确认。代码 **531/531** = 作者415 + 四套样片12 + runtime资源/恢复104；导演82、图形81。前端tsc、受控runtime→Terre构建/同步、七补丁独立重放18/18、HTTP25/25、服务22/22通过。真实取消、确认门禁、失焦缓冲、旧确认失效、一次撤销/重做、保存重开、原生目标/后继预览及高级语法边界均通过有限路径。逐字节确认注释/身份/BOM/CRLF，改稿作品已重新封存。完整runtime339和新Windows包本轮未重跑，旧轮现场结果保留为历史；完整G1/G2/AT仍未验收。见 [第十轮证据](evidence/2026-10-09-round10.md)。
+
+历史第九轮完成同场景来源定位、返回与素材草稿保护。代码 **500/500** = 作者387 + 三套样片9 + runtime资源/恢复104；Terre六补丁重放18/18、HTTP25/25、服务22/22分别通过。长场景源行/返回真实焦点、选材双击、Escape优先、草稿拒跳、修改后失效与unknown/diff均现场完成，两场景逐字节保持。完整runtime339和新Windows包本轮未重复执行；旧轮结果保留为历史。完整G1/G2/AT仍未验收，见 [第九轮证据](evidence/2026-10-09-round9.md)。
 
 历史摘要（第八轮）：四类命令新增及前文来源，代码456/456、五补丁重放18/18、HTTP25/25、服务22/22、字节16/16与Windows正常退出重启两种读档为当轮已核实结果。
 
 历史摘要（第七轮）：增加原生导演局部会话、图形控件重同步、静态主图片加载失败保存门禁，以及导演与资源故障样片。最终代码回归 **646/646**：运行时 339、作者侧 304、导演样片 3；SVG 原生错误桥接后十三个运行时入口已完整重跑通过。受控构建、模板传播、HTTP 25/25、服务 22/22、两端独立重放各 18/18，以及有限导演与资源故障浏览器实测均有独立证据。Windows 最终包文件核对 21/21；全程停开发服务后，真实 EXE 的改稿呈现、资源失败拒存/旧槽保留、恢复保存及正常退出重启读档通过本机有限路径。第六轮 301 项、第四至六轮的有限现场验证和第四轮 259 项作者工具回归保留为历史证据；本轮作者入口已重新执行，按本轮数量另计。任何子项通过都不表示 G0、G1、G2 或完整 AT 整体验收通过。
 
-## 第九轮可复查入口
+## 第十轮可复查入口
+
+```powershell
+npm.cmd run test:director
+npm.cmd run test:graph-input
+npm.cmd run test:director-structure-demo
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL_Terre -ExpectedPatchCount 7 -EvidencePath docs/evidence/local/round10/terre-independent-replay.json
+node integrations/terre-launcher/verify-editor.mjs
+node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round10
+```
+
+本轮14入口见 `local/round10/checks-summary.json`；GUI、磁盘字节、模板、服务和重放分别记录，不加入531项代码计数。完整列表和未运行范围见第十轮证据。结构样片首个测试夹具误认应无MISSING_ID、界面测试夹具误把BOM放命令前，均修正为符合既有原生契约后通过，未放宽产品语义。
+
+## 第九轮可复查入口（历史）
 
 ```powershell
 npm.cmd run test:director

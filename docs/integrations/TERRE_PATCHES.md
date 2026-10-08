@@ -143,3 +143,21 @@ pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.p
 ```
 
 本轮构建、500项代码、长场景GUI与文件保持另见 [第九轮证据](../evidence/2026-10-09-round9.md)。未导出新Windows包，不把前轮EXE结果记作本轮验收。
+
+## 第十轮结构编辑补丁
+
+`0.0.10` 保留 Terre 0001–0006 原字节，追加 `0007-director-structure-editing.patch`，从第六份完整树 `cae19ae2f2d9619016fbb726b442923a28fdbb4d` 增量导出。仅修改 `directorSession.ts`、`DirectorPanel.tsx` 和面板样式，不改锁文件、后端或 runtime。
+
+- SHA-256：`32d9a1cd5bca8394e1b1e701d8572b2171b6652722139da7590a696786396ae4`，29,873 字节。
+- 七份完整树：`88fc8d1c98e50326f2028d390683bb2fece1ca37`。
+- Manifest SHA-256：`ebfa3b4592add9089fd799c6c32106b0d603ac3748489831a97caf83a176eea8`。
+
+删除仅支持本组安全舞台命令，作者行内注释转为只读独立行，所属身份元数据去除；重排只交换物理相邻的完整原生块，携带 legacy 身份，保留未登记状态。等待/独立注释/空行/对白是硬边界，变量和连续执行参数拒绝结构操作。重新解析后检查全场景原生句子及位置映射，原有完整源码/历史版本门禁与整批撤销继续生效。确认卡绑定具体局部源码，失焦提交、IME/pending/错误守卫和稳定身份回调避免丢稿或误改行。
+
+独立干净 clone 的 18 项重放检查通过，真实 index 字节保持；七补丁产物树与开发树一致，反序移除回到锁定原版。机器报告位于 `docs/evidence/local/round10/terre-independent-replay.json`。运行命令：
+
+```powershell
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL_Terre -ExpectedPatchCount 7 -EvidencePath docs/evidence/local/round10/terre-independent-replay.json
+```
+
+代码、实际构建、GUI 与文件保存证据见 [第十轮报告](../evidence/2026-10-09-round10.md)。
