@@ -1,8 +1,8 @@
 # 测试入口与证据
 
-更新：2026-10-08，MakeNovel `0.0.5`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-08，MakeNovel `0.0.6`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-第五轮增加精确作品版本、初始化前玩家备份、原生存储确认与恢复/启动时序回归。代码、构建/补丁重放、真实 GUI 和 Windows 结果分开记账；本轮浏览器恢复/拒绝/备份及 Windows 新包一槽重启已通过下述有限范围。第四轮 259 项代码、最终构建、有限 GUI 和两子仓独立重放作为历史证据保留；任何子项通过都不表示 G0、G1、G2 或完整 AT 整体验收通过。
+第六轮增加原生菜单、演出、音频和退出对象生命周期，以及演出中存档门禁与原创占位样片。当前代码回归 301/301、受控 runtime 构建、HTTP 引擎文件核对、服务检查、独立重放和下述有限浏览器 GUI 已通过；本轮 Windows 包文件核对与实际重启分别记录。第五轮浏览器存档/备份和 Windows 一槽重启、第四轮 259 项作者工具回归等继续作为历史证据保留；本轮没有重跑全部作者 259 项。任何子项通过都不表示 G0、G1、G2 或完整 AT 整体验收通过。
 
 ## 安装、补丁与构建
 
@@ -47,6 +47,11 @@ npm.cmd run test:save-storage
 npm.cmd run test:save-initialization
 npm.cmd run test:runtime-restore
 npm.cmd run test:save-ui
+npm.cmd run test:menu-lifecycle
+npm.cmd run test:perform-lifecycle
+npm.cmd run test:audio-lifecycle
+npm.cmd run test:stage-exit
+npm.cmd run test:stage-demo
 pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-PatchReplay.ps1
 npm.cmd test
 ```
@@ -77,7 +82,43 @@ pwsh -NoLogo -NoProfile -File scripts/Start-Editor.ps1 -Stop
 
 HTTP API 与两个 WebSocket gateway 使用同一个 loopback listener，并核验准确的 Host、Origin/Referer 与 Fetch Metadata。命令行 API 请求需带 `Origin: http://127.0.0.1:3001`；PowerShell 请求同时用 `-NoProxy`。这些限制防止其他网页从浏览器驱动本机接口，不认证可自行构造请求头的本地进程，也不隔离可信本地代码。详见 [启动器说明](../integrations/terre-launcher/README.md)。
 
-## 第五轮 0.0.5 代码回归与验收状态
+## 第六轮 0.0.6 当前代码回归与验收状态
+
+本轮当前执行十二个代码入口，共 **301/301**：七个既有存档入口为 231 项，五个新增入口为 70 项。相对第五轮同组 220 项净增 81 项，不能把第四轮作者工具 259 项再加入本轮总数。原始本机日志位于忽略目录 `docs/evidence/local/round6/`。
+
+| 入口 / 检查 | 当前结果 | 执行范围与边界 |
+| --- | --- | --- |
+| `test:manifest` / `test:save-backup` / `test:save-compatibility` | 33 / 35 / 34 项通过 | 作品文件、完整备份与精确版本协议；各自边界沿用下方第五轮说明，不等于媒体或 IndexedDB 实机验收 |
+| `test:save-storage` / `test:save-initialization` | 35 / 16 项通过 | 实际生产存储、备份初始化与启动接线；外部存储/网络/渲染仍使用边界替身 |
+| `test:runtime-restore` / `test:save-ui` | 66 / 12 项通过 | 原生恢复及存档 UI；恢复套件比第五轮新增 11 项，含未结束演出、退出对象和待恢复剧情推进的存档拒绝边界 |
+| 七个既有入口小计 | **231 项通过** | 33 + 35 + 34 + 35 + 16 + 66 + 12 |
+| `test:menu-lifecycle` | 15 项通过 | 真实 nextSentence 的遮挡层门禁、延迟继续、重复通知、手动点击及会话失效；Redux/执行器边界可控，不证明 GUI 视觉 |
+| `test:perform-lifecycle` | 18 项通过 | 真实 PerformController、StageStateManager 和背景/立绘 handler；继续合并、卸载重入、启动/重置取消、迟到回调、并行演出精确身份及独立入退场时间；不证明 GPU 帧 |
+| `test:audio-lifecycle` | 23 项通过 | 真实语音/SE/AudioContainer：取消期间异步恢复、旧回调、DOM/source 复用、拒播释放、淡出与换曲、UI 声清理。媒体、AudioContext、时钟和 React 生命周期是替身；不代表真实播放/听感 |
+| `test:stage-exit` | 9 项通过 | 真实退出生命周期、syncPixiStageState 与 stopAllPerform 接线；定时结束、取消、对象身份、同毫秒退出、背景/角色退出和快速结束。原接线红测为 3/9，修后 9/9 |
+| `test:stage-demo` | 5 项通过 | 生成器使用真实锁定 parser、运行时 assetSetter 和临时文件；原创资源/WAV、脚本路径参数、身份隔离、封存与拒绝覆盖，不替代样片播放验收 |
+| 五个新增入口小计 | **70 项通过** | 15 + 18 + 23 + 9 + 5；十二入口合计 **301 项** |
+| runtime 受控生产构建 | 通过：Yarn 61.56 s，Vite 33.01 s | 25 个非 game 引擎文件；构建签名 `1d2cd946ce91a2fb816e771812ea51269931c94576c58c66b3c0e0e40eb1381b`。源码再改变会使旧凭据失效 |
+| Terre / 模板传播与真实服务 | 通过：HTTP 25/25 文件、服务 22 项 | Terre 源码未改，沿用已构建的后端；本轮完成 runtime 同步与实际 HTTP 核对，不能写成完整 editor:build 本轮重跑 |
+| runtime 最终补丁独立重放 | 18 项通过 | 最终冻结源码的独立重放；不将重放检查数加入 301 项代码测试 |
+| 浏览器双角色 / 差分 / 运动 / 背景 | 通过有限实际 GUI | 同台双角色、表情差分、运动；夜景转黑场后清立绘并停止 BGM。只证明这份样片的实际路径，不覆盖所有 GPU/素材 |
+| 浏览器菜单等待 / 存档拒绝 | 通过实际 GUI | 菜单内 8 秒 wait 结束后仍停在 R6-06，尝试保存被拒；返回剧情仅继续到 R6-07，未重复跳句 |
+| 浏览器稳定槽恢复 | 通过有限实际 GUI | 演出完成后的槽可保存，读回后恢复样片姿态；未宣称动画中途检查点恢复 |
+| 浏览器 A/B 分支 / 快进 | 通过实际 GUI | A/B 路线分别显示 1/2；快进到选择后等待人工选择。快进按钮仍保持已开启状态，没有自动关闭 |
+| 浏览器媒体状态 | 通过可观察播放状态 | voice a/b 的 `readyState=4`、播放状态与约 3.2 s 时长已观察，BGM 时间推进；没有听觉或声音审美验证 |
+| Windows 第六轮开发包 | 通过：19/19 作品文件一致 | 最终 `195608-cc6624` 包的作品文件核对；独立运行与重启恢复另以下行实际操作为证据 |
+| Windows 停服务后的保存 / 退出 / 重启读档 | 通过本机一槽 / 分支恢复 | 关闭 3000/3001 后启动最终包，自动播放至稳定选择，槽 1 在 20:11:32 保存成功；Alt+F4 正常退出后核对该精确包 0 进程及 0 开发端口。重启同包、标题读取槽 1，角色及两个选项恢复；选择右线后 R6-10 显示路线 2 |
+| Windows / 媒体剩余范围 | 未验收 | 上述只覆盖本机正常退出、一槽和分支恢复；未验证全机断网、干净机器、崩溃/断电、完整窗口/输入法矩阵及听觉质量 |
+
+音频红绿证据分别为 `local/round6/audio-red.log`（首 13 项 4 绿 / 9 红）、`audio-container-red.log`（22 项中 17 绿 / 5 红，含真实 unhandled rejection）、`audio.log`（最终 23/23）。套件说明见 [菜单生命周期](../integrations/menu-lifecycle-tests/README.md)、[演出生命周期](../integrations/perform-lifecycle-tests/README.md)、[音频生命周期](../integrations/audio-lifecycle-tests/README.md) 与 [样片生成器](../integrations/stage-demo/README.md)。
+
+本轮 Windows 原始证据位于 `docs/evidence/local/round6/`：`windows-choice.png`、`windows-save-slot.png`、`windows-restored-choice.png`、`windows-route-b.png` 与 `windows-normal-exit.json`。关闭本项目服务不等于全机断网，正常退出的成功不证明异常终止耐久性。
+
+菜单、历史、流程图和全局遮挡层打开时，原生音画继续计时；自然结束触发的剧情推进先记住，最后一层关闭后只继续一次。用户点击不会在遮挡下消费剧情；读档/回标题/会话改变会使旧继续失效。普通/快速保存拒绝未结束的非 hold 视觉演出或 wait、待清理退出对象，以及菜单中尚未恢复的剧情继续；失败不覆盖已有槽。当前没有自动回退到稳定检查点或排队保存。
+
+已知保留边界：失败读档也会推进会话 epoch，先前菜单中的自动继续因而取消，关闭菜单后可能需要手动继续；清理函数或动画终态抛错可能中断剩余退出对象的清理。语音仍保留原生 1 ms 等待 React 音频 DOM 的时序，没有元素就绪握手。样片 voice 通道是代码生成测试音，不是真人配音；浏览器媒体状态检查不等于真实听感、完整激活/编解码器矩阵或 Windows 音频验收，详见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)。
+
+## 第五轮 0.0.5 历史代码回归与验收状态
 
 下表记录本轮最终代码检查及对应的有限现场验证。原始日志、构建与包核对、截图和操作步骤统一记在 [第五轮证据](evidence/2026-10-08-round5.md)；不把历史轮次测试数直接相加为“本轮全仓通过”。
 

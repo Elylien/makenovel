@@ -1,0 +1,1108 @@
+diff --git a/packages/webgal/src/Core/Modules/perform/performController.ts b/packages/webgal/src/Core/Modules/perform/performController.ts
+index a6b784f048f4e4146622ac7ff08fb3759e7a6f94..4ba0ab24788fec6ef83cbba16e45d885a6dcd9f6 100644
+--- a/packages/webgal/src/Core/Modules/perform/performController.ts
++++ b/packages/webgal/src/Core/Modules/perform/performController.ts
+@@ -23,6 +23,8 @@ export class PerformController {
+   private pendingPerformList: Array<IPendingPerform> = [];
+   private isCollectingPerforms = false;
+   private generation = 0;
++  private continuationVersion = 0;
++  private continuationTimeout: ReturnType<typeof setTimeout> | undefined;
+   private stopTimeoutMap = new WeakMap<IPerform, ReturnType<typeof setTimeout>>();
+ 
+   /**
+@@ -34,6 +36,7 @@ export class PerformController {
+   }
+ 
+   public beginCollectingPerforms() {
++    this.cancelPendingContinuation();
+     this.isCollectingPerforms = true;
+   }
+ 
+@@ -42,21 +45,10 @@ export class PerformController {
+   }
+ 
+   public arrangeNewPerform(perform: IPerform, script: ISentence, syncPerformState = true) {
+-    // 检查演出列表内是否有相同的演出，如果有，一定是出了什么问题
+-    // 并行演出的 performName 带有唯一后缀，因此不会命中去重
+-    const dupPerformIndex = this.performList.findIndex((p) => p.performName === perform.performName);
+-    if (dupPerformIndex > -1) {
+-      // 结束并删除全部重复演出
+-      for (let i = 0; i < this.performList.length; i++) {
+-        const e = this.performList[i];
+-        if (e.performName === perform.performName) {
+-          this.stopStartedPerform(e);
+-          this.clearPerformTimeout(e);
+-          this.performList.splice(i, 1);
+-          i--;
+-        }
+-      }
+-    }
++    // Detach before calling stopFunction: callbacks may synchronously mutate the controller.
++    const generation = this.generation;
++    this.detachAndStopPerforms(this.performList.filter((p) => p.performName === perform.performName));
++    if (generation !== this.generation) return;
+     perform.isStarted = false;
+     this.pendingPerformList = this.pendingPerformList.filter((p) => p.perform.performName !== perform.performName);
+ 
+@@ -90,9 +82,11 @@ export class PerformController {
+   public commitPendingPerforms() {
+     const performsToStart = this.pendingPerformList;
+     this.pendingPerformList = [];
+-    performsToStart.forEach(({ perform, script }) => {
++    const generation = this.generation;
++    for (const { perform, script } of performsToStart) {
++      if (generation !== this.generation) break;
+       this.startPerform(perform, script);
+-    });
++    }
+   }
+ 
+   public discardUncommittedNonHoldPerforms() {
+@@ -134,26 +128,15 @@ export class PerformController {
+    * @param goNextWhenOver 是否消费被结算演出的 goNextWhenOver 标记。
+    */
+   public settleNonHoldPerforms(goNextWhenOver = true) {
+-    let isGoNext = false;
+-    for (let i = 0; i < this.performList.length; i++) {
+-      const e = this.performList[i];
+-      if (!e.isHoldOn) {
+-        if (e.goNextWhenOver) {
+-          isGoNext = true;
+-        }
+-        if (!e.skipNextCollect) {
+-          this.stopStartedPerform(e);
+-          this.clearPerformTimeout(e);
+-          this.performList.splice(i, 1);
+-          i--;
+-          this.erasePerformFromState(e.performName);
+-        }
+-      }
+-    }
++    const generation = this.generation;
++    const selected = this.performList.filter((perform) => !perform.isHoldOn && !perform.skipNextCollect);
++    const isGoNext = selected.some((perform) => perform.goNextWhenOver);
++    // An internal continuation is already consuming this advance request.
++    if (!goNextWhenOver) this.cancelPendingContinuation();
++    this.detachAndStopPerforms(selected);
++    if (generation !== this.generation) return;
+     stageStateManager.commit();
+-    if (isGoNext && goNextWhenOver) {
+-      continueSentence();
+-    }
++    if (isGoNext && goNextWhenOver) this.goNextWhenOver();
+   }
+ 
+   public clearNonHoldPerformsFromStageState() {
+@@ -167,147 +150,82 @@ export class PerformController {
+    * 这里同时把脚本层的 -continue 转成 perform.goNextWhenOver。
+    */
+   private startPerform(perform: IPerform, script: ISentence) {
++    const generation = this.generation;
++    if (getBooleanArgByKey(script, 'continue')) perform.goNextWhenOver = true;
+     perform.isStarted = true;
+-    perform.startFunction?.();
+-
+-    // 演出持续 duration 毫秒后自动回收；同步清理会使演出刚启动就结束。
++    this.performList.push(perform);
++    // Register before starting so synchronous completion/cancellation can find this object.
++    try {
++      perform.startFunction?.();
++    } catch (error) {
++      if (this.performList.includes(perform)) this.detachAndStopPerforms([perform]);
++      throw error;
++    }
++    if (generation !== this.generation || !this.performList.includes(perform)) return;
+     const stopTimeout = setTimeout(() => {
+-      // perform.stopFunction();
+-      // perform.isOver = true;
+-      if (!perform.isHoldOn) {
+-        // 如果不是保持演出，清除
+-        this.softUnmountPerformObject(perform);
+-      }
++      if (generation !== this.generation) return;
++      if (!perform.isHoldOn) this.softUnmountPerformObject(perform);
+     }, perform.duration);
+     this.stopTimeoutMap.set(perform, stopTimeout);
+-
+-    const hasContinue = getBooleanArgByKey(script, 'continue') ?? false;
+-    if (hasContinue) perform.goNextWhenOver = true;
+-
+-    this.performList.push(perform);
+   }
+ 
+   public unmountPerform(name: string, force = false) {
+-    let isPendingRemoved = false;
+-    this.pendingPerformList = this.pendingPerformList.filter(({ perform }) => {
+-      const matched = this.matchPerformName(perform.performName, name);
+-      if ((force && matched) || (matched && !perform.isHoldOn)) {
+-        isPendingRemoved = true;
+-      }
+-      return force ? !matched : !(matched && !perform.isHoldOn);
+-    });
+-    if (isPendingRemoved) {
+-      this.erasePerformFromState(name);
+-    }
+-    if (!force) {
+-      for (let i = 0; i < this.performList.length; i++) {
+-        const e = this.performList[i];
+-        if (!e.isHoldOn && this.matchPerformName(e.performName, name)) {
+-          this.stopStartedPerform(e);
+-          this.clearPerformTimeout(e);
+-          /**
+-           * 在演出列表里删除演出对象的操作必须在调用 goNextWhenOver 之前
+-           * 因为 goNextWhenOver 会触发继续推进，而继续推进会清除目前未结束的演出
+-           * 那么继续推进就会删除这个演出，但是此时，在这个上下文，i 已经被确定了
+-           * 所以 goNextWhenOver 后的代码会多删东西，解决方法就是在调用 goNextWhenOver 前先删掉这个演出对象
+-           * 此问题对所有 goNextWhenOver 属性为真的演出都有影响，但只有 2 个演出有此问题
+-           */
+-          this.performList.splice(i, 1);
+-          i--;
+-          if (e.goNextWhenOver) {
+-            this.goNextWhenOver();
+-          }
+-          this.erasePerformFromState(name);
+-        }
+-      }
+-    } else {
+-      for (let i = 0; i < this.performList.length; i++) {
+-        const e = this.performList[i];
+-        if (this.matchPerformName(e.performName, name)) {
+-          this.stopStartedPerform(e);
+-          this.clearPerformTimeout(e);
+-          /**
+-           * 在演出列表里删除演出对象的操作必须在调用 goNextWhenOver 之前（同上）
+-           */
+-          this.performList.splice(i, 1);
+-          i--;
+-          if (e.goNextWhenOver) {
+-            this.goNextWhenOver();
+-          }
+-          /**
+-           * 从状态表里清除演出
+-           */
+-          this.erasePerformFromState(name);
+-        }
+-      }
+-    }
++    this.unmountMatchingPerforms((perform) => this.matchPerformName(perform.performName, name), force);
+   }
+ 
+   public unmountPerformByPrefix(prefix: string, force = false) {
+-    let isPendingRemoved = false;
+-    this.pendingPerformList = this.pendingPerformList.filter(({ perform }) => {
+-      const matched = perform.performName.startsWith(prefix);
+-      if ((force && matched) || (matched && !perform.isHoldOn)) {
+-        isPendingRemoved = true;
+-      }
+-      return force ? !matched : !(matched && !perform.isHoldOn);
+-    });
+-    if (isPendingRemoved) {
+-      stageStateManager.removePerformByPrefix(prefix);
+-    }
++    this.unmountMatchingPerforms((perform) => perform.performName.startsWith(prefix), force);
++  }
+ 
+-    for (let i = 0; i < this.performList.length; i++) {
+-      const e = this.performList[i];
+-      if (e.performName.startsWith(prefix) && (force || !e.isHoldOn)) {
+-        this.stopStartedPerform(e);
+-        this.clearPerformTimeout(e);
+-        this.performList.splice(i, 1);
+-        i--;
+-        if (e.goNextWhenOver) {
+-          this.goNextWhenOver();
+-        }
+-        this.erasePerformFromState(e.performName);
+-      }
+-    }
++  private unmountMatchingPerforms(matches: (perform: IPerform) => boolean, force: boolean) {
++    const generation = this.generation;
++    const shouldRemove = (perform: IPerform) => matches(perform) && (force || !perform.isHoldOn);
++    const pendingRemoved = this.pendingPerformList.filter(({ perform }) => shouldRemove(perform));
++    this.pendingPerformList = this.pendingPerformList.filter(({ perform }) => !shouldRemove(perform));
++    pendingRemoved.forEach(({ perform }) => this.erasePerformFromState(perform.performName));
++    const selected = this.performList.filter(shouldRemove);
++    const shouldContinue = selected.some((perform) => perform.goNextWhenOver);
++    this.detachAndStopPerforms(selected);
++    if (generation === this.generation && shouldContinue) this.goNextWhenOver();
+   }
+ 
+   public softUnmountPerformObject(perform: IPerform) {
+-    const idx = this.performList.indexOf(perform);
+-    if (idx < 0) return;
+-    this.stopStartedPerform(perform);
+-    this.clearPerformTimeout(perform);
+-    /**
+-     * 在演出列表里删除演出对象的操作必须在调用 goNextWhenOver 之前
+-     * 因为 goNextWhenOver 会触发继续推进，而继续推进会清除目前未结束的演出
+-     * 那么继续推进就会删除这个演出，但是此时，在这个上下文，i 已经被确定了
+-     * 所以 goNextWhenOver 后的代码会多删东西，解决方法就是在调用 goNextWhenOver 前先删掉这个演出对象
+-     * 此问题对所有 goNextWhenOver 属性为真的演出都有影响，但只有 2 个演出有此问题
+-     */
+-    this.performList.splice(idx, 1);
+-    this.erasePerformFromState(perform.performName);
++    if (!this.performList.includes(perform)) return;
++    const generation = this.generation;
++    this.detachAndStopPerforms([perform]);
++    if (generation !== this.generation) return;
+     stageStateManager.commit();
+-    if (perform.goNextWhenOver) {
+-      this.goNextWhenOver();
++    if (perform.goNextWhenOver) this.goNextWhenOver();
++  }
++
++  private detachAndStopPerforms(performs: IPerform[]) {
++    const selected = new Set(performs);
++    this.performList = this.performList.filter((perform) => !selected.has(perform));
++    // Complete the entire batch's state cleanup before user callbacks can add replacements.
++    for (const perform of performs) {
++      this.clearPerformTimeout(perform);
++      this.erasePerformFromState(perform.performName);
+     }
++    for (const perform of performs) this.stopStartedPerform(perform);
+   }
+ 
+   public erasePerformFromState(name: string) {
+-    stageStateManager.removePerformByName(name);
++    stageStateManager.removePerformById(name);
+   }
+ 
+   public removeAllPerform() {
+     this.generation += 1;
++    this.cancelPendingContinuation();
+     this.pendingPerformList = [];
+-    for (const e of this.performList) {
+-      this.clearPerformTimeout(e);
+-      this.stopStartedPerform(e);
+-    }
++    const previous = this.performList;
+     this.performList = [];
++    for (const perform of previous) this.clearPerformTimeout(perform);
++    for (const perform of previous) this.stopStartedPerform(perform);
+   }
+ 
+   private clearPerformTimeout(perform: IPerform) {
+     const stopTimeout = this.stopTimeoutMap.get(perform);
+-    if (stopTimeout) {
++    if (stopTimeout !== undefined) {
+       clearTimeout(stopTimeout);
+       this.stopTimeoutMap.delete(perform);
+     }
+@@ -315,8 +233,8 @@ export class PerformController {
+ 
+   private stopStartedPerform(perform: IPerform) {
+     if (!perform.isStarted) return;
+-    perform.stopFunction();
+     perform.isStarted = false;
++    perform.stopFunction();
+   }
+ 
+   /**
+@@ -325,20 +243,28 @@ export class PerformController {
+    * goNextWhenOver 不等于无条件跳下一句；它仍然必须等待所有 blockingNext 演出结束。
+    * 等待完成后使用 continueSentence，避免触发 userInteractNext，也避免把自然结束误当成用户点击。
+    */
+-  private goNextWhenOver = (generation = this.generation) => {
+-    if (generation !== this.generation) return;
+-    let isBlockingNext = false;
+-    this.performList?.forEach((e) => {
+-      if (e.blockingNext())
+-        // 阻塞且没有结束的演出
+-        isBlockingNext = true;
+-    });
+-    if (isBlockingNext) {
+-      // 有阻塞，提前结束
+-      // 其他演出仍阻塞推进，间隔重试以等待其结束，避免同步递归占住主线程。
+-      setTimeout(() => this.goNextWhenOver(generation), 100);
+-    } else {
+-      continueSentence();
++  private cancelPendingContinuation() {
++    this.continuationVersion += 1;
++    if (this.continuationTimeout !== undefined) clearTimeout(this.continuationTimeout);
++    this.continuationTimeout = undefined;
++  }
++
++  private goNextWhenOver = (generation = this.generation, version = this.continuationVersion) => {
++    if (generation !== this.generation || version !== this.continuationVersion) return;
++    // Replacing an old animation while calculating a new sentence has already consumed its advance.
++    if (this.isCollectingPerforms) return;
++    if (this.hasBlockingNextPerform()) {
++      if (this.continuationTimeout === undefined) {
++        this.continuationTimeout = setTimeout(() => {
++          if (generation !== this.generation || version !== this.continuationVersion) return;
++          this.continuationTimeout = undefined;
++          this.goNextWhenOver(generation, version);
++        }, 100);
++      }
++      return;
+     }
++    // All endings waiting on the same blocker consume a single advance request.
++    this.cancelPendingContinuation();
++    continueSentence();
+   };
+ }
+diff --git a/packages/webgal/src/Core/Modules/stage/stageStateManager.ts b/packages/webgal/src/Core/Modules/stage/stageStateManager.ts
+index 85744f284a6e072afb231d871f364e7389320d6e..783d8201cace2116bb8c0907f10ef3fd5da74451 100644
+--- a/packages/webgal/src/Core/Modules/stage/stageStateManager.ts
++++ b/packages/webgal/src/Core/Modules/stage/stageStateManager.ts
+@@ -247,6 +247,10 @@ export class StageStateManager {
+     this.calculationStageState.PerformList.push(performToAdd);
+   }
+ 
++  public removePerformById(id: string) {
++    this.calculationStageState.PerformList = this.calculationStageState.PerformList.filter((perform) => perform.id !== id);
++  }
++
+   public removePerformByName(name: string) {
+     this.calculationStageState.PerformList = this.calculationStageState.PerformList.filter(
+       (performItem) => performItem.id !== name && !performItem.id.startsWith(name + '#'),
+diff --git a/packages/webgal/src/Core/controller/gamePlay/nextSentence.ts b/packages/webgal/src/Core/controller/gamePlay/nextSentence.ts
+index 8ae5fba4091d5f38aa884a22c46ee78a36e89205..3c3f3158a14ef4799a579d7100e605da9327c9ac 100644
+--- a/packages/webgal/src/Core/controller/gamePlay/nextSentence.ts
++++ b/packages/webgal/src/Core/controller/gamePlay/nextSentence.ts
+@@ -5,6 +5,61 @@ import { webgalStore } from '@/store/store';
+ import { WebGAL } from '@/Core/WebGAL';
+ import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
+ 
++// Menus keep native animation/audio clocks running, but cannot consume dialogue.
++// A natural completion is remembered once and resumed after the last overlay closes.
++const isStoryCovered = () => {
++  const gui = webgalStore.getState().GUI;
++  return gui.showMenuPanel || gui.showBacklog || gui.showFlowchart || gui.showGlobalDialog ||
++    gui.showPanicOverlay || gui.showExtra;
++};
++
++type DeferredContinue = { epoch: number; scene: object; sentence: number };
++let deferredContinue: DeferredContinue | undefined;
++let unsubscribeContinue: (() => void) | undefined;
++
++export function hasDeferredStoryContinue() {
++  return deferredContinue !== undefined;
++}
++
++function cancelDeferredContinue() {
++  deferredContinue = undefined;
++  unsubscribeContinue?.();
++  unsubscribeContinue = undefined;
++}
++
++function deferContinue() {
++  const manager = WebGAL.sceneManager;
++  if (!deferredContinue) {
++    deferredContinue = {
++      epoch: manager.getSessionEpoch(),
++      scene: manager.sceneData.currentScene,
++      sentence: manager.sceneData.currentSentenceId,
++    };
++  }
++  if (unsubscribeContinue) return;
++  const resume = () => {
++    const pending = deferredContinue;
++    if (!pending) return;
++    if (webgalStore.getState().GUI.showTitle || !manager.isSessionCurrent(pending.epoch) ||
++      pending.scene !== manager.sceneData.currentScene || pending.sentence !== manager.sceneData.currentSentenceId) {
++      cancelDeferredContinue();
++      return;
++    }
++    if (isStoryCovered()) return;
++    // Redux subscribers run synchronously: wait until the entire GUI update is done.
++    // The identity check makes duplicate notifications and manual input harmless.
++    queueMicrotask(() => {
++      if (deferredContinue !== pending) return;
++      if (isStoryCovered()) return;
++      const valid = !webgalStore.getState().GUI.showTitle && manager.isSessionCurrent(pending.epoch) &&
++        pending.scene === manager.sceneData.currentScene && pending.sentence === manager.sceneData.currentSentenceId;
++      cancelDeferredContinue();
++      if (valid) continueSentence();
++    });
++  };
++  unsubscribeContinue = webgalStore.subscribe(resume);
++}
++
+ /**
+  * 执行一次推进前检查。
+  *
+@@ -106,8 +161,15 @@ export const commitForward = () => {
+ export const continueSentence = () => {
+   const GUIState = webgalStore.getState().GUI;
+   if (GUIState.showTitle) {
++    cancelDeferredContinue();
++    return;
++  }
++
++  if (isStoryCovered()) {
++    deferContinue();
+     return;
+   }
++  cancelDeferredContinue();
+ 
+   if (!preForward(true)) {
+     return;
+@@ -126,12 +188,12 @@ export const continueSentence = () => {
+  * 结算过程仍可能依据 goNextWhenOver 触发内部继续，那是演出要求的，需要满足。
+  */
+ export const nextSentence = () => {
+-  WebGAL.events.userInteractNext.emit();
+-
+   const GUIState = webgalStore.getState().GUI;
+-  if (GUIState.showTitle) {
++  if (GUIState.showTitle || isStoryCovered()) {
+     return;
+   }
++  cancelDeferredContinue();
++  WebGAL.events.userInteractNext.emit();
+ 
+   if (!preForward()) {
+     return;
+diff --git a/packages/webgal/src/Core/controller/gamePlay/stopAllPerform.ts b/packages/webgal/src/Core/controller/gamePlay/stopAllPerform.ts
+index dcac1984af36f072850ad7d8dff60069968a2ca7..8d4fa92d341bd58547a2e6e634c9951883fdeb24 100644
+--- a/packages/webgal/src/Core/controller/gamePlay/stopAllPerform.ts
++++ b/packages/webgal/src/Core/controller/gamePlay/stopAllPerform.ts
+@@ -1,8 +1,10 @@
+ import { logger } from '@/Core/util/logger';
+ 
+ import { WebGAL } from '@/Core/WebGAL';
++import { finishStageExits } from '@/Core/controller/stage/pixi/stageExitLifecycle';
+ 
+ export const stopAllPerform = () => {
+   logger.warn('清除所有演出');
+   WebGAL.gameplay.performController.removeAllPerform();
++  finishStageExits();
+ };
+diff --git a/packages/webgal/src/Core/controller/stage/pixi/stageExitLifecycle.ts b/packages/webgal/src/Core/controller/stage/pixi/stageExitLifecycle.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..68b4df5a3afb416af4f331364fa91d521cff1845
+--- /dev/null
++++ b/packages/webgal/src/Core/controller/stage/pixi/stageExitLifecycle.ts
+@@ -0,0 +1,35 @@
++import type PixiStage from './PixiController';
++import type { IStageObject } from './PixiController';
++
++type ExitStage = Pick<PixiStage, 'removeAnimation' | 'getStageObjByKey' | 'removeStageObjectByKey'>;
++const exits = new Set<() => void>();
++
++/** Temporary exit objects are not serialized stage state. Own their lifetime explicitly. */
++export function scheduleStageExit(stage: ExitStage, object: IStageObject, animationKey: string, duration: number) {
++  const key = object.key;
++  let finished = false;
++  const finish = () => {
++    if (finished) return;
++    finished = true;
++    clearTimeout(timer);
++    exits.delete(finish);
++    // A canceled/late callback must never delete a replacement with the same key.
++    if (stage.getStageObjByKey(key) !== object) return;
++    try {
++      stage.removeAnimation(animationKey);
++    } finally {
++      if (stage.getStageObjByKey(key) === object) stage.removeStageObjectByKey(key);
++    }
++  };
++  const timer = setTimeout(finish, Math.max(0, duration));
++  exits.add(finish);
++}
++
++export function hasPendingStageExits() {
++  return exits.size > 0;
++}
++
++/** Load/title/reset finish and remove all old exit objects before rebuilding a stage. */
++export function finishStageExits() {
++  for (const finish of [...exits]) finish();
++}
+diff --git a/packages/webgal/src/Core/controller/stage/pixi/syncPixiStageState.ts b/packages/webgal/src/Core/controller/stage/pixi/syncPixiStageState.ts
+index b11c29b23dc633052ea35c4a8b1b066dff37ab94..be4abbcab1d4d1f972fced4a00def10cba8caf1a 100644
+--- a/packages/webgal/src/Core/controller/stage/pixi/syncPixiStageState.ts
++++ b/packages/webgal/src/Core/controller/stage/pixi/syncPixiStageState.ts
+@@ -15,6 +15,7 @@ import { setEbg } from '@/Core/gameScripts/changeBg/setEbg';
+ import { applyTransformToPixiContainer } from '@/Core/controller/stage/pixi/stageEffectTransform';
+ import { prefetchCurrentSceneByProgress } from '@/Core/util/prefetcher/progressPrefetcher';
+ import { prepareFigureDiff } from './prepareFigureDiff';
++import { scheduleStageExit } from './stageExitLifecycle';
+ 
+ interface ISyncFigureSlotPayload {
+   key: string;
+@@ -254,17 +255,15 @@ function removeBg(bgObject: IStageObject, skipAnimation: boolean): number {
+     return 0;
+   }
+   const oldBgKey = bgObject.key;
+-  bgObject.key = 'bg-main-off' + String(new Date().getTime());
++  bgObject.isExiting = true;
++  bgObject.key = 'bg-main-off-' + bgObject.uuid;
+   const bgKey = bgObject.key;
+   const bgAniKey = bgObject.key + '-softoff';
+   pixiStage.removeStageObjectByKey(oldBgKey);
+   const { duration, animation } = getExitAnimation('bg-main-off', true, bgKey);
+   pixiStage.registerAnimation(animation, bgAniKey, bgKey);
+   // 保留退出对象直到退场时长结束；同步销毁会让退场动画不可见。
+-  setTimeout(() => {
+-    pixiStage.removeAnimation(bgAniKey);
+-    pixiStage.removeStageObjectByKey(bgKey);
+-  }, duration);
++  scheduleStageExit(pixiStage, bgObject, bgAniKey, duration);
+   return duration;
+ }
+ 
+@@ -281,7 +280,7 @@ function removeFig(figObj: IStageObject, enterTikerKey: string, skipAnimation: b
+   }
+   const oldFigKey = figObj.key;
+   const figLeaveAniKey = oldFigKey + '-off';
+-  figObj.key = oldFigKey + String(new Date().getTime()) + '-off';
++  figObj.key = oldFigKey + '-' + figObj.uuid + '-off';
+   const figKey = figObj.key;
+   pixiStage.removeStageObjectByKey(oldFigKey);
+   const leaveKey = figKey + '-softoff';
+@@ -289,10 +288,7 @@ function removeFig(figObj: IStageObject, enterTikerKey: string, skipAnimation: b
+   const { duration, animation } = getExitAnimation(figLeaveAniKey, false, figKey);
+   pixiStage.registerAnimation(animation, leaveKey, figKey);
+   // 保留退出对象直到退场时长结束；同步销毁会让退场动画不可见。
+-  setTimeout(() => {
+-    pixiStage.removeAnimation(leaveKey);
+-    pixiStage.removeStageObjectByKey(figKey);
+-  }, duration);
++  scheduleStageExit(pixiStage, figObj, leaveKey, duration);
+ }
+ 
+ function addBg(key: string, url: string) {
+diff --git a/packages/webgal/src/Core/controller/stage/resetStage.ts b/packages/webgal/src/Core/controller/stage/resetStage.ts
+index 6caf0bbb2c96daa2fbc40fc62c096020a9b0eb12..c06124533e82987b04691bc3d93b48936a8f74c9 100644
+--- a/packages/webgal/src/Core/controller/stage/resetStage.ts
++++ b/packages/webgal/src/Core/controller/stage/resetStage.ts
+@@ -3,6 +3,7 @@ import { WebGAL } from '@/Core/WebGAL';
+ import { initState, stageStateManager } from '@/Core/Modules/stage/stageStateManager';
+ import { stopFast } from '@/Core/controller/gamePlay/fastSkip';
+ import { clearProgressPrefetch } from '@/Core/util/prefetcher/progressPrefetcher';
++import { finishStageExits } from './pixi/stageExitLifecycle';
+ 
+ export interface ResetStageOptions {
+   commitStageState?: boolean;
+@@ -26,6 +27,7 @@ export const resetStage = (resetBacklog: boolean, resetSceneAndVar = true, optio
+   clearProgressPrefetch();
+   stopFast();
+   WebGAL.gameplay.performController.removeAllPerform();
++  finishStageExits();
+   WebGAL.gameplay.resetGamePlay();
+ 
+   // 清空舞台状态表
+diff --git a/packages/webgal/src/Core/controller/storage/saveGame.ts b/packages/webgal/src/Core/controller/storage/saveGame.ts
+index a52454fc35f70ef9492e23a75cc032e709c55201..fb8b95ddf419fd94644fed990ccbaeb262528837 100644
+--- a/packages/webgal/src/Core/controller/storage/saveGame.ts
++++ b/packages/webgal/src/Core/controller/storage/saveGame.ts
+@@ -5,6 +5,18 @@ import cloneDeep from 'lodash/cloneDeep';
+ import { WebGAL } from '@/Core/WebGAL';
+ import { writeSaveSlot } from '@/Core/controller/storage/savesController';
+ import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
++import { commandType } from '@/Core/controller/scene/sceneInterface';
++import { hasPendingStageExits } from '@/Core/controller/stage/pixi/stageExitLifecycle';
++import { hasDeferredStoryContinue } from '@/Core/controller/gamePlay/nextSentence';
++
++// Finite visual performances keep a final calculation state but still have an
++// in-flight renderer and continuation. Do not serialize that mixed checkpoint.
++// Held ambient effects and ordinary dialogue retain the native save behavior.
++const unstableSaveCommands = new Set([
++  commandType.changeBg, commandType.changeFigure, commandType.changeFigureDiff,
++  commandType.setTransform, commandType.setAnimation, commandType.setTempAnimation,
++  commandType.setComplexAnimation, commandType.wait,
++]);
+ 
+ /**
+  * 保存游戏
+@@ -39,6 +51,9 @@ export function generateCurrentStageData(index: number, isSavePreviewImage = tru
+   if (!compatibility) throw new Error('作品版本尚未验证，无法生成存档。');
+   if (WebGAL.sceneManager.lockSceneWrite) throw new Error('场景切换或读档中，无法生成存档。');
+   const stageState = stageStateManager.getCalculationStageState();
++  if (hasDeferredStoryContinue() || hasPendingStageExits() || stageState.PerformList.some((perform) => !perform.isHoldOn && unstableSaveCommands.has(perform.script.command))) {
++    throw new Error('当前演出尚未结束或正在等待继续，请返回剧情，在演出结束后的对白处保存。此次没有覆盖存档。');
++  }
+   const saveBacklog = cloneDeep(WebGAL.backlogManager.getBacklog());
+ 
+   /**
+diff --git a/packages/webgal/src/Core/gameScripts/changeBg/index.ts b/packages/webgal/src/Core/gameScripts/changeBg/index.ts
+index 5e5c7045da9e923ee44dea4bf69a0bee133863ac..e859b0d470cfe828a9577feaf3ab3ab6d2b3d051 100644
+--- a/packages/webgal/src/Core/gameScripts/changeBg/index.ts
++++ b/packages/webgal/src/Core/gameScripts/changeBg/index.ts
+@@ -102,7 +102,6 @@ export const changeBg = (sentence: ISentence): IPerform => {
+       key: 'exitAnimationIgnoreDefault',
+       value: ignoreDefault,
+     });
+-    duration = getAnimateDuration(exitAnimation);
+   }
+   if (enterDuration >= 0) {
+     stageStateManager.updateAnimationSettings({ target: 'bg-main', key: 'enterDuration', value: enterDuration });
+diff --git a/packages/webgal/src/Core/gameScripts/changeFigure.ts b/packages/webgal/src/Core/gameScripts/changeFigure.ts
+index 3af7698b611feeafe507bff397021e10e74f91b8..41bb0c84caff9524e2e331efe885582a44722bae 100644
+--- a/packages/webgal/src/Core/gameScripts/changeFigure.ts
++++ b/packages/webgal/src/Core/gameScripts/changeFigure.ts
+@@ -164,7 +164,6 @@ export function changeFigure(sentence: ISentence): IPerform {
+         key: 'exitAnimationIgnoreDefault',
+         value: ignoreDefault,
+       });
+-      duration = getAnimateDuration(exitAnimation);
+     }
+     if (enterDuration >= 0) {
+       stageStateManager.updateAnimationSettings({ target: key, key: 'enterDuration', value: enterDuration });
+diff --git a/packages/webgal/src/Core/gameScripts/playEffect.ts b/packages/webgal/src/Core/gameScripts/playEffect.ts
+index c9c010a7687a047dd5a07a6662d51c74fe6c11e1..28c044d0d706d3d3139e003404bd8e709d0eca63 100644
+--- a/packages/webgal/src/Core/gameScripts/playEffect.ts
++++ b/packages/webgal/src/Core/gameScripts/playEffect.ts
+@@ -27,7 +27,16 @@ export const playEffect = (sentence: ISentence): IPerform => {
+     isLoop = true;
+   }
+   let isOver = false;
++  let stopped = false;
+   let seElement: HTMLAudioElement | null = null;
++  const finish = (error?: unknown) => {
++    if (stopped || isOver) return;
++    isOver = true;
++    if (error) logger.error(`播放效果音失败: ${url}`, error);
++    // A failed looping effect must also be removed, even though it is a hold perform.
++    WebGAL.gameplay.performController.unmountPerform(performInitName, true);
++  };
++  const onError = () => finish(new Error(`Unable to play effect: ${url}`));
+   if (!url || url === WEBGAL_NONE) {
+     return createNonePerform({ blockingAuto: false });
+   }
+@@ -49,16 +58,15 @@ export const playEffect = (sentence: ISentence): IPerform => {
+       const seVol = mainVol * 0.01 * (userDataState.optionData?.seVolume ?? 100) * 0.01 * volume * 0.01;
+       seElement.volume = seVol;
+       seElement.currentTime = 0;
+-      const endFunc = () => {
+-        isOver = true;
+-        WebGAL.gameplay.performController.unmountPerform(performInitName);
+-      };
+-      seElement.onended = endFunc;
+-      seElement.addEventListener('error', () => {
+-        logger.error(`播放效果音失败: ${url}`);
+-        endFunc();
+-      });
+-      seElement.play().catch(() => {});
++      seElement.onended = () => finish();
++      seElement.addEventListener('error', onError);
++      // The microtask also catches synchronous play() errors after the perform
++      // has been registered by PerformController.startPerform.
++      void Promise.resolve()
++        .then(() => {
++          if (!stopped) return seElement?.play();
++        })
++        .catch(finish);
+     },
+     blockingAuto(): boolean {
+       if (isLoop) return false;
+@@ -68,8 +76,12 @@ export const playEffect = (sentence: ISentence): IPerform => {
+       return false;
+     },
+     stopFunction(): void {
++      if (stopped) return;
++      stopped = true;
++      isOver = true;
+       if (!seElement) return;
+       seElement.onended = null;
++      seElement.removeEventListener('error', onError);
+       seElement.pause();
+       seElement.remove();
+       seElement = null;
+diff --git a/packages/webgal/src/Core/gameScripts/vocal/index.ts b/packages/webgal/src/Core/gameScripts/vocal/index.ts
+index 2904088f7690dceb24a9e67a2f1dfa44a57cf8bf..385419be664c4d23b8401e1f706e8522d1df410e 100644
+--- a/packages/webgal/src/Core/gameScripts/vocal/index.ts
++++ b/packages/webgal/src/Core/gameScripts/vocal/index.ts
+@@ -13,6 +13,7 @@ import {
+ } from '@/Core/gameScripts/vocal/vocalAnimation';
+ import { WebGAL } from '@/Core/WebGAL';
+ import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
++import { getMediaElementSource } from './mediaElementSource';
+ 
+ /**
+  * 播放一段语音
+@@ -48,16 +49,23 @@ export const playVocal = (sentence: ISentence) => {
+   stageStateManager.setStage('vocalVolume', volume);
+ 
+   let isOver = false;
++  let stopped = false;
++  let vocalElement: HTMLMediaElement | null = null;
++  let levelInterval: ReturnType<typeof setInterval> | undefined;
+   let startTimer: ReturnType<typeof setTimeout> | undefined;
+   let blinkEndTimer: ReturnType<typeof setTimeout> | undefined;
+ 
+   const finishPerform = (error?: unknown) => {
++    // A rejected play() or ended/error event may arrive after a different voice
++    // has already taken the same perform name. It must not stop that replacement.
++    if (stopped || isOver) return;
+     if (error) {
+       logger.warn('Vocal play was blocked by browser autoplay policy or audio activation state.', error);
+     }
+     isOver = true;
+     WebGAL.gameplay.performController.unmountPerform(performInitName);
+   };
++  const onError = () => finishPerform(new Error(`Unable to play vocal: ${url}`));
+ 
+   /**
+    * 嘴型同步
+@@ -72,91 +80,103 @@ export const playVocal = (sentence: ISentence) => {
+       // commit 只同步舞台状态，音频元素的 key/src 和音量仍由 React 渲染及 effect 更新。
+       // 暂留延时避免操作旧元素；1ms 不保证就绪，移除前应改为音频元素就绪通知。
+       startTimer = setTimeout(async () => {
+-        const VocalControl = document.getElementById('currentVocal') as HTMLMediaElement | null;
+-        if (VocalControl === null) {
+-          isOver = true;
+-          return;
+-        }
+-        VocalControl.currentTime = 0;
+-        key = key ? key : `fig-${pos}`;
+-        const animationItem = figureAssociatedAnimation.find((tid) => tid.targetId === key);
+-        if (animationItem) {
+-          resetMaxAudioLevel();
+-          const foundFigure = freeFigure.find((figure) => figure.key === key);
+-
+-          if (foundFigure) {
+-            pos = foundFigure.basePosition;
++        if (stopped) return;
++        try {
++          const VocalControl = document.getElementById('currentVocal') as HTMLMediaElement | null;
++          if (VocalControl === null) {
++            finishPerform();
++            return;
+           }
+-
+-          const isAudioContextReady = await ensureAudioContextReady();
+-          if (isAudioContextReady && audioContextWrapper.audioContext) {
+-            if (!audioContextWrapper.analyser) {
+-              audioContextWrapper.analyser = audioContextWrapper.audioContext.createAnalyser();
+-              audioContextWrapper.analyser.fftSize = 256;
++          vocalElement = VocalControl;
++          VocalControl.currentTime = 0;
++          key = key ? key : `fig-${pos}`;
++          const animationItem = figureAssociatedAnimation.find((tid) => tid.targetId === key);
++          if (animationItem) {
++            resetMaxAudioLevel();
++            const foundFigure = freeFigure.find((figure) => figure.key === key);
++
++            if (foundFigure) {
++              pos = foundFigure.basePosition;
+             }
+ 
+-            bufferLength = audioContextWrapper.analyser.frequencyBinCount;
+-            audioContextWrapper.dataArray = new Uint8Array(bufferLength);
+-            const vocalControl = document.getElementById('currentVocal') as HTMLMediaElement;
++            const isAudioContextReady = await ensureAudioContextReady();
++            // stopAllPerform is synchronous, while AudioContext.resume may remain
++            // pending across a restore, title transition or next voiced sentence.
++            if (stopped) return;
++            if (isAudioContextReady && audioContextWrapper.audioContext) {
++              if (!audioContextWrapper.analyser) {
++                audioContextWrapper.analyser = audioContextWrapper.audioContext.createAnalyser();
++                audioContextWrapper.analyser.fftSize = 256;
++              }
+ 
+-            if (!audioContextWrapper.source || audioContextWrapper.source.mediaElement !== vocalControl) {
+-              if (audioContextWrapper.source) {
+-                audioContextWrapper.source.disconnect();
++              bufferLength = audioContextWrapper.analyser.frequencyBinCount;
++              audioContextWrapper.dataArray = new Uint8Array(bufferLength);
++              if (!audioContextWrapper.source || audioContextWrapper.source.mediaElement !== VocalControl) {
++                if (audioContextWrapper.source) {
++                  audioContextWrapper.source.disconnect();
++                }
++                audioContextWrapper.source = getMediaElementSource(audioContextWrapper.audioContext, VocalControl);
++                audioContextWrapper.source.connect(audioContextWrapper.analyser);
+               }
+-              audioContextWrapper.source = audioContextWrapper.audioContext.createMediaElementSource(vocalControl);
+-              audioContextWrapper.source.connect(audioContextWrapper.analyser);
++
++              audioContextWrapper.analyser.connect(audioContextWrapper.audioContext.destination);
++
++              // Lip-sync Animation
++              levelInterval = setInterval(() => {
++                if (stopped) return;
++                const audioLevel = getAudioLevel(
++                  audioContextWrapper.analyser!,
++                  audioContextWrapper.dataArray!,
++                  bufferLength,
++                );
++                const { OPEN_THRESHOLD, HALF_OPEN_THRESHOLD } = updateThresholds(audioLevel);
++
++                performMouthAnimation({
++                  audioLevel,
++                  OPEN_THRESHOLD,
++                  HALF_OPEN_THRESHOLD,
++                  currentMouthValue,
++                  lerpSpeed,
++                  key,
++                  animationItem,
++                  pos,
++                });
++              }, 50);
++              audioContextWrapper.audioLevelInterval = levelInterval;
++            } else {
++              logger.warn('AudioContext is not ready, skip lip-sync analyzer for this vocal.');
+             }
+ 
+-            audioContextWrapper.analyser.connect(audioContextWrapper.audioContext.destination);
+-
+-            // Lip-sync Animation
+-            audioContextWrapper.audioLevelInterval = setInterval(() => {
+-              const audioLevel = getAudioLevel(
+-                audioContextWrapper.analyser!,
+-                audioContextWrapper.dataArray!,
+-                bufferLength,
+-              );
+-              const { OPEN_THRESHOLD, HALF_OPEN_THRESHOLD } = updateThresholds(audioLevel);
+-
+-              performMouthAnimation({
+-                audioLevel,
+-                OPEN_THRESHOLD,
+-                HALF_OPEN_THRESHOLD,
+-                currentMouthValue,
+-                lerpSpeed,
+-                key,
+-                animationItem,
+-                pos,
+-              });
+-            }, 50);
+-          } else {
+-            logger.warn('AudioContext is not ready, skip lip-sync analyzer for this vocal.');
+-          }
++            const animationEndTime = Date.now() + 10000;
++            performBlinkAnimation({ key, animationItem, pos, animationEndTime });
+ 
+-          const animationEndTime = Date.now() + 10000;
+-          performBlinkAnimation({ key, animationItem, pos, animationEndTime });
++            // 到达本轮眨眼的 10 秒时限后取消后续调度，不能在启动时就清除。
++            blinkEndTimer = setTimeout(() => {
++              clearTimeout(audioContextWrapper.blinkTimerID);
++            }, 10000);
++          }
+ 
+-          // 到达本轮眨眼的 10 秒时限后取消后续调度，不能在启动时就清除。
+-          blinkEndTimer = setTimeout(() => {
+-            clearTimeout(audioContextWrapper.blinkTimerID);
+-          }, 10000);
++          VocalControl.onended = () => {
++            finishPerform();
++          };
++          VocalControl.addEventListener('error', onError);
++          VocalControl.play().catch(finishPerform);
++        } catch (error) {
++          finishPerform(error);
+         }
+-
+-        VocalControl.play().catch(finishPerform);
+-
+-        VocalControl.onended = () => {
+-          finishPerform();
+-        };
+       }, 1);
+     },
+     stopFunction: () => {
++      if (stopped) return;
++      stopped = true;
++      isOver = true;
+       if (startTimer) clearTimeout(startTimer);
+       if (blinkEndTimer) clearTimeout(blinkEndTimer);
+-      clearInterval(audioContextWrapper.audioLevelInterval);
+-      const VocalControl = document.getElementById('currentVocal') as HTMLMediaElement | null;
+-      if (VocalControl) {
+-        VocalControl.pause();
+-        VocalControl.onended = null;
++      if (levelInterval) clearInterval(levelInterval);
++      if (vocalElement) {
++        vocalElement.pause();
++        vocalElement.onended = null;
++        vocalElement.removeEventListener('error', onError);
+       }
+       key = key ? key : `fig-${pos}`;
+       const animationItem = figureAssociatedAnimation.find((tid) => tid.targetId === key);
+@@ -171,6 +191,7 @@ export const playVocal = (sentence: ISentence) => {
+         pos,
+       });
+       clearTimeout(audioContextWrapper.blinkTimerID);
++      if (animationItem) WebGAL.gameplay.pixiStage?.performBlinkAnimation(key, animationItem, 'open', pos);
+     },
+     blockingNext: () => false,
+     blockingAuto: () => {
+diff --git a/packages/webgal/src/Core/gameScripts/vocal/mediaElementSource.ts b/packages/webgal/src/Core/gameScripts/vocal/mediaElementSource.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f4d2a68898c7785617504d79a675c92152d9ca8e
+--- /dev/null
++++ b/packages/webgal/src/Core/gameScripts/vocal/mediaElementSource.ts
+@@ -0,0 +1,17 @@
++// A media element can only be associated with one source node per AudioContext,
++// including after that node was disconnected while another voice was playing.
++const sources = new WeakMap<AudioContext, WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>>();
++
++export function getMediaElementSource(context: AudioContext, element: HTMLMediaElement) {
++  let elements = sources.get(context);
++  if (!elements) {
++    elements = new WeakMap();
++    sources.set(context, elements);
++  }
++  let source = elements.get(element);
++  if (!source) {
++    source = context.createMediaElementSource(element);
++    elements.set(element, source);
++  }
++  return source;
++}
+diff --git a/packages/webgal/src/Stage/AudioContainer/AudioContainer.tsx b/packages/webgal/src/Stage/AudioContainer/AudioContainer.tsx
+index 764f828e287945b642f802adef57799b3d9b9b82..92e2f410a27c69530007736da493ac16d0ead5f8 100644
+--- a/packages/webgal/src/Stage/AudioContainer/AudioContainer.tsx
++++ b/packages/webgal/src/Stage/AudioContainer/AudioContainer.tsx
+@@ -1,6 +1,6 @@
+ import { useSelector } from 'react-redux';
+ import { RootState } from '@/store/store';
+-import { useEffect, useState } from 'react';
++import { useEffect, useRef } from 'react';
+ import { logger } from '@/Core/util/logger';
+ import { useStageState } from '@/hooks/useStageState';
+ import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
+@@ -15,64 +15,57 @@ export const AudioContainer = () => {
+   const vocalVol = vocalBaseVol * stageStore.vocalVolume * 0.01;
+   const bgmVol = mainVol * 0.01 * userDataState.optionData.bgmVolume * 0.01 * stageStore.bgm.volume * 0.01;
+   const bgmEnter = stageStore.bgm.enter;
++  const bgmRequest = stageStateManager.getCalculationStageState().bgm;
+   const uiSoundEffects = stageStore.uiSe;
+   const seVol = mainVol * 0.01 * (userDataState.optionData?.seVolume ?? 100) * 0.01;
+   const uiSeVol = mainVol * 0.01 * (userDataState.optionData.uiSeVolume ?? 50) * 0.01;
+   const isEnterGame = useSelector((state: RootState) => state.GUI.isEnterGame);
+ 
+-  // 淡入淡出定时器
+-  const [fadeTimer, setFadeTimer] = useState(setTimeout(() => {}, 0));
++  const uiSoundCleanup = useRef(new Set<() => void>());
+ 
+-  /**
+-   * 淡入BGM
+-   * @param bgm 背景音乐
+-   * @param maxVol 最大音量
+-   * @param time 淡入时间
+-   */
+-  const bgmFadeIn = (bgm: HTMLAudioElement, maxVol: number, time: number) => {
+-    // 设置初始音量
+-    time >= 0 ? (bgm.volume = 0) : (bgm.volume = maxVol);
+-    // 设置音量递增时间间隔
+-    const duration = 10;
+-    // 计算每duration的音量增量
+-    const volumeStep = (maxVol / time) * duration;
+-    // 基于递归调用实现淡入淡出效果
++  useEffect(() => {
++    const bgmElement = document.getElementById('currentBgm') as HTMLAudioElement | null;
++    if (!bgmElement) return;
++    let cancelled = false;
++    let fadeTimer: ReturnType<typeof setTimeout> | undefined;
++    const isCurrent = () => {
++      if (cancelled || document.getElementById('currentBgm') !== bgmElement) return false;
++      const current = stageStateManager.getCalculationStageState().bgm;
++      // A restore or script can change the track before React runs effect cleanup.
++      return isShowTitle || current === bgmRequest;
++    };
+     const fade = () => {
+-      const timer = setTimeout(() => {
+-        if (bgm.volume + volumeStep >= maxVol) {
+-          // 如果音量接近或达到最大值，则设置最终音量（淡入）
+-          bgm.volume = maxVol;
+-        } else if (bgm.volume + volumeStep <= 0) {
+-          // 如果音量接近或达到最小值，则设置最终音量（淡出）
+-          bgm.volume = 0;
+-          // 淡出效果结束后，将 bgm 置空
+-          stageStateManager.setStageAndCommit('bgm', { src: '', enter: 0, volume: 100 });
++      fadeTimer = setTimeout(() => {
++        if (!isCurrent()) return;
++        const next = bgmElement.volume + (bgmVol / bgmEnter) * 10;
++        if (bgmEnter < 0 && next <= 0) {
++          bgmElement.volume = 0;
++          if (!isShowTitle) stageStateManager.setStageAndCommit('bgm', { src: '', enter: 0, volume: 100 });
++        } else if (bgmEnter > 0 && next >= bgmVol) {
++          bgmElement.volume = bgmVol;
+         } else {
+-          // 否则增加音量，并递归调用
+-          bgm.volume += volumeStep;
++          bgmElement.volume = Math.max(0, Math.min(1, next));
+           fade();
+         }
+-      }, duration);
+-      // 将定时器引用存储到 fadeTimer 中
+-      setFadeTimer(timer);
++      }, 10);
+     };
+-    // 调用淡入淡出函数
+-    fade();
+-  };
+-
+-  useEffect(() => {
+-    // 清除之前的淡入淡出定时器
+-    clearTimeout(fadeTimer);
+-    // 获取当前背景音乐元素
+-    const bgmElement = document.getElementById('currentBgm') as HTMLAudioElement;
+-    // 如果当前背景音乐元素存在，则淡入淡出
+-    if (bgmElement) {
+-      bgmEnter === 0 ? (bgmElement.volume = bgmVol) : bgmFadeIn(bgmElement, bgmVol, bgmEnter);
+-      if (bgmElement.src && isEnterGame) {
+-        bgmElement.play().catch(() => {});
+-      }
++    if (bgmEnter === 0 || !Number.isFinite(bgmEnter)) bgmElement.volume = bgmVol;
++    else {
++      bgmElement.volume = bgmEnter > 0 ? 0 : bgmVol;
++      fade();
++    }
++    if (bgmElement.src && isEnterGame) {
++      void Promise.resolve()
++        .then(() => {
++          if (isCurrent()) return bgmElement.play();
++        })
++        .catch(() => {});
+     }
+-  }, [isShowTitle, titleBgm, stageStore.bgm.src, bgmVol, bgmEnter, isEnterGame]);
++    return () => {
++      cancelled = true;
++      if (fadeTimer !== undefined) clearTimeout(fadeTimer);
++    };
++  }, [isShowTitle, titleBgm, stageStore.bgm.src, bgmVol, bgmEnter, bgmRequest, isEnterGame]);
+ 
+   useEffect(() => {
+     logger.debug(`设置背景音量：${bgmVol}`);
+@@ -90,6 +83,13 @@ export const AudioContainer = () => {
+     }
+   }, [vocalVol, stageStore.playVocal]);
+ 
++  useEffect(
++    () => () => {
++      uiSoundCleanup.current.forEach((cleanup) => cleanup());
++    },
++    [],
++  );
++
+   useEffect(() => {
+     if (uiSoundEffects === '') return;
+     const uiSeAudioElement = document.createElement('audio');
+@@ -103,12 +103,27 @@ export const AudioContainer = () => {
+       logger.error('UI SE Vol is NaN');
+       uiSeAudioElement.volume = isNaN(seVol) ? mainVol / 100 : seVol / 100;
+     }
+-    // 播放UI音效
+-    uiSeAudioElement.play();
+-    uiSeAudioElement.addEventListener('ended', () => {
+-      // Processing after sound effects are played
++    let released = false;
++    const release = () => {
++      if (released) return;
++      released = true;
++      uiSeAudioElement.removeEventListener('ended', release);
++      uiSeAudioElement.removeEventListener('error', release);
++      uiSeAudioElement.pause();
+       uiSeAudioElement.remove();
+-    });
++      uiSoundCleanup.current.delete(release);
++    };
++    uiSoundCleanup.current.add(release);
++    uiSeAudioElement.addEventListener('ended', release);
++    uiSeAudioElement.addEventListener('error', release);
++    void Promise.resolve()
++      .then(() => {
++        if (!released) return uiSeAudioElement.play();
++      })
++      .catch((error) => {
++        logger.warn('UI sound playback failed.', error);
++        release();
++      });
+     stageStateManager.setStageAndCommit('uiSe', '');
+   }, [uiSoundEffects]);
+ 

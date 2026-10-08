@@ -19,6 +19,47 @@ globalThis.document = {
   }),
 };
 const runtime = await import(pathToFileURL(process.env.RESTORE_TEST_BUNDLE));
+
+for (const command of ['changeBg', 'changeFigure', 'changeFigureDiff', 'setTransform', 'setAnimation', 'setTempAnimation', 'setComplexAnimation', 'wait']) {
+  test(`save waits for a stable point while ${command} is active`, async () => {
+    h.currentStage.PerformList = [{ id: 'unfinished', isHoldOn: false, script: { command: runtime.commandType[command], content: '', args: [] } }];
+    const before = clone(h.currentStage);
+    assert.equal(await runtime.saveGame(2), false);
+    assert.equal(await runtime.fastSaveGame(), false);
+    assert.equal(h.writes.length, 0);
+    assert.deepEqual(h.currentStage, before);
+    assert.match(h.errors.join('\n'), /演出.*结束/);
+    h.currentStage.PerformList = [];
+    assert.equal(await runtime.saveGame(2), true);
+  });
+}
+test('dialogue and a held background effect remain saveable', async () => {
+  h.currentStage.PerformList = [
+    { id: 'dialogue', isHoldOn: false, script: { command: runtime.commandType.say, content: 'line', args: [] } },
+    { id: 'loop', isHoldOn: true, script: { command: runtime.commandType.setAnimation, content: 'breathing', args: [] } },
+  ];
+  assert.equal(await runtime.saveGame(2), true);
+  assert.equal(await runtime.fastSaveGame(), true);
+});
+test('completed animation behind a menu is not saved before its deferred story continuation', async () => {
+  h.deferredStory = true;
+  assert.equal(await runtime.saveGame(2), false);
+  assert.equal(await runtime.fastSaveGame(), false);
+  assert.equal(h.writes.length, 0);
+  assert.match(h.errors.join('\n'), /返回剧情/);
+  h.deferredStory = false;
+  assert.equal(await runtime.saveGame(2), true);
+});
+test('a detached exit object prevents saving even when the native perform list is empty', async () => {
+  const old = { key: 'departing', uuid: 'old' };
+  runtime.scheduleStageExit({ getStageObjByKey: () => old, removeAnimation() {}, removeStageObjectByKey() {} }, old, 'exit', 8000);
+  try {
+    assert.equal(await runtime.saveGame(2), false);
+    assert.equal(await runtime.fastSaveGame(), false);
+    assert.equal(h.writes.length, 0);
+  } finally { runtime.finishStageExits(); }
+  assert.equal(await runtime.saveGame(2), true);
+});
 const metadata = {
   schemaVersion: 1,
   projectId: "fixture",
@@ -91,6 +132,7 @@ const state = () =>
 beforeEach(() => {
   runtime.autoFastSaveGame.cancel();
   h.errors = [];
+  h.deferredStory = false;
   h.stops = [];
   h.next = 0;
   h.varWrites = [];

@@ -34,11 +34,11 @@ const mocks = {
     "export const getStorageAsync=async()=>{};export const dumpToStorageFast=()=>{};",
   "Core/Modules/stage/stageStateManager.ts":
     ctx +
-    'export const stageStateManager=h.stage; export const initState={GameVar:{},PerformList:[],bgName:""};',
+    'h.stage.removePerformById=id=>{const stage=h.stage.getCalculationStageState();stage.PerformList=stage.PerformList.filter(p=>p.id!==id);}; export const stageStateManager=h.stage; export const initState={GameVar:{},PerformList:[],bgName:""};',
   "Core/controller/gamePlay/runScript.ts":
     ctx + "export const runScript=s=>h.runScript(s);",
   "Core/controller/gamePlay/nextSentence.ts":
-    ctx + "export const continueSentence=()=>h.next++;",
+    ctx + "export const continueSentence=()=>h.next++; export const hasDeferredStoryContinue=()=>h.deferredStory;",
   "Core/controller/gamePlay/autoPlay.ts":
     ctx + 'export const stopAuto=()=>h.stops.push("auto");',
   "Core/controller/gamePlay/fastSkip.ts":

@@ -1,4 +1,6 @@
 export { SceneManager } from "../../vendor/WebGAL/packages/webgal/src/Core/Modules/scene";
+export { commandType } from "../../vendor/WebGAL/packages/webgal/src/Core/controller/scene/sceneInterface";
+export { scheduleStageExit, finishStageExits } from "../../vendor/WebGAL/packages/webgal/src/Core/controller/stage/pixi/stageExitLifecycle";
 export { BacklogManager } from "../../vendor/WebGAL/packages/webgal/src/Core/Modules/backlog";
 export { FlowchartManager } from "../../vendor/WebGAL/packages/webgal/src/Core/Modules/flowchart";
 export {

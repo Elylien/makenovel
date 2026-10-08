@@ -8,6 +8,10 @@
     {
       "file": "0002-versioned-player-saves.patch",
       "sha256": "82090d7629b595e484eb09d30afaa3c7aabffe3fdae2faf6316c3acbe3fcdbb4"
+    },
+    {
+      "file": "0003-stage-audio-lifecycle.patch",
+      "sha256": "7eaa09925ce1516d714d0a418d5f7153f7bcb9d27f4619781e36629b397703f2"
     }
   ]
 }

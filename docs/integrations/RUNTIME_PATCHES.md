@@ -1,11 +1,12 @@
 # WebGAL 运行时补丁与模板同步
 
-更新：2026-10-08，MakeNovel `0.0.5`。运行时仍锁定 WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`；依赖版本不变。根仓 [清单](../../patches/webgal/manifest.json) 管理顺序补丁：
+更新：2026-10-08，MakeNovel `0.0.6`。运行时仍锁定 WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`；依赖版本不变。根仓 [清单](../../patches/webgal/manifest.json) 管理顺序补丁：
 
 - `0001-fixed-player-viewport.patch`：fixed 根画布，修复 body 滚动带走缩放后的存档菜单；此补丁自身不改存档协议。
 - `0002-versioned-player-saves.patch`：第五轮精确作品版本门禁、初始化前玩家备份、等待原生存储确认、异步恢复预检与界面错误/备份入口。保留原生脚本、槽、舞台、调用栈及执行器。
+- `0003-stage-audio-lifecycle.patch`：第六轮演出、菜单待推进、退场临时对象及音频生命周期修复；在已覆盖的有限演出或不稳定推进状态存在时拒绝普通/快速存档，保留旧槽，要求回到稳定对白后重新保存。
 
-第二个补丁的导出、摘要、当前应用状态与构建验收以清单和 [TESTING.md](../TESTING.md) 的实际结果为准；下文第四轮构建/重放数字只对应当时的单补丁树。
+当前清单为 3/3。第三份补丁 SHA-256 为 `7eaa09925ce1516d714d0a418d5f7153f7bcb9d27f4619781e36629b397703f2`；独立重放与开发树均为 `c7acf8bad114dd10bc29800b2af4920884d38c14`。受控构建、模板传播与现场结果见 [第六轮记录](../evidence/2026-10-08-round6.md) 和 [TESTING.md](../TESTING.md)；下文第四轮数字只对应当时的单补丁树。
 
 Terre 使用单独的 [补丁链](TERRE_PATCHES.md)。两个 submodule 保持原版 HEAD，已审查修改保留在工作树；不要 reset/clean，也不要把补丁状态误当外部修改。
 
@@ -20,6 +21,20 @@ Terre 使用单独的 [补丁链](TERRE_PATCHES.md)。两个 submodule 保持原
 新快照绑定 projectId、Game_key、运行时兼容常量与 manifestHash；不同/未知版本拒绝读取。同版恢复也先校验当前场景、父调用栈和历史的源码与索引，随后才在原生执行器中替换状态。普通/快速存档按 key 等待落盘成功后发布，初始化 epoch 与 namespace 检查排除切换后的过时结果。上述是代码与边界接线范围，真实浏览器/Windows 的完整流程须单独记录。
 
 仍有明确边界：HTTP 校验只能读取清单已有路径，不能发现未列入的新增文件；本地 verify 才做文件集增删核对。大作品的全部资源 hash 成本尚未验收，`beforeunload` 不能等待其完成。已提交给 localforage 的写入不能撤销，数据库确认不等于断电耐久性。同步恢复异常只尝试重建原生状态，不能承诺回退任意插件与外部副作用。更多限制见 [KNOWN_ISSUES.md](../KNOWN_ISSUES.md)。
+
+## 第六轮演出与独立重放
+
+菜单打开时完成的等待不能在菜单背后继续剧情；返回剧情后只消费当前会话的一次待推进。有限演出、退场临时对象或待推进状态存在时，普通槽与快档都拒绝保存；没有保存请求队列，也不自动选取最近检查点。完整规则见 [存档版本说明](../SAVE_COMPATIBILITY.md)。
+
+公开脚本按当前清单处理任意数量的已审查补丁，第六轮执行：
+
+```powershell
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -ExpectedPatchCount 3 -EvidencePath docs/evidence/local/round6/runtime-independent-replay.json
+```
+
+在构建、导出、源码写入和 Git index 刷新均停止后执行。18/18 核心检查通过：独立 clone 使用 `--no-hardlinks --no-checkout`、无 alternates，首次应用/重复应用/后续 Check 一致；临时 index 逆序还原得到 base tree `e6c2458a927c4679d2f20d693c8f2c1f2028ca19`，开发工作树与两个真实 index 文件字节均不变。脚本最后再次核对清单和补丁原字节没有变化。脚本及命令边界见 [补丁测试说明](../../integrations/patch-tests/README.md)。
+
+`npm.cmd run demo:stage -- --output <不存在的新作品路径>` 提供独立原生演出样片。素材生成源随仓库提供，只在生成时从锁定上游复制 GUI 模板文本；两角色/背景/PCM 音均为原创开发占位。浏览器子项和音频 DOM 核验不替代声音试听、新 Windows 包或完整演出验收。
 
 ## 顺序与入口
 

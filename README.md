@@ -2,7 +2,7 @@
 
 面向 Windows 的视觉小说创作工具链：传统玩家体验、人工导演模式，以及共享同一份源码的 AI 创作接口。
 
-**当前版本 0.0.5：增加作品版本登记、精确版本存档、完整玩家备份及异步恢复门禁。** 继续复用锁定的 WebGAL 与 Terre；保留已有共享编辑历史、草稿恢复和播放器视口修复。代码、界面及 Windows 的实际通过范围见 [测试记录](docs/TESTING.md)，完整导演工具、跨版本旧档迁移与正式发行仍在开发。
+**当前版本 0.0.6：修复演出、菜单与音频的生命周期，并增加可重现的双角色演出样片。** 保留精确版本存档、完整玩家备份、共享编辑历史和草稿恢复。12 套代码入口共 301 项通过；浏览器已验证双角色差分、菜单中断、稳定对白存读档、黑场及两分支。实际范围见 [第六轮记录](docs/evidence/2026-10-08-round6.md) 与 [测试记录](docs/TESTING.md)，G0-B、完整 G1/G2、导演工具与正式发行仍未整体验收。
 
 ## 开始
 
@@ -59,6 +59,19 @@ npm.cmd run game:seal -- -GamePath '.local/editor-profile/games/你的作品目�
 
 详细协议、备份覆盖与限制见 [存档版本说明](docs/SAVE_COMPATIBILITY.md)。导出的备份可以校验，本轮不提供覆盖式导入或跨版本位置猜测。
 
+## 演出开发样片
+
+受控构建和共享模板就绪后，生成一个独立的新作品：
+
+```powershell
+npm.cmd run demo:stage -- --output .local/editor-profile/games/makenovel-round6
+npm.cmd run test:stage-demo
+```
+
+目标已存在时生成器会拒绝覆盖；重做请使用新的目录名。样片采用原生脚本和原创程序生成素材，包含两角色及差分、跳跃/平移、日夜转场/黑场、两分支，以及 BGM、SE、voice 通道测试音。voice 测试音不是配音，音频元素状态正确也不代表听觉质量通过。停靠点和来源说明见 [样片说明](integrations/stage-demo/README.md)。
+
+有限演出、退场临时对象或菜单待推进状态存在时，普通与快速存档都会拒绝，原槽保持。请返回剧情，在演出结束后的稳定对白处重新保存；当前没有保存请求排队或自动回退到旧检查点的功能。
+
 ## 导出 Windows 开发包
 
 完成编辑器构建后，使用实际作品目录运行：
@@ -69,7 +82,7 @@ npm.cmd run game:export -- -GamePath '.local/editor-profile/games/你的作品�
 
 入口调用原 Terre 导出服务，将包含 Electron 的未签名包放入 `.local/exports/`；首次构建壳需要下载依赖。玩家直接运行生成的 EXE，无需 Node/Yarn。当前开发包保留默认 Electron 图标/元数据，尚不是签名安装发行版。
 
-已在本机 Windows 11 x64 验证无本项目开发服务时开始游戏、槽 1 存档、正常退出并重启读档；全机断网、干净机器和全部存档边界尚未验收。重放与限制见 [Windows 导出说明](integrations/windows-export/README.md) 和 [实际证据](docs/evidence/2026-10-07-windows-export.md)。
+第六轮新包已在本机 Windows 11 x64 验证关闭项目开发服务后，分支处存档、正常退出并重启读档，恢复双角色/选项后走右线得到路线值 2。具体过程见 [第六轮记录](docs/evidence/2026-10-08-round6.md)。全机断网、干净机器和全部存档边界尚未验收；导出边界见 [Windows 导出说明](integrations/windows-export/README.md)。
 
 ## 项目导航
 
