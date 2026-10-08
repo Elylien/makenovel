@@ -1,0 +1,137 @@
+diff --git a/packages/webgal/src/Core/controller/stage/pixi/PixiController.ts b/packages/webgal/src/Core/controller/stage/pixi/PixiController.ts
+index 63e0f30045d5090d6cba4241cfa59eb91dc8f1c5..9cc8bec1277b5d56771809155c4728e9a421d90c 100644
+--- a/packages/webgal/src/Core/controller/stage/pixi/PixiController.ts
++++ b/packages/webgal/src/Core/controller/stage/pixi/PixiController.ts
+@@ -61,6 +61,8 @@ export interface IStageObject {
+   textureUrl?: string;
+   /** 差分混合进行中，口型眨眼暂不换图 */
+   isDiffBlending?: boolean;
++  /** 静态背景/立绘的主图片请求；辅助口型眨眼纹理不修改此记录。 */
++  primaryImageLoad?: { status: 'pending' | 'ready' | 'failed' };
+ }
+ 
+ export interface ILive2DRecord {
+@@ -1039,6 +1041,11 @@ export default class PixiStage {
+   public loadStageAsset(stageUuid: string, setup: () => void | Promise<void>, request?: ResourceRequest) {
+     const object = this.getStageObjByUuid(stageUuid);
+     if (!object) return;
++    // Keep readiness on the native object, not in the serialized stage state.
++    // Every primary request gets its own identity so late results cannot settle a newer one.
++    const imageLoad: IStageObject['primaryImageLoad'] =
++      request === undefined && object.sourceType === 'img' ? { status: 'pending' } : undefined;
++    if (imageLoad) object.primaryImageLoad = imageLoad;
+     request ??= {
+       url: object.sourceUrl,
+       kind: object.sourceType === 'live2d' || object.sourceType === 'spine' ? object.sourceType : 'texture',
+@@ -1047,19 +1054,32 @@ export default class PixiStage {
+     // 模型实例初始化尚未结束时，即使舞台对象退场，也不能销毁 SDK 正在使用的纹理。
+     const pendingOwner = `${stageUuid}:pending:${uuid()}`;
+     this.assets.retain(pendingOwner, request);
+-    const mount = () => (this.getStageObjByUuid(stageUuid) ? setup() : undefined);
++    const isCurrent = () =>
++      this.getStageObjByUuid(stageUuid) === object && (!imageLoad || object.primaryImageLoad === imageLoad);
++    const mount = () => (isCurrent() ? setup() : undefined);
++    const settleImage = (status: 'ready' | 'failed') => {
++      if (imageLoad && isCurrent()) imageLoad.status = status;
++    };
+     try {
+       const operation =
+         this.assets.getReady(request) !== undefined
+           ? Promise.resolve(mount())
+           : this.assets
+               .ensureReady(request)
+-              .catch(() => this.assets.ensureReady(request!))
++              .catch((error) => {
++                if (!isCurrent()) throw error;
++                return this.assets.ensureReady(request!);
++              })
+               .then(mount);
+       void operation
+-        .catch((error) => logger.warn(`舞台资源加载失败：${request!.url}`, error))
++        .then(() => settleImage('ready'))
++        .catch((error) => {
++          settleImage('failed');
++          logger.warn(`舞台资源加载失败：${request!.url}`, error);
++        })
+         .finally(() => this.assets.release(pendingOwner));
+     } catch (error) {
++      settleImage('failed');
+       this.assets.release(pendingOwner);
+       logger.warn(`舞台资源挂载失败：${request.url}`, error);
+     }
+diff --git a/packages/webgal/src/Core/controller/stage/pixi/assets/assetParsers.ts b/packages/webgal/src/Core/controller/stage/pixi/assets/assetParsers.ts
+index e7ca956a12a56ee9d155d7988728ad55c430c092..3884f80e82a99140700e2d0116eafebf7a048d61 100644
+--- a/packages/webgal/src/Core/controller/stage/pixi/assets/assetParsers.ts
++++ b/packages/webgal/src/Core/controller/stage/pixi/assets/assetParsers.ts
+@@ -1,5 +1,5 @@
+ import { Assets } from '@pixi/assets';
+-import { BaseTexture, Texture, VideoResource } from 'pixi.js';
++import { BaseTexture, SVGResource, Texture, VideoResource } from 'pixi.js';
+ import { GifResource } from '../GifResource';
+ import { ResourceKind, resourceExtension } from './resourceTypes';
+ import { loadVideoResource } from './videoTexture';
+@@ -11,6 +11,33 @@ export function decodeData(buffer: ArrayBuffer, kind: ResourceKind) {
+   return kind === 'text' ? text : JSON.parse(text);
+ }
+ 
++/** Pixi 6 SVGResource emits onError without rejecting load(); BaseTexture forwards that event. */
++async function loadImageTexture(texture: Texture): Promise<void> {
++  const baseTexture = texture.baseTexture;
++  const resource = baseTexture.resource;
++  if (!(resource instanceof SVGResource)) {
++    await resource.load();
++    return;
++  }
++  await new Promise<void>((resolve, reject) => {
++    let settled = false;
++    const settle = (failed: boolean, error?: unknown) => {
++      if (settled) return;
++      settled = true;
++      baseTexture.off('error', onError);
++      if (failed) reject(error);
++      else resolve();
++    };
++    const onError = (_texture: BaseTexture, error: unknown) => settle(true, error);
++    baseTexture.on('error', onError);
++    try {
++      void resource.load().then(() => settle(false), (error) => settle(true, error));
++    } catch (error) {
++      settle(true, error);
++    }
++  });
++}
++
+ // 保留 Pixi 6 的图片解码、GIF 和视频语义，Assets.loader 负责请求去重和卸载。
+ Assets.loader.parsers.unshift({
+   test: (_url, asset) => Boolean(asset?.data?.webgalKind),
+@@ -38,7 +65,7 @@ Assets.loader.parsers.unshift({
+         await loadVideoResource(resource);
+       } else {
+         texture = Texture.from(url, { resourceOptions: { autoLoad: false } });
+-        await texture.baseTexture.resource.load();
++        await loadImageTexture(texture);
+       }
+       Texture.addToCache(texture, url);
+       return texture as T;
+diff --git a/packages/webgal/src/Core/controller/storage/saveGame.ts b/packages/webgal/src/Core/controller/storage/saveGame.ts
+index fb8b95ddf419fd94644fed990ccbaeb262528837..b0e825eba4c7db77ab3ae56fcb2448ea55fe00d9 100644
+--- a/packages/webgal/src/Core/controller/storage/saveGame.ts
++++ b/packages/webgal/src/Core/controller/storage/saveGame.ts
+@@ -54,6 +54,17 @@ export function generateCurrentStageData(index: number, isSavePreviewImage = tru
+   if (hasDeferredStoryContinue() || hasPendingStageExits() || stageState.PerformList.some((perform) => !perform.isHoldOn && unstableSaveCommands.has(perform.script.command))) {
+     throw new Error('当前演出尚未结束或正在等待继续，请返回剧情，在演出结束后的对白处保存。此次没有覆盖存档。');
+   }
++  // Perform duration can finish before image loading or GPU preparation. A blank
++  // container is not a stable visual checkpoint even when the script is at dialogue.
++  const imageLoads = (WebGAL.gameplay.pixiStage?.getAllStageObj() ?? [])
++    .filter((object) => !object.isExiting)
++    .map((object) => object.primaryImageLoad?.status);
++  if (imageLoads.includes('failed')) {
++    throw new Error('舞台图片资源加载失败，无法保存。请检查资源后重新打开作品。此次没有覆盖存档。');
++  }
++  if (imageLoads.includes('pending')) {
++    throw new Error('舞台图片资源仍在加载，请等待图片显示后再保存。此次没有覆盖存档。');
++  }
+   const saveBacklog = cloneDeep(WebGAL.backlogManager.getBacklog());
+ 
+   /**

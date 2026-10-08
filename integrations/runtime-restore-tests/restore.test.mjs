@@ -197,7 +197,7 @@ beforeEach(() => {
     },
     gameplay: {
       isFastPreview: false,
-      pixiStage: { requestRender() {}, removeAllAnimations() {} },
+      pixiStage: { requestRender() {}, removeAllAnimations() {}, getAllStageObj: () => [] },
       resetGamePlay() {},
       performController: {
         removeAllPerform: () => h.stops.push("perform"),

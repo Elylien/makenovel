@@ -108,3 +108,31 @@ runtime 单补丁已在 `--no-hardlinks --no-checkout`、无 alternates 的独�
 完整 editor:build 已完成 Check→前端/后端构建→Sync 25 文件，最终前端重编 2m53s 通过；Terre 三补丁独立重放 17 项也通过。仅含 game 的新作品实际 HTTP 请求验证 25 个引擎文件全部匹配凭据，实际游戏菜单 fixed/root (0,0,1280,720)/body 滚动 0。记录见 [第四轮证据](../evidence/2026-10-07-round4.md)。这些数字属于第四轮；DPI/全屏和新 Windows EXE 未由该轮验收，不能由独立浏览器或模板传播替代，也不能沿用为第五轮新存档协议的结果。
 
 最新状态、命令与限制见 [TESTING.md](../TESTING.md) 和 [PROJECT_STATUS.md](../PROJECT_STATUS.md)。第五轮的精确版本与旧数据保留机制见 [SAVE_COMPATIBILITY.md](../SAVE_COMPATIBILITY.md)；跨版本旧档迁移仍未实现。
+
+## 第七轮静态主图片保存门禁补丁
+
+在前三份补丁原字节后追加 `0004-static-image-save-readiness.patch`，增量来源为第六轮完整树 `c7acf8bad114dd10bc29800b2af4920884d38c14`；锁定上游仍为 `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`，依赖和存档格式不变。第七轮完整清单是四份顺序补丁，前文 3/3 与第六轮 tree 属于历史结果。
+
+| 来源 | 第七轮审查值 |
+| --- | --- |
+| `0004` SHA-256 | `26e2a99113bd084c4cefdce1f8bde0088ddb044416488e2deb7885bc23e07b86` |
+| 四份补丁后的完整 tree | `77f3336c288448ccc5bc1a3986df91a91f3f79f8` |
+
+生产改动涉及原生 PixiController、普通/快速保存共用的快照生成入口，以及 assetParsers 的 SVG 错误桥接。静态背景/立绘主请求在当前对象上记录 pending、ready、failed，setup 完成才 ready；对象 UUID 与本次请求身份隔离迟到结果。有限演出列表已清空但主图仍 pending/failed 时，普通和快速保存仍拒绝，旧槽不变；辅助口型/眨眼纹理不污染成功主图，状态不写入存档数据。
+
+真实浏览器发现损坏 SVG 会发出原生 onError，但锁定 Pixi 的 SVGResource.load Promise 不结束，导致一直 pending。assetParsers 对实际 SVGResource 订阅 BaseTexture 的公开 error 事件并以原错误对象拒绝；成功、原生拒绝、同步抛错和事件失败均释放自身监听，迟到原生拒绝仍被消费。非 SVG 保留原加载路径，失败沿用纹理销毁与缓存清理；未修改 node_modules 或另写加载器。
+
+图片加载仍与脚本及演出时钟独立。保留原生一次失败重试，不在每次 stage commit 重试同 URL 失败对象；修复资源后重开作品，或实际退场/换图后生成新请求。此补丁不是全场景资源事务，不暂停或回滚剧情；GIF/视频/模型、GPU 上下文丢失、永久无响应超时和自动检查点回退未覆盖。SVG onload 中零尺寸或 drawImage 的异步抛错若不发出 onError，也未覆盖；未加入超时。完整约定见 [舞台生命周期](../STAGE_LIFECYCLE.md)。
+
+资源边界套件 **38/38**：原 28 项真实生产方法回归，加 10 项接真实锁定 Pixi 的 SVG/parser 回归。原 28 项加载第六轮原文件为 **6 通过 / 22 失败**；最终 38 项仅恢复桥接前 assetParsers 为 **31 通过 / 7 失败**。本地日志分别为 `docs/evidence/local/round7/resource-before-final-tests.log`、`resource-svg-before-final-tests.log` 和 `resource-svg-after.log`，日志不提交。
+
+最终来源的 runtime **339/339**（含资源 38 项）回归通过，受控构建为 **Yarn 47.76 s / Vite 22.17 s**，记录 25 个引擎文件；实际 HTTP **25/25**、服务 **22** 项和最终补丁独立重放 **18/18** 通过。桥接前的 runtime 329 项及 Yarn 52.09 s / Vite 27.16 s 构建保留作历史结果。
+
+浏览器已确认桥接前持续 pending 拒存；最终构建对损坏 SVG 显示明确 failed，普通/快速各自拒存，旧普通槽 1 字符串不变，快读仍到 R7-BASE。重走故障并换回 day 后，快档预览 R7-RECOVER，普通新槽 3 保存成功。这些子项不等于完整解码、导演预览或新 Windows 包验收。
+
+```powershell
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL -ExpectedPatchCount 4 -EvidencePath docs/evidence/local/round7/runtime-independent-replay.json
+if ($LASTEXITCODE -ne 0) { throw 'Runtime independent replay failed' }
+```
+
+上表最终 SHA 已在无 hardlinks/alternates 的独立 clone 完成 **18/18**，报告中的完整 tree 与开发树一致；不是沿用 SVG 桥接前的旧报告。检查包含四份顺序应用、幂等、完整树匹配、临时 index 逆序回到原版、开发工作树与两个真实 index 字节不变。源码重放不会自行改写共享模板或作品目录；本轮另完成受控构建、模板同步与实际 HTTP 摘要核对。Terre 最终导演补丁也按自身独立链完成 18/18，见 [补丁测试说明](../../integrations/patch-tests/README.md)。

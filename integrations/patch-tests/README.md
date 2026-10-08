@@ -17,19 +17,30 @@ if ($LASTEXITCODE -ne 0) { throw 'Patch replay regression failed' }
 
 导出和安全拒绝规则见 [Terre 补丁说明](../../docs/integrations/TERRE_PATCHES.md)。
 
-## 真实 WebGAL 补丁独立重放
+## 真实 WebGAL / Terre 补丁独立重放
 
-`Test-RuntimePatchReplay.ps1` 按当前 `patches/webgal/manifest.json` 重放全部已审查补丁，不固定为两份或三份。可用 `-ExpectedPatchCount` 额外约束本轮数量；默认 `0` 表示采用当前非空清单。也可显式传入 `-ManifestPath` 和 `-EvidencePath`。
+`Test-RuntimePatchReplay.ps1` 使用 `-Target WebGAL`（默认）或 `-Target WebGAL_Terre` 选择锁定上游和当前 `patches/webgal/manifest.json` / `patches/terre/manifest.json`，重放全部已审查补丁。名称保留为 Runtime，但入口已适用于两个 vendor；目标必须与所用 manifest 的锁定 base 一致。可用 `-ExpectedPatchCount` 约束本轮数量；默认 `0` 表示采用当前非空清单。也可显式传入 `-ManifestPath` 和 `-EvidencePath`。需要相应 submodule 已初始化，不要求依赖安装或产品构建。
 
 ```powershell
-pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -ExpectedPatchCount 3 -EvidencePath docs/evidence/local/round6/runtime-independent-replay.json
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL -ExpectedPatchCount 4 -EvidencePath docs/evidence/local/round7/runtime-independent-replay.json
 if ($LASTEXITCODE -ne 0) { throw 'Runtime replay failed' }
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL_Terre -ExpectedPatchCount 4 -EvidencePath docs/evidence/local/round7/terre-independent-replay.json
+if ($LASTEXITCODE -ne 0) { throw 'Terre replay failed' }
 ```
 
 **先停止构建、补丁导出、Git index 刷新和源文件编辑，再运行。** 本脚本不能替其他进程加锁；并发刷新真实 index 会让字节不变断言失败，应在写入者结束后重新验证，不覆盖或修复真实 index。
 
-每次建立新的 `.scratch/runtime-independent-replay-<uuid>/checkout`。克隆使用 `--no-hardlinks --no-checkout`，不使用 `--shared` 或 alternates；验证对象数据库完整性。所有 tree 计算和反向应用使用独立临时 index，真实 index 只读取。Git 及补丁工具子进程清除继承的替代 Git 路径并设置 `GIT_OPTIONAL_LOCKS=0`，避免可选的 index 刷新。补丁工具仍可能向 Git 对象库写入用于验证的对象，此处不承诺对象库字节不变。
+每次建立新的 `.scratch/runtime-independent-replay-<uuid>/checkout` 或 `.scratch/terre-independent-replay-<uuid>/checkout`。克隆使用 `--no-hardlinks --no-checkout`，不使用 `--shared` 或 alternates；验证对象数据库完整性。所有 tree 计算和反向应用使用独立临时 index，所选开发 vendor 与该次独立 clone 的真实 index 只读取。Git 及补丁工具子进程清除继承的替代 Git 路径并设置 `GIT_OPTIONAL_LOCKS=0`，避免可选的 index 刷新。补丁工具仍可能向 Git 对象库写入用于验证的对象，此处不承诺对象库字节不变。此独立克隆策略不同于上文仅测试工具的旧 `Test-PatchReplay.ps1` 共享对象夹具。
 
 保留上一轮 18 项核心检查：锁定 base、清单数量与 SHA、开发树一致、干净独立 clone、无 alternates、对象连接、Check 不改工作树、首次应用、重复应用、应用后 Check、完整树幂等、独立树等于开发树、逆向回到 base、逆向不改工作树、开发树不变、两个真实 index 的暂存状态与文件字节均不变。最后复核清单和全部补丁原字节没有在运行期间变化。
 
-默认 JSON 写到 `docs/evidence/local/patch-replay/runtime-independent-replay.json`；第六轮命令将其写到本轮证据目录。结果包括全部补丁 SHA-256、完整 tree、base tree、index 前后哈希与各项检查。失败也会记录已完成检查和错误，不能视为通过。输出的独立 clone 保留，未安装依赖、未构建产品、未改共享模板，因此不能替代浏览器或离线 EXE 验收。
+默认 JSON 写到 `docs/evidence/local/patch-replay/runtime-independent-replay.json` 或 `terre-independent-replay.json`；上例将其写到第七轮证据目录。结果包括全部补丁 SHA-256、完整 tree、base tree、index 前后哈希与各项检查。失败也会记录已完成检查和错误，不能视为通过。输出的独立 clone 保留，未安装依赖、未构建产品、未改共享模板，因此不能替代浏览器或离线 EXE 验收。
+
+## 第七轮追加补丁
+
+两个 vendor 都在既有 `0001`—`0003` 后追加 `0004`，不回写旧补丁字节，不重置开发 checkout，也不创建嵌套 vendor 提交。WebGAL 增量增加静态主图片资源就绪的保存门禁，并修复实际 SVG onError 不结束 load Promise 的错误传播；Terre 增量接入对白的有限导演会话、表单与预览隔离。完整工作树由各自锁定上游加四份顺序补丁得到，不能单独把 `0004` 应用到裸上游。
+
+| 目标 | 新增补丁 | SHA-256 | 四份补丁应用后的完整 tree | 本轮独立重放状态 |
+| --- | --- | --- | --- | --- |
+| WebGAL | `0004-static-image-save-readiness.patch` | `26e2a99113bd084c4cefdce1f8bde0088ddb044416488e2deb7885bc23e07b86` | `77f3336c288448ccc5bc1a3986df91a91f3f79f8` | 最终来源 18/18 已通过，报告为上述 round7/runtime-independent-replay.json |
+| WebGAL_Terre | `0004-dialogue-director-session.patch` | `8d9f4c93e176ef47ca372b9b804a190ba1f225859cf3aca058801e759f92aafb` | `bf2524446919f35385194a1e7b9a3dab3c0aa09a` | 最终来源 18/18 已通过，报告为上述 round7/terre-independent-replay.json |

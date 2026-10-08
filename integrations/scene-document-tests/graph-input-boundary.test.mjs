@@ -120,3 +120,53 @@ test('different project and history navigation each change the graphical project
   assert.notEqual(sentence(h.render()).key,original);
   h.say.unmount();h.graph.unmount();
 });
+
+test('director entry captures the focused native field only after its blur commit',async()=>{
+  const h=await harness();const active=new globalThis.HTMLTextAreaElement();
+  active.blur=()=>{h.props.onSubmit('say:打开前落定 -clear;');};globalThis.document.activeElement=active;
+  find(h.tree,node=>node.type==='button'&&node.props.children==='舞台与声音').props.onClick();
+  await Promise.resolve();await Promise.resolve();
+  const panel=find(h.render(),node=>node.type==='director-panel');
+  assert.match(panel.props.initialSession.expectedSource,/打开前落定/);
+  assert.equal(h.document.getSnapshot().canUndo,true);
+  h.say.unmount();h.graph.unmount();
+});
+
+test('active main-field composition prevents opening a director transaction',async()=>{
+  const h=await harness();h.document.setComposing(true);
+  find(h.tree,node=>node.type==='button'&&node.props.children==='舞台与声音').props.onClick();
+  await Promise.resolve();await Promise.resolve();
+  assert.equal(find(h.render(),node=>node.type==='director-panel'),undefined);
+  assert.match(h.document.getSnapshot().message,/完成中文输入/);
+  h.document.setComposing(false);h.say.unmount();h.graph.unmount();
+});
+
+test('director modal composition and save shortcuts do not reach the main graph',async()=>{
+  const h=await harness();find(h.tree,node=>node.type==='button'&&node.props.children==='舞台与声音').props.onClick();
+  await Promise.resolve();await Promise.resolve();const tree=h.render();
+  tree.props.onCompositionStartCapture();assert.equal(h.document.getSnapshot().isComposing,false);
+  let prevented=0;tree.props.onKeyDownCapture({ctrlKey:true,key:'s',preventDefault(){prevented++;}});
+  assert.equal(prevented,0); // The modal owns this event and its own local draft.
+  h.say.unmount();h.graph.unmount();
+});
+
+test('an open director session is not reused by another file path',async()=>{
+  const h=await harness();find(h.tree,node=>node.type==='button'&&node.props.children==='舞台与声音').props.onClick();
+  await Promise.resolve();await Promise.resolve();assert.ok(find(h.render(),node=>node.type==='director-panel'));
+  const other=h.graph.render(Graph,{targetPath:'games/乙/game/scene/start.txt',targetName:'start.txt'});
+  assert.equal(find(other,node=>node.type==='director-panel'),undefined);
+  h.say.unmount();h.graph.unmount();
+});
+
+test('registered-node batch resync remounts controls and rejects a real Say stale cleanup buffer',async()=>{
+  const h=await harness();const oldKey=sentence(h.tree).key;
+  input(h.getSay()).props.onChange({target:{value:'旧控件未提交缓冲'}});h.rerenderSay();
+  const applied='say:导演已应用 -clear; @makenovel-node test-say';
+  h.document.edit(applied,{resyncControls:true});
+  const nextProps=sentence(h.render());assert.notEqual(nextProps.key,oldKey);
+  h.say.unmount();await Promise.resolve();assert.equal(h.document.getSnapshot().text,applied);
+  const fresh=new Hooks();const tree=fresh.render(Say,nextProps.props);fresh.commit();
+  assert.equal(input(tree).props.value,'导演已应用');fresh.unmount();
+  h.document.undo();assert.equal(h.document.getSnapshot().text,'say:原文 -clear; @makenovel-node test-say');
+  assert.equal(h.document.getSnapshot().canUndo,false);h.graph.unmount();
+});

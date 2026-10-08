@@ -1,5 +1,6 @@
 [CmdletBinding()]
 param(
+    [ValidateSet('WebGAL', 'WebGAL_Terre')][string]$Target = 'WebGAL',
     [string]$ManifestPath,
     [string]$EvidencePath,
     [ValidateRange(0, 10000)][int]$ExpectedPatchCount = 0
@@ -8,19 +9,20 @@ param(
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'PowerShell 7 is required.' }
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
-$sourceRepository = Join-Path $projectRoot 'vendor/WebGAL'
+$targetSlug = if ($Target -eq 'WebGAL') { 'runtime' } else { 'terre' }
+$patchFolder = if ($Target -eq 'WebGAL') { 'webgal' } else { 'terre' }
 $scratchRoot = Join-Path $projectRoot '.scratch'
-$testRoot = Join-Path $scratchRoot ('runtime-independent-replay-' + [Guid]::NewGuid().ToString('N'))
+$testRoot = Join-Path $scratchRoot ($targetSlug + '-independent-replay-' + [Guid]::NewGuid().ToString('N'))
 $checkout = Join-Path $testRoot 'checkout'
-if (-not $ManifestPath) { $ManifestPath = Join-Path $projectRoot 'patches/webgal/manifest.json' }
-if (-not $EvidencePath) { $EvidencePath = Join-Path $projectRoot 'docs/evidence/local/patch-replay/runtime-independent-replay.json' }
+if (-not $ManifestPath) { $ManifestPath = Join-Path $projectRoot "patches/$patchFolder/manifest.json" }
+if (-not $EvidencePath) { $EvidencePath = Join-Path $projectRoot "docs/evidence/local/patch-replay/$targetSlug-independent-replay.json" }
 $ManifestPath = [IO.Path]::GetFullPath($ManifestPath)
 $EvidencePath = [IO.Path]::GetFullPath($EvidencePath)
 $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
 $manifestHashBefore = (Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $lock = Get-Content -LiteralPath (Join-Path $projectRoot 'upstream.lock.json') -Raw | ConvertFrom-Json
-$upstream = @($lock.upstreams | Where-Object name -EQ 'WebGAL')
-if ($upstream.Count -ne 1 -or $upstream[0].commit -notmatch '^[a-fA-F0-9]{40}$') { throw 'Expected one locked WebGAL commit.' }
+$upstream = @($lock.upstreams | Where-Object name -EQ $Target)
+if ($upstream.Count -ne 1 -or $upstream[0].commit -notmatch '^[a-fA-F0-9]{40}$') { throw "Expected one locked $Target commit." }
 $baseCommit = $upstream[0].commit
 $sourceRepository = Join-Path $projectRoot $upstream[0].path
 $patchCount = @($manifest.patches).Count
@@ -70,7 +72,7 @@ function Invoke-ReplayGit {
 function Invoke-ReplayPatch {
     param([string]$Repository, [ValidateSet('Check', 'Apply')][string]$Mode)
     $arguments = @('-NoLogo', '-NoProfile', '-File', (Join-Path $projectRoot 'scripts/Apply-Patches.ps1'),
-        '-Target', 'WebGAL', '-RepositoryPath', $Repository, '-ManifestPath', $ManifestPath, "-$Mode")
+        '-Target', $Target, '-RepositoryPath', $Repository, '-ManifestPath', $ManifestPath, "-$Mode")
     return Invoke-ReplayProcess -Executable (Join-Path $PSHOME 'pwsh.exe') -Arguments $arguments -Directory $projectRoot
 }
 
@@ -92,8 +94,8 @@ function Get-RealIndexHash([string]$Repository) {
 }
 
 try {
-    Assert-Replay ($manifest.baseCommit -eq $baseCommit) 'manifest uses locked runtime commit' $baseCommit
-    Assert-Replay ($patchCount -gt 0 -and ($ExpectedPatchCount -eq 0 -or $patchCount -eq $ExpectedPatchCount)) 'manifest contains the expected reviewed runtime patch set' "$patchCount patches; requested count $ExpectedPatchCount (0 means current manifest)"
+    Assert-Replay ($manifest.baseCommit -eq $baseCommit) 'manifest uses locked upstream commit' $baseCommit
+    Assert-Replay ($patchCount -gt 0 -and ($ExpectedPatchCount -eq 0 -or $patchCount -eq $ExpectedPatchCount)) 'manifest contains the expected reviewed product patch set' "$patchCount patches; requested count $ExpectedPatchCount (0 means current manifest)"
     $manifestDirectory = Split-Path -Parent $ManifestPath
     $manifestPrefix = $manifestDirectory.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
     $seenPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -102,14 +104,14 @@ try {
         $patchPath = [IO.Path]::GetFullPath((Join-Path $manifestDirectory $_.file))
         if (-not $patchPath.StartsWith($manifestPrefix, [StringComparison]::OrdinalIgnoreCase) -or -not $seenPaths.Add($patchPath)) { throw 'Duplicate or escaping patch path.' }
         $hash = (Get-FileHash -LiteralPath $patchPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($hash -ne $_.sha256) { throw "Reviewed runtime patch hash mismatch: $($_.file)" }
+        if ($hash -ne $_.sha256) { throw "Reviewed product patch hash mismatch: $($_.file)" }
         [PSCustomObject]@{ file = $_.file; sha256 = $hash }
     }
     Assert-Replay $true 'patch bytes match manifest SHA-256'
     $sourceIndexBefore = Get-RealIndexHash $sourceRepository
     $developmentTreeBefore = Get-ReplayTree $sourceRepository (Join-Path $testRoot 'development-before.index')
     $developmentCheck = Invoke-ReplayPatch -Repository $sourceRepository -Mode Check
-    Assert-Replay ($developmentCheck.Contains("Already applied: $patchCount/$patchCount")) 'development tree matches the reviewed runtime patches' $developmentCheck
+    Assert-Replay ($developmentCheck.Contains("Already applied: $patchCount/$patchCount")) 'development tree matches the reviewed product patches' $developmentCheck
     $null = Invoke-ReplayGit -Directory $testRoot -Arguments @('clone', '--no-hardlinks', '--no-checkout', $sourceRepository, $checkout)
     $null = Invoke-ReplayGit -Arguments @('checkout', '--detach', $baseCommit)
     Assert-Replay ((Invoke-ReplayGit -Arguments @('status', '--porcelain')) -eq '') 'independent checkout starts clean'
@@ -120,7 +122,7 @@ try {
     $check = Invoke-ReplayPatch -Repository $checkout -Mode Check
     Assert-Replay ($check.Contains("Ready: 0/$patchCount") -and (Invoke-ReplayGit -Arguments @('status', '--porcelain')) -eq '') "Check reports Ready 0/$patchCount and leaves checkout clean" $check
     $apply = Invoke-ReplayPatch -Repository $checkout -Mode Apply
-    Assert-Replay ($apply.Contains("Verified: $patchCount/$patchCount")) 'reviewed runtime patches apply' $apply
+    Assert-Replay ($apply.Contains("Verified: $patchCount/$patchCount")) 'reviewed product patches apply' $apply
     $firstTree = Get-ReplayTree $checkout (Join-Path $testRoot 'first-apply.index')
     $second = Invoke-ReplayPatch -Repository $checkout -Mode Apply
     Assert-Replay ($second.Contains("Already applied: $patchCount/$patchCount")) 'repeated Apply is idempotent' $second
@@ -156,7 +158,7 @@ try {
         if ((Get-FileHash -LiteralPath (Join-Path $manifestDirectory $entry.file) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.sha256) { throw "Patch changed during replay: $($entry.file)" }
     }
     $report = [ordered]@{
-        status = 'passed'; tests = $testResults.Count; target = 'WebGAL'; baseCommit = $baseCommit
+        status = 'passed'; tests = $testResults.Count; target = $Target; baseCommit = $baseCommit
         checkout = $checkout; independentObjectStorage = $true
         cloneArguments = @('--no-hardlinks', '--no-checkout'); alternatesPresent = $false
         manifest = $ManifestPath; manifestSha256 = $manifestHashBefore; patchCount = $patchCount

@@ -12,6 +12,10 @@
     {
       "file": "0003-document-history-draft-recovery.patch",
       "sha256": "78408e0d6fbd4596a043616823a4eb6e6d3bf1cb3902dd04461f906ade677926"
+    },
+    {
+      "file": "0004-dialogue-director-session.patch",
+      "sha256": "8d9f4c93e176ef47ca372b9b804a190ba1f225859cf3aca058801e759f92aafb"
     }
   ]
 }

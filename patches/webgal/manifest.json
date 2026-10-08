@@ -12,6 +12,10 @@
     {
       "file": "0003-stage-audio-lifecycle.patch",
       "sha256": "7eaa09925ce1516d714d0a418d5f7153f7bcb9d27f4619781e36629b397703f2"
+    },
+    {
+      "file": "0004-static-image-save-readiness.patch",
+      "sha256": "26e2a99113bd084c4cefdce1f8bde0088ddb044416488e2deb7885bc23e07b86"
     }
   ]
 }

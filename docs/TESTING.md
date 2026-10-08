@@ -1,8 +1,8 @@
 # 测试入口与证据
 
-更新：2026-10-08，MakeNovel `0.0.6`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-08，MakeNovel `0.0.7`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-第六轮增加原生菜单、演出、音频和退出对象生命周期，以及演出中存档门禁与原创占位样片。当前代码回归 301/301、受控 runtime 构建、HTTP 引擎文件核对、服务检查、独立重放和下述有限浏览器 GUI 已通过；本轮 Windows 包文件核对与实际重启分别记录。第五轮浏览器存档/备份和 Windows 一槽重启、第四轮 259 项作者工具回归等继续作为历史证据保留；本轮没有重跑全部作者 259 项。任何子项通过都不表示 G0、G1、G2 或完整 AT 整体验收通过。
+第七轮增加原生导演局部会话、图形控件重同步、静态主图片加载失败保存门禁，以及导演与资源故障样片。最终代码回归 **646/646**：运行时 339、作者侧 304、导演样片 3；SVG 原生错误桥接后十三个运行时入口已完整重跑通过。受控构建、模板传播、HTTP 25/25、服务 22/22、两端独立重放各 18/18，以及有限导演与资源故障浏览器实测均有独立证据。Windows 最终包文件核对 21/21；全程停开发服务后，真实 EXE 的改稿呈现、资源失败拒存/旧槽保留、恢复保存及正常退出重启读档通过本机有限路径。第六轮 301 项、第四至六轮的有限现场验证和第四轮 259 项作者工具回归保留为历史证据；本轮作者入口已重新执行，按本轮数量另计。任何子项通过都不表示 G0、G1、G2 或完整 AT 整体验收通过。
 
 ## 安装、补丁与构建
 
@@ -27,6 +27,8 @@ pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL_Terre -
 
 不要并发运行 Terre 两个 workspace build。若直接运行上游 workspace build，其后端会刷新 npm 引擎模板；完成后必须在根目录运行 `pwsh -NoLogo -NoProfile -File scripts/Sync-Runtime.ps1 -Action Sync` 才恢复已核验 runtime。仅核查凭据用 `-Action Check`，源码/产物已改变时先重新 `npm.cmd run baseline:build`。
 
+依赖锁定 parser 产物的清单、封存、样片及相关回归也必须与 runtime 重建串行。构建会删除并重建 `packages/parser/build`；第七轮曾在并行执行时得到真实的 `PARSER_UNAVAILABLE`，不能把这种时序失败当成已通过或靠重复并行消除。
+
 完整同步来源、目录备份和失败边界见 [RUNTIME_PATCHES.md](integrations/RUNTIME_PATCHES.md)。
 
 ## 自动化回归
@@ -39,6 +41,7 @@ node integrations/scene-document-tests/run-tests.mjs
 node integrations/scene-document-tests/run-message-tests.mjs
 npm.cmd run test:source-input
 npm.cmd run test:graph-input
+npm.cmd run test:director
 npm.cmd run test:identity
 npm.cmd run test:manifest
 npm.cmd run test:save-backup
@@ -51,7 +54,9 @@ npm.cmd run test:menu-lifecycle
 npm.cmd run test:perform-lifecycle
 npm.cmd run test:audio-lifecycle
 npm.cmd run test:stage-exit
+npm.cmd run test:resource-lifecycle
 npm.cmd run test:stage-demo
+node --test integrations/director-demo/director-demo.test.mjs
 pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-PatchReplay.ps1
 npm.cmd test
 ```
@@ -61,7 +66,7 @@ npm.cmd test
 机器可读报告：
 
 ```powershell
-$resultPath = Join-Path (Get-Location).Path 'docs/evidence/local/round5/terre-backend-all.json'
+$resultPath = Join-Path (Get-Location).Path 'docs/evidence/local/round7/terre-backend-all.json'
 node integrations/terre-tests/run.cjs --no-cache --json --outputFile $resultPath
 if ($LASTEXITCODE -ne 0) { throw 'Terre tests failed' }
 ```
@@ -82,9 +87,56 @@ pwsh -NoLogo -NoProfile -File scripts/Start-Editor.ps1 -Stop
 
 HTTP API 与两个 WebSocket gateway 使用同一个 loopback listener，并核验准确的 Host、Origin/Referer 与 Fetch Metadata。命令行 API 请求需带 `Origin: http://127.0.0.1:3001`；PowerShell 请求同时用 `-NoProxy`。这些限制防止其他网页从浏览器驱动本机接口，不认证可自行构造请求头的本地进程，也不隔离可信本地代码。详见 [启动器说明](../integrations/terre-launcher/README.md)。
 
-## 第六轮 0.0.6 当前代码回归与验收状态
+## 第七轮 0.0.7 当前代码回归与验收状态
 
-本轮当前执行十二个代码入口，共 **301/301**：七个既有存档入口为 231 项，五个新增入口为 70 项。相对第五轮同组 220 项净增 81 项，不能把第四轮作者工具 259 项再加入本轮总数。原始本机日志位于忽略目录 `docs/evidence/local/round6/`。
+本轮最终代码回归 **646/646**（运行时 339 + 作者 304 + 导演样片 3），上述入口均退出 0、无失败。SVG 桥接后十三个运行时入口已完整串行重跑；此前 329/329 仅保留为修复前记录。历史测试、重放断言、构建文件数和 GUI 步骤不加入代码总数。原始本机日志位于忽略目录 `docs/evidence/local/round7/`；最终运行时汇总为 `runtime-suites-summary.json`。作者串行七入口 `author-tests-summary.json` 记录 274 项，另加 `graph-input.log` 最终 30 项，得到作者侧 304 项。
+
+| 入口 / 检查 | 本轮代码结果 | 执行范围与边界 |
+| --- | --- | --- |
+| `test:manifest` / `test:save-backup` / `test:save-compatibility` | 33 / 35 / 34 项通过 | 实际文件与封存、完整备份、精确版本协议；网络及持久化边界使用各套件原有夹具 |
+| `test:save-storage` / `test:save-initialization` | 35 / 16 项通过 | 原生存储、初始化及启动接线；不代表真实配额或断电验收 |
+| `test:runtime-restore` / `test:save-ui` | 66 / 12 项通过 | 原生恢复、稳定存档拒绝边界及 UI 回调；保留第六轮套件数量 |
+| `test:menu-lifecycle` / `test:perform-lifecycle` / `test:audio-lifecycle` / `test:stage-exit` | 15 / 18 / 23 / 9 项通过 | 菜单推进、演出实例、音频回调和退出对象回归；渲染、时钟或媒体边界仍为替身 |
+| `test:resource-lifecycle` | **38 项通过** | 原 28 项真实 PixiController/舞台/存档回归，加 10 项真实 Pixi SVGResource/BaseTexture/Texture 与生产 asset parser 测试。覆盖 SVG onError 拒绝、监听释放、原错误、并发隔离、非 SVG、真实缓存同 URL 重试。首批 28 项旧源码红测 6 通过 / 22 失败；最终同 38 项在桥接前为 31 通过 / 7 失败，修后 38/38 |
+| `test:stage-demo` | 5 项通过 | 第六轮原创样片生成器本轮重新验证；不重复计入作者侧 |
+| 运行时十三入口小计 | **339 项通过** | 原十二入口 301 项，加资源门禁与 SVG parser 38 项；最终 SVG 修复后十三入口完整串行重跑，均退出 0 |
+| 后端 / documents 与 vault / messages | 124 / 66 / 3 项通过 | 后端 14 套 Jest；共享文档、历史和草稿副本；消息边界。66 包含文档与 vault，不再额外叠加历史 56/10 |
+| `test:source-input` / `test:identity` / 根源码实验 | 12 / 28 / 19 项通过 | 实际生产输入/身份模块与真实 parser，以及保留的根源码实验；不将实验称为新增产品能力 |
+| `test:graph-input` | **30 项通过** | 原 7 项加本轮 23 项：导演表单提交、错误保留、组合输入、预览 owner、过期拒绝、批量后控件刷新及三个舞台图片选择器的 SVG 支持。含真实 Say/Bgm/ChangeBg/ChangeFigure/ChangeFigureDiff 控件回调；React/Fluent/DOM 边界替身，不代替浏览器或真实 IME |
+| `test:director` | **22 项通过** | 真实锁定 parser、保守局部写回和 SceneDocument；固定分组边界、按需身份、取消/no-op、BOM/CRLF/注释/未知外段保留、完整源码与历史拒绝过期写入、一次共享撤销和保存前隔离 |
+| 作者入口小计 | **304 项通过** | 124 + 66 + 3 + 12 + 28 + 19 + 30 + 22；七入口串行日志为 `author-*.log`，图形入口单独记录 |
+| 导演与故障样片生成器 | **3 项通过** | `director-demo-tests.log`；真实 parser、assetSetter、封存工具与临时文件，验证参数/跳转、媒体路径、BOM/CRLF/注释、收据、隔离身份和拒绝覆盖 |
+| 代码总计 | **646 项通过** | 339 + 304 + 3；只计本轮实际执行的代码回归 |
+| 最终构建 / 模板 / 服务 / 产品补丁重放 | 构建通过；HTTP 25/25、服务 22/22、两端各 18/18 | 最终 runtime Yarn 47.76 s / Vite 22.17 s，Terre 前后端已完整重建；25 个最终引擎文件同步且 template game 保留，两端独立重放匹配最终 SHA/tree |
+| 浏览器导演编辑 / 源码字节 | 有限实际 GUI 通过；字节核验 16/16 | 实际多参数应用、取消、一次撤销/重做、保存重开及预览隔离通过；五个修改节点独立 ID，BOM/CRLF、八条注释和未触及行原字节保留，见第七轮证据 |
+| 实际资源失败保存 | 最终浏览器有限实测通过 | 坏 SVG 明确进入 failed，普通/快存均拒绝；旧普通槽 1 时间 21:32:44 保持，快读回到 R7-BASE。正常 day 图恢复后快存与普通槽 3 保存成功，时间 21:50:38 |
+| 最终作品 / Windows 新包文件 | manifest verify 通过；包文件 21/21 | 最终作品 manifest `e12992a7…a2142`；最终包 `20261008-214756-a0409b` 与源 game 字节一致，来源见第七轮证据 |
+| Windows 最终 EXE：故障拒存 / 恢复 / 重启读档 | 本机有限实际 GUI 通过 | 全程 3000/3001 停服务；改稿夜景/笑脸/对白正确。BASE 快存及普通槽 1（21:57:55）保留于坏 SVG 普通/快存拒绝之后，快读回 BASE；RECOVER 日景恢复快存与普通槽 2（22:01:38），正常退出后重启同包读槽 2 恢复日景与两角色 |
+| 收尾进程 | 最终包已正常关闭；编辑器恢复 | 精确测试 EXE 进程 0；编辑器 PID 15436、启动 UTC `2026-10-08T14:05:18.8871126Z`，仅 `127.0.0.1:3001`。恢复先核验 PID/入口/时间；提交与远程以 Git 现场核对为准 |
+| Windows 真实 IME / 声音与完整离线 | 未由本轮授予验收 | 停本项目服务不等于全机断网或干净机器；普通退出重启不证明强杀/断电、完整多槽矩阵、输入法与听觉质量 |
+
+导演面板只聚合当前简单对白前相邻的 `changeBg`、`changeFigure`、`changeFigureDiff`、`bgm`、`playEffect`；等待和独立注释只读，其他命令、条件、未知参数与多行是边界。不新增/删除/重排命令，不推算分支继承。局部未应用输入不会写共享文档或进入预览；一次应用产生一个共享撤销步，并使旧图形控件缓冲失效。面板关闭释放自己的预览 hold；未应用缓冲参与页面关闭提示，但没有独立的跨关闭恢复承诺。沿用现有 BOM 首行命令边界，样片首行采用 BOM 加注释。
+
+实际 GUI 发现原生选择器过滤 SVG 后，仅背景、立绘、差分三个舞台选择器改用 `stageImageExtensions`。新增一项实际控件回归，确认三者允许 `.svg`、保留 `.png` 且拒绝音频；仅背景继续允许视频，仅立绘继续允许 JSON 模型，BGM 选择器仍允许音频且不接受 SVG。该项使图形套件从 28 增至 29；随后补取消/成功应用在关闭前同步释放预览 hold，父回调立即观察释放且重复清理幂等，最终 30 项；未修改通用资源分类来扩大其他选择器范围。
+
+静态主图片尚未完成或明确失败时，普通/快速保存均拒绝覆盖旧槽；加载与剧情时钟仍独立，没有资源等待事务、自动排队存档或最近稳定检查点回退。实际坏 SVG 暴露锁定 Pixi 的 `SVGResource.load()` 只发 `onError` 而不拒绝 Promise；最终 parser 仅对实际 SVGResource 在 load 前订阅 BaseTexture error，事件、Promise 或同步异常首次结算后移除本次监听，保持原错误对象并沿原路径销毁失败纹理。真实 Texture.from 缓存测试验证同 URL 失败后重新创建资源；非 SVG 沿用原加载路径。锁定 Assets Loader 外层仍按上游行为包装错误。
+
+10 项新增测试使用真实锁定 Pixi SVGResource/BaseTexture/Texture 和生产 parser，Image/canvas 及 Assets 注册边界受控；没有声称真实浏览器 GPU 验收。最终红测 `resource-svg-before-final-tests.log` 为 31 通过 / 7 失败（早期 `resource-svg-before.log` 37 项为 31/6），修后 `resource-svg-after.log` 为 38/38。仍无资源超时策略；SVG onload 内零尺寸或 drawImage 异步抛错、永久不触发回调的资源、GIF、视频、Live2D、Spine、音频及 GPU 上下文丢失不在本单元验收内。说明见 [导演会话测试](../integrations/director-session-tests/README.md)、[资源生命周期测试](../integrations/resource-lifecycle-tests/README.md) 和 [导演样片](../integrations/director-demo/README.md)。
+
+本轮保留的失败诊断：`manifest-build-race.log` 记录清单测试与 runtime build 并行时 parser 的 `build/cjs/index.cjs` 被重建流程暂时移除，CLI 报 `PARSER_UNAVAILABLE`，当次 32 通过 / 1 失败。停止并行重建后串行重跑，`manifest.log` 为 33/33，当时十三运行时入口为 329/329；该记录早于最终 SVG 桥接；最终构建完成后已再次串行重跑十三入口 339/339。没有删除断言或放宽预期。后续应先完成构建，再运行依赖该 parser 产物的回归。
+
+独立生成样片时使用新的、尚不存在的目录，不覆盖既有作品：
+
+```powershell
+npm.cmd run demo:director -- --output .local/editor-profile/games/makenovel-round7
+node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round7
+```
+
+样片包含刻意不可解码但已登记清单的 `broken.svg`，用于把图片解码失败与清单完整性失败分开验证。生成器通过只证明起点文件正确；编辑后必须重新封存，原生成收据不能充当改稿后的凭据。本轮改稿已显式重新封存并 verify 通过，最终 manifest 为 `e12992a7ff9576e43278d60fa7c45e80cf3a7facec5301914d612a8b173a2142`。最终 runtime 引擎签名为 `aa10038a666fcea893a5501f09723d2427aabee4b433bd0122060e0ea7264e93`，构建、独立重放、GUI 与包核对见 [第七轮证据](evidence/2026-10-08-round7.md)。
+
+## 第六轮 0.0.6 历史代码回归与验收状态
+
+第六轮执行十二个代码入口，共 **301/301**：七个既有存档入口为 231 项，五个新增入口为 70 项。相对第五轮同组 220 项净增 81 项，不能把第四轮作者工具 259 项再加入该轮总数。原始本机日志位于忽略目录 `docs/evidence/local/round6/`。
 
 | 入口 / 检查 | 当前结果 | 执行范围与边界 |
 | --- | --- | --- |

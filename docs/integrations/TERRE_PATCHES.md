@@ -78,3 +78,25 @@ if ($LASTEXITCODE -ne 0) { throw 'Patch export failed' }
 | 0003 | `78408e0d6fbd4596a043616823a4eb6e6d3bf1cb3902dd04461f906ade677926` |
 
 三份补丁的最终树为 `18b0104c074def8309016c95b9e6e173d743bd47`。构建、独立重放和真实编辑器结果统一见 [第四轮证据](../evidence/2026-10-07-round4.md)。WebGAL 的画布修复使用自己的清单，不能与 Terre 补丁混用。
+
+## 第七轮有限导演补丁
+
+本轮在前三份原字节之后追加 `0004-dialogue-director-session.patch`，从第三份完整树 `18b0104c074def8309016c95b9e6e173d743bd47` 导出增量；submodule HEAD 仍为原版 `cf73dd58535d3ef15bddf0852adee153fa92d7da`。第四份不能直接应用到裸上游，也不重复包含前三份修改。
+
+| 来源 | 第七轮审查值 |
+| --- | --- |
+| `0004` SHA-256 | `8d9f4c93e176ef47ca372b9b804a190ba1f225859cf3aca058801e759f92aafb` |
+| 四份补丁后的完整 tree | `bf2524446919f35385194a1e7b9a3dab3c0aa09a` |
+
+范围是普通单行对白及其紧邻的既有安全舞台/声音命令：局部导演会话复用原生 parser 与已有 token 编辑器，编辑时独立草稿，按需登记节点身份；一次应用到共享文档、整步撤销，主文档或历史版本改变时拒绝过期应用。等待与独立注释只读，未知/条件/多行语法继续作为边界，不推断早先对白或分支的继承舞台。面板打开期间禁用舞台执行入口，应用后仍须显式保存再预览，不新增直接写盘通道。
+
+同份补丁包含导演弹窗的限定样式优先级修正，避免 Fluent 默认宽度和 grid 布局覆盖面板；`stageImageExtensions` 仅给背景、立绘与差分三个选择器增加 SVG，可选视频/模型入口仍沿用原限制，不全局放宽图像选择类型。图形控件代码回归 30 项通过，包含实际控件 SVG 参数和关闭面板前同步释放预览占用的检查。最终浏览器已独立验证修复后布局、选材、取消、整步撤销/重做、保存重开及原生预览；真实 Windows 中文 IME 候选输入仍未验收。
+
+本轮最终构建和独立重放已完成。后续修改第四份补丁时仍需重新构建，并在构建/导出/写源码/Git index 刷新停止后执行完整独立重放：
+
+```powershell
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL_Terre -ExpectedPatchCount 4 -EvidencePath docs/evidence/local/round7/terre-independent-replay.json
+if ($LASTEXITCODE -ne 0) { throw 'Terre independent replay failed' }
+```
+
+最终独立重放 **18/18** 通过，准确匹配上表 `0004` 摘要和完整树，未沿用旧补丁或前轮树的检查结论。新脚本使用无 hardlinks/alternates 的独立 clone、临时 index 验证正反向和幂等，并核对开发树及真实 index 不变；完整语义见 [补丁回归说明](../../integrations/patch-tests/README.md)。最终 GUI、模板同步和 EXE 结果分别记录，不由补丁应用成功推定。第七轮最终 EXE 在开发服务全程停止时独立通过坏 SVG failed 后两种拒存、原槽保留、快读 BASE、换 day 恢复两种保存，以及正常退出重启后槽 2 恢复 RECOVER 和双角色；未全机断网，详细有限证据见 [第七轮记录](../evidence/2026-10-08-round7.md)。

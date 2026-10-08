@@ -1,0 +1,710 @@
+diff --git a/packages/origine2/src/pages/editor/ChooseFile/chooseFileConfig.ts b/packages/origine2/src/pages/editor/ChooseFile/chooseFileConfig.ts
+index 9edbb2a3d5b78ea2e64ca7821567fa74a7cb8624..bc7b572113fc27b4ea1a3d59237adf31a2dbb6c6 100644
+--- a/packages/origine2/src/pages/editor/ChooseFile/chooseFileConfig.ts
++++ b/packages/origine2/src/pages/editor/ChooseFile/chooseFileConfig.ts
+@@ -7,3 +7,6 @@ extNameMap.set('video', ['.mp4', '.webm', '.mkv']);
+ extNameMap.set('audio', ['.mp3', '.ogg', '.wav', '.opus']);
+ extNameMap.set('tex', ['.png', '.webp']);
+ extNameMap.set('json', ['.json']);
++
++// SVG is supported by the native stage image loader; keep texture/model filters unchanged.
++export const stageImageExtensions = [...(extNameMap.get('image') ?? []), '.svg'];
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
+index 46399a654edd11046efbe9b7da7832b3e574e01e..6bf02e027e3c6b9ae0286cc3dc1ea0f4eb58791d 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
+@@ -22,6 +22,8 @@ import { inspectSceneIdentity, duplicateNode, deleteNode, moveNode, insertSceneS
+ import { registerSceneNodes, editGraphicalStatement, confirmSpeakerDialogue, nativeRanges, freshNodeId } from '../SceneDocument/graphicalSourceEdits';
+ 
+ import type { DragStart, DraggableProvided, DropResult } from '@hello-pangea/dnd';
++import { DirectorPanel } from './components/DirectorPanel';
++import { createDirectorSession, type DirectorSession } from '../SceneDocument/directorSession';
+ 
+ interface IGraphicalEditorProps {
+   targetPath: string;
+@@ -42,6 +44,7 @@ interface SentenceRowProps {
+   block?: SceneBlock;
+   onDuplicate: (index: number) => void;
+   onConfirmDialogue: (index: number) => void;
++  onOpenDirector: (index: number) => void;
+   sentence: ISentence;
+   sentenceItem: SentenceItem;
+   /** 语句在图形编辑器中的序号；一条多行语句只占一行，因此它不等于文件行号 */
+@@ -81,6 +84,8 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+       queueMicrotask(() => document.setComposing(false));
+     };
+   }, [document]);
++  const [directorSession, setDirectorSession] = useState<{ targetPath: string; session: DirectorSession } | null>(null);
++  useEffect(() => { setDirectorSession(null); }, [document]);
+   const [foldedNodes, setFoldedNodes] = useState<Record<string, boolean>>({});
+   const identity = useMemo(() => {
+     try { return inspectSceneIdentity(state.text, nativeRanges(state.text)); }
+@@ -171,6 +176,21 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+     return duplicateNode(source, ranges, node.nodeId, freshNodeId).source;
+   });
+   const confirmDialogue = (index: number) => applySource(() => confirmSpeakerDialogue(document.getSnapshot().text, sentences[index].startLine));
++  const openDirector = (index: number) => {
++    const target = sentences[index];
++    if (!target) return;
++    const active = globalThis.document.activeElement;
++    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) active.blur();
++    queueMicrotask(() => queueMicrotask(() => {
++      const current = document.getSnapshot();
++      if (current.isComposing || !current.revision || ['loading', 'saving', 'conflict'].includes(current.status)) {
++        document.reportMessage('请先完成中文输入，并处理读取、保存或冲突，再打开舞台与声音。');
++        return;
++      }
++      try { setDirectorSession({ targetPath: props.targetPath, session: createDirectorSession(current.text, target.startLine, current.historyVersion) }); }
++      catch (error) { document.reportMessage(error instanceof Error ? error.message : '无法打开舞台与声音。'); }
++    }));
++  };
+ 
+   const changeShowSentence = useCallback((index: number) => {
+     const target = sentences[index];
+@@ -342,6 +362,7 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+       block: state.analysis.blocks.find(block => block.startLine === sentence.startLine + 1),
+       onDuplicate: duplicateSentence,
+       onConfirmDialogue: confirmDialogue,
++      onOpenDirector: openDirector,
+       index: i,
+       startLine: sentence.startLine,
+       foldedSentence: foldedLines[sentence.startLine] ?? sentenceItem.content,
+@@ -362,9 +383,10 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+   };
+ 
+   return <div ref={rootRef} className={styles.main} id="graphical-editor-main"
+-    onCompositionStartCapture={() => document.setComposing(true)}
+-    onCompositionEndCapture={() => queueMicrotask(() => queueMicrotask(() => document.setComposing(false)))}
++    onCompositionStartCapture={() => { if (!directorSession) document.setComposing(true); }}
++    onCompositionEndCapture={() => { if (!directorSession) queueMicrotask(() => queueMicrotask(() => document.setComposing(false))); }}
+     onKeyDownCapture={event => {
++    if (directorSession) return;
+     if (!(event.ctrlKey || event.metaKey) || event.altKey || !['z', 'y', 's'].includes(event.key.toLowerCase())) return;
+     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+     event.preventDefault();
+@@ -377,6 +399,7 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+     else if (event.key.toLowerCase() === 'y' || event.shiftKey) document.redo();
+     else document.undo();
+   }}>
++    {directorSession?.targetPath === props.targetPath && <DirectorPanel key={props.targetPath} initialSession={directorSession.session} document={document} targetPath={props.targetPath} onClose={() => setDirectorSession(null)} />}
+     <DocumentBar document={document} state={state} onRegisterNodes={registerNodes} onLocate={(line) => {
+       const index = sentences.findIndex(sentence => sentence.startLine <= line - 1 && sentence.endLine >= line - 1);
+       if (index >= 0) rowVirtualizer.scrollToIndex(index, { align: 'center' });
+@@ -491,6 +514,7 @@ const SentenceRowContent = (props: SentenceRowContentProps) => {
+                 fill="#005CAF" />}
+           </div>
+           <div className={styles.optionButtonContainer}>
++            {props.block?.kind === 'dialogue' && props.block.graphicalEditable && !props.sentence.args.some(arg => ['when', 'next', 'continue', 'concat', 'notend'].includes(arg.key)) && <button type="button" onClick={() => props.onOpenDirector(i)}>舞台与声音</button>}
+             {props.node?.nodeId && props.block?.kind !== 'advanced' && <button type="button" onClick={() => props.onDuplicate(i)}>复制节点</button>}
+             <div className={styles.optionButton}
+               onClick={() => { if (props.block?.kind !== 'advanced') props.onDelete(i); }}>
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeBg.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeBg.tsx
+index 30d442b2dd6aa933be15e02e5e1a9454302dd199..090966cb3f332dc6464ad775748871c9ac58d82c 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeBg.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeBg.tsx
+@@ -8,7 +8,7 @@ import TerreToggle from "../../../../components/terreToggle/TerreToggle";
+ import { Button } from "@fluentui/react-components";
+ import { t } from "@lingui/macro";
+ import { combineSubmitString } from "@/utils/combineSubmitString";
+-import { extNameMap } from "../../ChooseFile/chooseFileConfig";
++import { extNameMap, stageImageExtensions } from "../../ChooseFile/chooseFileConfig";
+ import { EditorPreviewClient } from "@/utils/editorPreviewClient";
+ import { AssetPreview } from "../components/AssetPreview";
+ import { useGlobalEffectEditor } from "@/hooks/useGlobalEffectEditor";
+@@ -75,6 +75,7 @@ export default function ChangeBg(props: ISentenceEditorProps) {
+   });
+ 
+   const showEffectEditor = () => {
++    if (props.disableEffectEditor) return;
+     openEffectEditor({
+       title: t`效果编辑器`,
+       json: json.value.toString(),
+@@ -112,7 +113,7 @@ export default function ChangeBg(props: ISentenceEditorProps) {
+             bgFile.set(fileDesc?.name ?? "");
+             submit();
+           }}
+-          extNames={[...extNameMap.get('image') ?? [], ...extNameMap.get('video') ?? []]}/>
++          extNames={[...stageImageExtensions, ...extNameMap.get('video') ?? []]}/>
+         </div>
+       </CommonOptions>}
+       {!isNoFile && <CommonOptions key="3" title={t`解锁名称`}>
+@@ -151,7 +152,7 @@ export default function ChangeBg(props: ISentenceEditorProps) {
+         />
+       </CommonOptions>}
+       <CommonOptions key="23" title={t`显示效果`}>
+-        <Button onClick={showEffectEditor}>{t`打开效果编辑器`}</Button>
++        <Button disabled={props.disableEffectEditor} onClick={showEffectEditor}>{t`打开效果编辑器`}</Button>
+       </CommonOptions>
+       <IgnoreDefaultOption value={ignoreDefault.value} onChange={(value) => {
+         ignoreDefault.set(value);
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeFigure.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeFigure.tsx
+index caa7e7df8fad9db1ce600c08eb809b55f746adaf..93be88896c16b3d9ece4a4e8f32d2d12f3758ad1 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeFigure.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeFigure.tsx
+@@ -13,7 +13,7 @@ import useEditorStore from "@/store/useEditorStore";
+ import { t } from "@lingui/macro";
+ import WheelDropdown from "@/pages/editor/GraphicalEditor/components/WheelDropdown";
+ import { combineSubmitString } from "@/utils/combineSubmitString";
+-import { extNameMap } from "../../ChooseFile/chooseFileConfig";
++import { extNameMap, stageImageExtensions } from "../../ChooseFile/chooseFileConfig";
+ import SearchableCascader from "@/pages/editor/GraphicalEditor/components/SearchableCascader";
+ import { useEaseTypeOptions } from "@/hooks/useEaseTypeOptions";
+ import { EditorPreviewClient } from "@/utils/editorPreviewClient";
+@@ -292,7 +292,9 @@ export default function ChangeFigure(props: ISentenceEditorProps) {
+     }
+   });
+ 
+-  const showEffectEditor = () => openEffectEditor({
++  const showEffectEditor = () => {
++    if (props.disableEffectEditor) return;
++    openEffectEditor({
+     title: t`效果编辑器`,
+     json: json.value.toString(),
+     sentence: props.sentence,
+@@ -308,7 +310,8 @@ export default function ChangeFigure(props: ISentenceEditorProps) {
+       ease: ease.value,
+       blendMode: blendMode.value,
+     },
+-  });
++    });
++  };
+ 
+   const shouldRenderMoreOptions = useMemo(() => {
+     if (!figureFile.value) {
+@@ -468,7 +471,7 @@ export default function ChangeFigure(props: ISentenceEditorProps) {
+                 figureFile.set(fileDesc?.name ?? "");
+                 submit();
+               }}
+-              extNames={[...extNameMap.get('image') ?? [], ...extNameMap.get('json') ?? []]}
++              extNames={[...stageImageExtensions, ...extNameMap.get('json') ?? []]}
+             />
+           </div>
+         </CommonOptions>}
+@@ -546,7 +549,7 @@ export default function ChangeFigure(props: ISentenceEditorProps) {
+         />
+       </CommonOptions>
+       <CommonOptions key="23" title={t`显示效果`}>
+-        <Button onClick={showEffectEditor}>{t`打开效果编辑器`}</Button>
++        <Button disabled={props.disableEffectEditor} onClick={showEffectEditor}>{t`打开效果编辑器`}</Button>
+       </CommonOptions>
+       <IgnoreDefaultOption value={ignoreDefault.value} onChange={(value) => {
+         ignoreDefault.set(value);
+@@ -554,13 +557,14 @@ export default function ChangeFigure(props: ISentenceEditorProps) {
+       }} />
+       {shouldRenderMoreOptions && (
+         <CommonOptions key="moreOptions" title={t`更多选项`}>
+-          <Button onClick={() => {
++          <Button disabled={props.disableEffectEditor} onClick={() => {
++            if (props.disableEffectEditor) return;
+             panelType.set("moreOptions");
+             updateExpand(props.index);
+           }}>{t`编辑更多选项`}</Button>
+         </CommonOptions>
+       )}
+-      {panelType.value === "moreOptions" && <TerrePanel
++      {!props.disableEffectEditor && panelType.value === "moreOptions" && <TerrePanel
+         title={t`更多选项`}
+         sentenceIndex={props.index}
+       >
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeFigureDiff.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeFigureDiff.tsx
+index 185e48b93f96806bfb187a712dd7f164268dccd1..059e551a80916a855770246db50109892b2f9415 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeFigureDiff.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeFigureDiff.tsx
+@@ -9,7 +9,7 @@ import { useEffect } from "react";
+ import { t } from "@lingui/macro";
+ import WheelDropdown from "@/pages/editor/GraphicalEditor/components/WheelDropdown";
+ import { combineSubmitString } from "@/utils/combineSubmitString";
+-import { extNameMap } from "../../ChooseFile/chooseFileConfig";
++import { stageImageExtensions } from "../../ChooseFile/chooseFileConfig";
+ import { AssetPreview } from "../components/AssetPreview";
+ import {
+   FigureAssociatedAnimationOptions,
+@@ -102,7 +102,7 @@ export default function ChangeFigureDiff(props: ISentenceEditorProps) {
+                   figureFile.set(fileDesc?.name ?? "");
+                   submit();
+                 }}
+-                extNames={extNameMap.get('image')}
++                extNames={stageImageExtensions}
+               />
+             </div>
+           </CommonOptions>
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
+index 78ec331754edcf67815b705e0786ee8307ef4e08..474812ccf0afc989c08f3498b1884cb2a221234b 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
+@@ -62,6 +62,8 @@ export interface ISentenceEditorProps {
+   targetPath: string;
+   sceneLabels?: string[];
+   extraOptions?: ReactNode;
++  /** A local director draft must not open shared effect or advanced option panels. */
++  disableEffectEditor?: boolean;
+ }
+ 
+ export interface ISentenceEditorConfig {
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..8340ed2a4b41d904dc4a7cef29204acca11d8932
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
+@@ -0,0 +1,183 @@
++import { useLayoutEffect, useRef, useState } from 'react';
++import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle } from '@fluentui/react-components';
++import { sentenceEditorConfig } from '../SentenceEditor';
++import { getArgByKey } from '../utils/getArgByKey';
++import { editDirectorSession, commitDirectorSession, type DirectorSession, type DirectorSessionNode } from '../../SceneDocument/directorSession';
++import type { SceneDocument } from '../../SceneDocument/sceneDocument';
++import { holdScenePreview } from '../../SceneDocument/sceneDocumentRegistry';
++import styles from './directorPanel.module.scss';
++
++interface DirectorPanelProps {
++  initialSession: DirectorSession;
++  document: SceneDocument;
++  targetPath: string;
++  onClose: () => void;
++}
++
++const editorByCommand = new Map(sentenceEditorConfig.map(config => [config.type, config.component]));
++
++function rowTitle(node: DirectorSessionNode) {
++  const sentence = node.sentence;
++  const id = getArgByKey(sentence, 'id');
++  const position = id ? `ID ${id}` : getArgByKey(sentence, 'left') ? '左侧' : getArgByKey(sentence, 'right') ? '右侧' : '中间';
++  switch (node.command) {
++  case 'changeBg': return '背景';
++  case 'changeFigure': return `立绘 · ${position}`;
++  case 'changeFigureDiff': return `表情差分 · ${position}`;
++  case 'bgm': return '背景音乐';
++  case 'playEffect': return '效果音';
++  case 'wait': return '等待演出';
++  default: return node.role === 'dialogue' ? '对白与语音' : '源码注释';
++  }
++}
++
++function rowSummary(node: DirectorSessionNode) {
++  if (node.role === 'dialogue') {
++    const voice = getArgByKey(node.sentence, 'vocal');
++    return voice ? `语音：${voice}` : '未指定本句语音';
++  }
++  if (node.role === 'wait') return `${node.sentence.content} 毫秒 · 保留原等待顺序`;
++  if (node.role === 'comment') return node.raw.trim() || '空行';
++  return node.sentence.content === 'none' ? '关闭 / 清除' : node.sentence.content;
++}
++
++/** A local transaction. No child callback writes or previews the shared scene. */
++export function DirectorPanel({ initialSession, document, targetPath, onClose }: DirectorPanelProps) {
++  const [session, setSession] = useState(initialSession);
++  const sessionRef = useRef(session);
++  const [errors, setErrors] = useState<Record<string, string>>({});
++  const errorsRef = useRef(errors);
++  const [message, setMessage] = useState('');
++  const composing = useRef(false);
++  const closed = useRef(false);
++  const releasePreview = useRef<() => void>(() => {});
++
++  useLayoutEffect(() => {
++    closed.current = false;
++    const release = holdScenePreview(targetPath);
++    releasePreview.current = release;
++    return () => { closed.current = true; release(); };
++  }, [targetPath]);
++
++  const updateNode = (nodeId: string, replacement: string) => {
++    if (closed.current) return;
++    try {
++      const next = editDirectorSession(sessionRef.current, nodeId, replacement);
++      sessionRef.current = next;
++      setSession(next);
++      const nextErrors = { ...errorsRef.current };
++      delete nextErrors[nodeId];
++      errorsRef.current = nextErrors;
++      setErrors(nextErrors);
++      setMessage('');
++    } catch (error) {
++      const nextErrors = { ...errorsRef.current, [nodeId]: error instanceof Error ? error.message : '这项修改无法安全应用，请修正或取消。' };
++      errorsRef.current = nextErrors;
++      setErrors(nextErrors);
++    }
++  };
++
++  const cancel = () => {
++    if (closed.current) return;
++    closed.current = true;
++    // The parent status bar reads the hold during render. Release before asking
++    // it to close, rather than leaving that render ahead of layout cleanup.
++    releasePreview.current();
++    onClose();
++  };
++  const apply = () => {
++    if (closed.current) return;
++    if (composing.current) {
++      setMessage('请先完成中文候选输入，再应用到草稿。');
++      return;
++    }
++    // Native controls commit on blur; Say also queues composition-end work.
++    // Read the refs after those callbacks, never the render's older session.
++    const active = globalThis.document.activeElement;
++    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) active.blur();
++    queueMicrotask(() => queueMicrotask(() => {
++      if (closed.current) return;
++      if (composing.current || document.getSnapshot().isComposing) {
++        setMessage('请先完成中文候选输入，再应用到草稿。');
++        return;
++      }
++      if (Object.keys(errorsRef.current).length) {
++        setMessage('仍有无法应用的输入。请修正下方提示，或取消本次修改。');
++        return;
++      }
++      const current = document.getSnapshot();
++      if (!current.revision || current.status === 'loading' || current.status === 'conflict' || current.status === 'saving') {
++        setMessage('主文档正在读取、保存或存在冲突。面板内容已保留，请处理后重试。');
++        return;
++      }
++      try {
++        const source = commitDirectorSession(current.text, current.historyVersion, sessionRef.current);
++        document.edit(source, { resyncControls: true });
++        releasePreview.current();
++        document.reportMessage(source === current.text ? '舞台与声音没有变化。' : '舞台与声音已一次应用到草稿；保存后可以预览，也可一次撤销。');
++        closed.current = true;
++        onClose();
++      } catch (error) {
++        setMessage(error instanceof Error ? error.message : '无法应用，面板内容已保留。');
++      }
++    }));
++  };
++
++  const selected = session.nodes.find(node => node.nodeId === session.selectedNodeId)!;
++  const editableCount = session.nodes.filter(node => node.editable && node.role !== 'dialogue').length;
++
++  return <Dialog open onOpenChange={(_, data) => { if (!data.open && !composing.current) cancel(); }}>
++    <DialogSurface className={styles.surface} data-makenovel-director-panel="true"
++      onCompositionStartCapture={() => { composing.current = true; }}
++      onCompositionEndCapture={() => { queueMicrotask(() => { composing.current = false; }); }}
++      onKeyDownCapture={event => {
++        if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
++        const key = event.key.toLowerCase();
++        if (!['s', 'z', 'y'].includes(key)) return;
++        event.stopPropagation();
++        if (key !== 's') return; // Keep the focused input's native text undo.
++        event.preventDefault();
++        if (event.nativeEvent.isComposing || event.keyCode === 229) {
++          setMessage('请先完成中文候选输入，再应用到草稿。');
++          return;
++        }
++        apply();
++      }}>
++      <DialogBody className={styles.body}>
++        <DialogTitle>舞台与声音</DialogTitle>
++        <div className={styles.heading}>
++          <p className={styles.dialogue} title={selected.sentence.content}>{selected.sentence.content || '（空白对白）'}</p>
++          <p className={styles.explanation}>编辑本句前相邻的 {editableCount} 项设置与本句语音；不推算更早对白或分支的继承状态。顺序与等待保持原样。</p>
++          <p className={styles.hint}>面板打开期间不能执行到此句或修改舞台预览。应用只进入场景草稿；保存后再预览。Ctrl+S 同样只应用到草稿。</p>
++        </div>
++        <DialogContent className={styles.content}>
++          {session.nodes.map(node => {
++            const Editor = editorByCommand.get(node.sentence.command);
++            if (!node.editable) return <div key={node.nodeId} className={styles.readOnly}>
++              <span>{rowTitle(node)}</span><small>{rowSummary(node)}</small>
++            </div>;
++            return <details key={node.nodeId} className={styles.card} open={node.role === 'dialogue'}>
++              <summary>
++                <span className={styles.rowTitle}>{rowTitle(node)}</span>
++                <span className={styles.summary}>{rowSummary(node)}</span>
++                <span className={styles.line}>第 {node.startLine + 1} 行{errors[node.nodeId] ? ' · 输入待修正' : node.raw !== node.originalRaw ? ' · 已修改' : ''}</span>
++              </summary>
++              <div className={styles.controls}>
++                {(node.command === 'changeBg' || node.command === 'changeFigure') && <p className={styles.hint}>此处编辑素材与原有参数。动画及更多选项请应用或取消后在原语句中设置。</p>}
++                {Editor && <Editor sentence={node.sentence} index={node.startLine} targetPath={targetPath}
++                  disableEffectEditor onSubmit={replacement => updateNode(node.nodeId, replacement)} />}
++                {errors[node.nodeId] && <p role="alert" className={styles.error}>{errors[node.nodeId]}</p>}
++              </div>
++            </details>;
++          })}
++        </DialogContent>
++        {message && <p role="alert" className={styles.error}>{message}</p>}
++        <DialogActions className={styles.actions}>
++          <span className={styles.pending}>{session.changed ? '面板修改尚未应用' : '尚未修改场景'}</span>
++          <Button onClick={cancel}>取消</Button>
++          <Button appearance="primary" onClick={apply}>应用到草稿</Button>
++        </DialogActions>
++      </DialogBody>
++    </DialogSurface>
++  </Dialog>;
++}
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss b/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss
+new file mode 100644
+index 0000000000000000000000000000000000000000..8be94e4f6243a46cbf48dc40e4f113455e9f8f99
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss
+@@ -0,0 +1,41 @@
++.surface.surface {
++  width: min(940px, calc(100vw - 32px));
++  max-width: 940px;
++  max-height: calc(100dvh - 32px);
++  padding: 24px;
++  overflow: hidden;
++}
++
++.body.body {
++  display: flex;
++  flex-direction: column;
++  min-height: 0;
++  max-height: calc(100dvh - 82px);
++  gap: 12px;
++}
++
++.body.body > :not(.content) { flex-shrink: 0; min-width: 0; }
++.heading { min-width: 0; }
++.dialogue { font-weight: 600; margin: 0 0 8px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
++.explanation, .hint { margin: 4px 0; font-size: 12px; color: var(--text-sub); line-height: 1.6; }
++.content.content { flex: 1 1 auto; overflow-y: auto; min-height: 0; margin: 0; padding: 2px 6px 2px 2px; }
++.card { border: var(--border-md); border-radius: var(--radius-md); margin-bottom: 10px; overflow: hidden; }
++.card summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px; cursor: pointer; background: var(--bg-card); }
++.card summary::before { content: '›'; font-size: 18px; width: 10px; }
++.card[open] summary::before { transform: rotate(90deg); }
++.card summary:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
++.rowTitle { font-weight: 600; color: var(--primary); min-width: 104px; }
++.summary { flex: 1; min-width: 120px; overflow-wrap: anywhere; font-size: 12px; }
++.line { color: var(--text-sub); font-size: 11px; }
++.controls { padding: 10px; }
++.readOnly { display: flex; gap: 12px; margin: 8px 12px; color: var(--text-sub); font-size: 12px; }
++.readOnly small { overflow-wrap: anywhere; white-space: pre-wrap; flex: 1; }
++.error { margin: 6px 0; color: #b1372e; background: #fff1ee; padding: 8px 10px; border-radius: 4px; font-size: 12px; line-height: 1.5; }
++.actions.actions { display: flex; flex-direction: row; justify-content: flex-end; align-items: center; align-self: stretch; flex-wrap: wrap; gap: 8px; }
++.pending { margin-right: auto; color: var(--text-sub); font-size: 12px; }
++
++@media (max-width: 600px) {
++  .surface.surface { padding: 14px; }
++  .body.body { max-height: calc(100dvh - 62px); }
++  .line { width: 100%; padding-left: 18px; }
++}
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts b/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..d29a76763cf2201a9790ad14d2217ecf59ebcf80
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
+@@ -0,0 +1,166 @@
++import type { ISentence } from 'webgal-parser/src/interface/sceneInterface';
++import { analyzeScene, assignMissingNodeIds, inspectSceneIdentity, type SceneBlock } from './sceneContract';
++import { editGraphicalStatement, freshNodeId, nativeRanges } from './graphicalSourceEdits';
++import { applySourceChanges } from '../../../../../terre2/src/Modules/scene-identity/scene-identity';
++
++export interface DirectorSessionNode {
++  /** Existing source identity, or an identity reserved only inside this session. */
++  readonly nodeId: string;
++  readonly startLine: number;
++  readonly command: string;
++  readonly sentence: ISentence;
++  readonly raw: string;
++  readonly originalRaw: string;
++  readonly originallyRegistered: boolean;
++  readonly registered: boolean;
++  readonly editable: boolean;
++  readonly role: 'dialogue' | 'stage' | 'wait' | 'comment';
++}
++
++export interface DirectorSession {
++  readonly expectedSource: string;
++  readonly historyVersion: number;
++  /** Local draft only. Opening and cancelling never touch the shared document. */
++  readonly source: string;
++  readonly selectedNodeId: string;
++  readonly nodes: readonly DirectorSessionNode[];
++  readonly changed: boolean;
++}
++
++const stageCommands = new Set(['changeBg', 'changeFigure', 'changeFigureDiff', 'bgm', 'playEffect']);
++const dialogueBoundaries = new Set(['when', 'next', 'continue', 'concat', 'notend']);
++const hasArgument = (sentence: ISentence, keys: ReadonlySet<string>) => sentence.args.some(arg => keys.has(arg.key));
++const conditional = new Set(['when']);
++
++function isSimpleDialogue(block: SceneBlock, sentence: ISentence) {
++  return block.kind === 'dialogue' && block.graphicalEditable && block.startLine === block.endLine
++    && !hasArgument(sentence, dialogueBoundaries);
++}
++
++function acceptedStage(block: SceneBlock, sentence: ISentence) {
++  return block.kind === 'command' && block.graphicalEditable && block.startLine === block.endLine
++    && !hasArgument(sentence, conditional) && (stageCommands.has(block.command ?? '') || block.command === 'wait');
++}
++
++function checkedAnalysis(source: string) {
++  const analysis = analyzeScene(source);
++  if (!analysis.valid) throw new Error('请先修复脚本或节点身份错误，再打开导演面板。原草稿已保留。');
++  return analysis;
++}
++
++/**
++ * Collect only the immediately preceding linear native commands. This is a
++ * source group, not an inferred stage snapshot or a cross-branch reconstruction.
++ * Comments stay as independent read-only rows; unknown syntax is a boundary.
++ */
++export function createDirectorSession(source: string, startLine: number, historyVersion: number): DirectorSession {
++  if (!Number.isInteger(startLine) || startLine < 0 || !Number.isInteger(historyVersion) || historyVersion < 0) {
++    throw new Error('导演面板的位置已失效，请重新选择对白。');
++  }
++  const analysis = checkedAnalysis(source);
++  const ranges = nativeRanges(source);
++  const index = analysis.blocks.findIndex(block => block.startLine === startLine + 1);
++  const selected = analysis.blocks[index];
++  const selectedSentence = ranges.find(sentence => sentence.startLine === startLine && !sentence.isLineBreakHolder);
++  if (!selected || !selectedSentence || !isSimpleDialogue(selected, selectedSentence)) {
++    throw new Error('导演面板仅支持单行普通对白；条件、连续对白、多行及高级源码请使用原有编辑方式。');
++  }
++  let first = index;
++  for (let candidate = index - 1; candidate >= 0; candidate--) {
++    const block = analysis.blocks[candidate];
++    const sentence = ranges.find(item => item.startLine === block.startLine - 1 && !item.isLineBreakHolder);
++    if (block.kind !== 'comment' && block.kind !== 'blank' && (!sentence || !acceptedStage(block, sentence))) break;
++    first = candidate;
++  }
++  const identity = inspectSceneIdentity(source, ranges);
++  const occupied = new Set(identity.nodes.flatMap(node => node.nodeId ? [node.nodeId] : []));
++  const reserveId = () => {
++    const id = freshNodeId();
++    if (occupied.has(id)) throw new Error('无法创建唯一的会话身份，请重新打开导演面板。');
++    occupied.add(id);
++    return id;
++  };
++  const nodes = analysis.blocks.slice(first, index + 1).map((block): DirectorSessionNode => {
++    const sentence = ranges.find(item => item.startLine === block.startLine - 1 && !item.isLineBreakHolder);
++    if (!sentence) throw new Error('无法定位原生语句，请重新打开导演面板。');
++    const node = identity.nodes.find(item => item.startLine === sentence.startLine);
++    const role = block === selected ? 'dialogue' : block.kind === 'comment' || block.kind === 'blank'
++      ? 'comment' : block.command === 'wait' ? 'wait' : 'stage';
++    // A reserved ID is not written until this particular node actually changes.
++    return {
++      nodeId: node?.nodeId ?? reserveId(), startLine: sentence.startLine,
++      command: block.command ?? sentence.commandRaw, sentence, raw: block.raw, originalRaw: block.raw,
++      originallyRegistered: !!node?.nodeId, registered: !!node?.nodeId,
++      editable: role === 'dialogue' || role === 'stage', role,
++    };
++  });
++  return { expectedSource: source, historyVersion, source, selectedNodeId: nodes[nodes.length - 1].nodeId, nodes, changed: false };
++}
++
++function refreshNodes(session: DirectorSession, source: string): DirectorSession {
++  const analysis = checkedAnalysis(source);
++  const ranges = nativeRanges(source);
++  const identity = inspectSceneIdentity(source, ranges);
++  const nodes = session.nodes.map((node): DirectorSessionNode => {
++    const identified = identity.nodes.find(item => item.nodeId === node.nodeId);
++    // Unregistered rows cannot move: this API never inserts, deletes or folds.
++    if (!identified && node.originallyRegistered) throw new Error('节点身份已改变，导演草稿未应用。');
++    const line = identified?.startLine ?? node.startLine;
++    const block = analysis.blocks.find(item => item.startLine === line + 1);
++    const sentence = ranges.find(item => item.startLine === line && !item.isLineBreakHolder);
++    if (!block || !sentence || line !== node.startLine) throw new Error('语句范围已改变，导演草稿未应用。');
++    if (node.role === 'dialogue' && !isSimpleDialogue(block, sentence)) {
++      throw new Error('本面板不支持把对白改为条件或连续对白，请取消后使用原有编辑方式。');
++    }
++    if (node.role === 'stage' && !acceptedStage(block, sentence)) {
++      throw new Error('该修改超出本面板支持的单行演出参数，导演草稿未应用。');
++    }
++    return { ...node, sentence, raw: block.raw, registered: !!identified };
++  });
++  return { ...session, source, nodes, changed: source !== session.expectedSource };
++}
++
++/** Immutable local edit, using the existing native serializer/token projection. */
++export function editDirectorSession(session: DirectorSession, nodeId: string, replacement: string): DirectorSession {
++  const selected = session.nodes.find(node => node.nodeId === nodeId);
++  if (!selected?.editable) throw new Error('该行仅供参考，不能在导演面板修改。');
++  let source = session.source;
++  let ranges = nativeRanges(source);
++  let identity = inspectSceneIdentity(source, ranges);
++  let target = identity.nodes.find(node => node.nodeId === nodeId);
++  if (!target) {
++    if (selected.registered) throw new Error('节点身份已改变，导演草稿未应用。');
++    const unregistered = identity.nodes.find(node => node.startLine === selected.startLine);
++    if (!unregistered || unregistered.nodeId || source.slice(unregistered.start, unregistered.end) !== selected.raw) {
++      throw new Error('语句已经改变，请重新打开导演面板。');
++    }
++    source = assignMissingNodeIds(source, ranges, () => nodeId, { eligibleStartLines: [selected.startLine] }).source;
++    ranges = nativeRanges(source);
++    identity = inspectSceneIdentity(source, ranges);
++    target = identity.nodes.find(node => node.nodeId === nodeId);
++  }
++  if (!target) throw new Error('无法定位节点身份，导演草稿未应用。');
++  const edited = editGraphicalStatement(source, target.startLine, replacement);
++  // A serializer spelling-only change must not silently register an identity.
++  if (edited === source) return session;
++  source = edited;
++  if (!selected.originallyRegistered) {
++    const editedNode = inspectSceneIdentity(source, nativeRanges(source)).nodes.find(node => node.nodeId === nodeId);
++    const suffix = `; @makenovel-node ${nodeId}`;
++    if (editedNode && source.slice(editedNode.start, editedNode.end) === selected.originalRaw + suffix) {
++      source = applySourceChanges(source, [{
++        start: editedNode.end - suffix.length, end: editedNode.end, before: suffix, after: '',
++      }]).source;
++    }
++  }
++  return refreshNodes(session, source);
++}
++
++/** Caller commits the returned text with exactly one shared document.edit(). */
++export function commitDirectorSession(currentSource: string, currentHistoryVersion: number, session: DirectorSession): string {
++  if (currentSource !== session.expectedSource || currentHistoryVersion !== session.historyVersion) {
++    throw new Error('主文档已改变，导演草稿未应用。请保留需要的内容，关闭面板后重新打开。');
++  }
++  if (!session.changed) return currentSource;
++  return refreshNodes(session, session.source).source;
++}
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts b/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts
+index 62cde5171d413791cd9f97555f65a95eb097029c..5af9113b383816f12caa443f52d470046f8b4df6 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts
++++ b/packages/origine2/src/pages/editor/SceneDocument/sceneDocument.ts
+@@ -14,6 +14,8 @@ export type DocumentStatus = 'loading' | 'saved' | 'dirty' | 'saving' | 'conflic
+ export interface DocumentEditOptions {
+   /** Consecutive source typing may share a group. Omit for one complete operation. */
+   historyGroup?: string;
++  /** A batch edited outside the current form invalidates its buffered projection. */
++  resyncControls?: boolean;
+ }
+ export interface DocumentHistoryOptions {
+   maxSteps?: number;
+@@ -125,7 +127,7 @@ export class SceneDocument {
+     if (!this.state.revision) return;
+     if (text === this.state.text) { if (!options.historyGroup) this.breakHistoryGroup(); return; }
+     this.recordEdit(this.state.text, text, options);
+-    this.changeText(text);
++    this.changeText(text, !!options.resyncControls);
+   }
+   undo = (): boolean => {
+     this.breakHistoryGroup();
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts b/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts
+index 25172d8e81a8492af27dcdc7bbc4d4b1a99a7237..679bca10a120ac3b4788efc77ae04181ce31c7c4 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts
++++ b/packages/origine2/src/pages/editor/SceneDocument/sceneDocumentRegistry.ts
+@@ -13,6 +13,15 @@ function browserStorage(name: 'localStorage' | 'sessionStorage'): KeyValueStorag
+ }
+ 
+ const documents = new Map<string, SceneDocument>();
++const previewHolds = new Map<symbol, { path: string; gameName: string }>();
++
++/** Each modal owns exactly one hold; stale cleanup cannot release a newer owner. */
++export function holdScenePreview(path: string): () => void {
++  const { gameName } = parseScenePath(path);
++  const owner = Symbol(path);
++  previewHolds.set(owner, { path, gameName });
++  return () => { previewHolds.delete(owner); };
++}
+ const vaults = new WeakMap<SceneDocument, DraftVault>();
+ export function getDocument(path: string) {
+   const existing = documents.get(path);
+@@ -51,8 +60,13 @@ export function listRecoveryDrafts(document: SceneDocument) { return vaults.get(
+ 
+ // One listener for the application; drafts remain separate across files and projects.
+ window.addEventListener('beforeunload', event => {
+-  if ([...documents.values()].some(doc => doc.hasUnsavedChanges())) { event.preventDefault(); event.returnValue = ''; }
++  if (previewHolds.size || [...documents.values()].some(doc => doc.hasUnsavedChanges())) { event.preventDefault(); event.returnValue = ''; }
+ });
+ 
+-export function canPreviewDocuments(gameName?: string) { return [...documents.values()].filter(document => !gameName || document.gameName === gameName).every(document => document.canPreview()); }
+-export function pendingScenePaths(gameName?: string) { return [...documents.entries()].filter(([, document]) => (!gameName || document.gameName === gameName) && !document.canPreview()).map(([path]) => path); }
++export function canPreviewDocuments(gameName?: string) { return ![...previewHolds.values()].some(hold => !gameName || hold.gameName === gameName) && [...documents.values()].filter(document => !gameName || document.gameName === gameName).every(document => document.canPreview()); }
++export function pendingScenePaths(gameName?: string) {
++  return [...new Set([
++    ...[...documents.entries()].filter(([, document]) => (!gameName || document.gameName === gameName) && !document.canPreview()).map(([path]) => path),
++    ...[...previewHolds.values()].filter(hold => !gameName || hold.gameName === gameName).map(hold => hold.path),
++  ])];
++}
