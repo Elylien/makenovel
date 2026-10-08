@@ -1,0 +1,570 @@
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
+index 8340ed2a4b41d904dc4a7cef29204acca11d8932..b73ae9962d589e9cd945ecd247b0a8805b6c05ef 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
+@@ -2,9 +2,13 @@ import { useLayoutEffect, useRef, useState } from 'react';
+ import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle } from '@fluentui/react-components';
+ import { sentenceEditorConfig } from '../SentenceEditor';
+ import { getArgByKey } from '../utils/getArgByKey';
+-import { editDirectorSession, commitDirectorSession, type DirectorSession, type DirectorSessionNode } from '../../SceneDocument/directorSession';
++import { addDirectorSessionNode, removeDirectorSessionNode, editDirectorSession, commitDirectorSession, type DirectorSession, type DirectorSessionNode, type DirectorSourceFact } from '../../SceneDocument/directorSession';
+ import type { SceneDocument } from '../../SceneDocument/sceneDocument';
+ import { holdScenePreview } from '../../SceneDocument/sceneDocumentRegistry';
++import ChooseFile from '../../ChooseFile/ChooseFile';
++import { extNameMap, stageImageExtensions } from '../../ChooseFile/chooseFileConfig';
++import { combineSubmitString } from '@/utils/combineSubmitString';
++import { isLineBreakPlaceholder, sceneTextPreProcess } from 'webgal-parser';
+ import styles from './directorPanel.module.scss';
+ 
+ interface DirectorPanelProps {
+@@ -15,6 +19,22 @@ interface DirectorPanelProps {
+ }
+ 
+ const editorByCommand = new Map(sentenceEditorConfig.map(config => [config.type, config.component]));
++const additions = [
++  { command: 'changeBg', title: '背景', basePath: 'background', extensions: stageImageExtensions, next: true },
++  { command: 'changeFigure', title: '立绘', basePath: 'figure', extensions: stageImageExtensions, next: true },
++  { command: 'bgm', title: '背景音乐', basePath: 'bgm', extensions: extNameMap.get('audio'), next: false },
++  { command: 'playEffect', title: '效果音', basePath: 'vocal', extensions: extNameMap.get('audio'), next: false },
++] as const;
++type Addition = typeof additions[number];
++interface PendingAddition { token: symbol; definition: Addition; error?: string }
++const invalidAssetControl = /[\u0000-\u001f\u007f\uFEFF]/;
++
++function singleNativeProposal(statement: string) {
++  if (/[\u0000-\u0009\u000b-\u001f\u007f\uFEFF]/.test(statement)) throw new Error('素材或参数含有不支持的控制字符，请重新选择或输入。');
++  const [head, ...continuations] = sceneTextPreProcess(statement).split('\n');
++  if (!head || continuations.some(line => !isLineBreakPlaceholder(line))) throw new Error('新增设置只支持一条完整命令，请修正后重试。');
++  return head;
++}
+ 
+ function rowTitle(node: DirectorSessionNode) {
+   const sentence = node.sentence;
+@@ -38,7 +58,32 @@ function rowSummary(node: DirectorSessionNode) {
+   }
+   if (node.role === 'wait') return `${node.sentence.content} 毫秒 · 保留原等待顺序`;
+   if (node.role === 'comment') return node.raw.trim() || '空行';
+-  return node.sentence.content === 'none' ? '关闭 / 清除' : node.sentence.content;
++  return node.sentence.content === 'none' || !node.sentence.content ? '关闭 / 清除' : node.sentence.content;
++}
++
++function sourceSummary(fact: DirectorSourceFact) {
++  switch (fact.status) {
++  case 'source': return fact.content;
++  case 'none': return '脚本明确关闭 / 清除';
++  case 'not-seen': return '本场景尚无记录，初始状态未确认';
++  case 'unknown': return fact.startLine !== undefined ? `${fact.content || '未指定素材'}（来源可见，结果未推断）` : '前文存在边界，无法确认';
++  }
++}
++
++function sourceTarget(target: string) {
++  if (target.startsWith('position:')) return ({ left: '左侧', center: '中间', right: '右侧' } as Record<string, string>)[target.slice(9)] ?? '其他位置';
++  if (target.startsWith('id:')) return `ID ${target.slice(3)}`;
++  if (target === 'effect:default') return '未指定 ID';
++  if (target.startsWith('effect:')) return `ID ${target.slice(7)}`;
++  return target;
++}
++
++function SourceRow({ title, fact }: { title: string; fact: DirectorSourceFact }) {
++  return <div className={styles.sourceRow} data-director-source-status={fact.status}>
++    <span className={styles.sourceTitle}>{title}</span>
++    <span className={styles.sourceValue}>{sourceSummary(fact)}</span>
++    {fact.startLine !== undefined && <small>第 {fact.startLine + 1} 行 · {fact.scope === 'local' ? '本句前设置' : '较早前文'}</small>}
++  </div>;
+ }
+ 
+ /** A local transaction. No child callback writes or previews the shared scene. */
+@@ -51,6 +96,21 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose }:
+   const composing = useRef(false);
+   const closed = useRef(false);
+   const releasePreview = useRef<() => void>(() => {});
++  const [pendingAddition, setPendingAddition] = useState<PendingAddition | null>(null);
++  const pendingAdditionRef = useRef(pendingAddition);
++  const [lastAddedNodeId, setLastAddedNodeId] = useState<string | null>(null);
++  const addedRow = useRef<HTMLDetailsElement | null>(null);
++  const [controlEpochs, setControlEpochs] = useState<Record<string, number>>({});
++  const controlEpochsRef = useRef(controlEpochs);
++
++  const setLocalSession = (next: DirectorSession) => {
++    sessionRef.current = next;
++    setSession(next);
++  };
++  const setPending = (next: PendingAddition | null) => {
++    pendingAdditionRef.current = next;
++    setPendingAddition(next);
++  };
+ 
+   useLayoutEffect(() => {
+     closed.current = false;
+@@ -58,22 +118,79 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose }:
+     releasePreview.current = release;
+     return () => { closed.current = true; release(); };
+   }, [targetPath]);
++  useLayoutEffect(() => { addedRow.current?.scrollIntoView({ block: 'nearest' }); }, [lastAddedNodeId]);
+ 
+   const updateNode = (nodeId: string, replacement: string) => {
+-    if (closed.current) return;
++    // A removed new row may still emit blur/cleanup work. Its identity must not
++    // migrate to the line which moved into that position, or leave a ghost error.
++    const node = sessionRef.current.nodes.find(item => item.nodeId === nodeId);
++    if (closed.current || !node) return false;
+     try {
+-      const next = editDirectorSession(sessionRef.current, nodeId, replacement);
+-      sessionRef.current = next;
+-      setSession(next);
++      const next = editDirectorSession(sessionRef.current, nodeId, node.origin === 'inserted' ? singleNativeProposal(replacement) : replacement);
++      setLocalSession(next);
+       const nextErrors = { ...errorsRef.current };
+       delete nextErrors[nodeId];
+       errorsRef.current = nextErrors;
+       setErrors(nextErrors);
+       setMessage('');
++      return true;
+     } catch (error) {
+       const nextErrors = { ...errorsRef.current, [nodeId]: error instanceof Error ? error.message : '这项修改无法安全应用，请修正或取消。' };
+       errorsRef.current = nextErrors;
+       setErrors(nextErrors);
++      return false;
++    }
++  };
++
++  const beginAddition = (definition: Addition) => {
++    if (closed.current || pendingAdditionRef.current) return;
++    if (composing.current) { setMessage('请先完成中文候选输入，再新增设置。'); return; }
++    setPending({ token: Symbol('director-addition'), definition });
++    setMessage('');
++  };
++  const chooseAddition = (token: symbol, fileName: string | undefined) => {
++    const pending = pendingAdditionRef.current;
++    if (closed.current || !pending || pending.token !== token || !fileName) return;
++    const { definition } = pending;
++    try {
++      if (invalidAssetControl.test(fileName)) throw new Error('素材路径含有不支持的控制字符，请重新选择。');
++      const statement = combineSubmitString(definition.command, fileName, [], definition.next ? [{ key: 'next', value: true }] : [], '');
++      const previous = sessionRef.current;
++      const next = addDirectorSessionNode(previous, singleNativeProposal(statement));
++      setLocalSession(next);
++      setLastAddedNodeId(next.nodes.find(node => !previous.nodes.some(existing => existing.nodeId === node.nodeId))?.nodeId ?? null);
++      setPending(null);
++      setMessage('');
++    } catch (error) {
++      setPending({ ...pending, error: error instanceof Error ? error.message : '无法添加该素材，请重新选择。' });
++    }
++  };
++  const chooseReplacement = (nodeId: string, expectedEpoch: number, fileName: string | undefined) => {
++    if (closed.current || !fileName || (controlEpochsRef.current[nodeId] ?? 0) !== expectedEpoch) return;
++    if (invalidAssetControl.test(fileName)) { setMessage('素材路径含有不支持的控制字符，请重新选择。'); return; }
++    const node = sessionRef.current.nodes.find(item => item.nodeId === nodeId && item.origin === 'inserted');
++    if (!node) return;
++    const statement = combineSubmitString(node.command, fileName, node.sentence.args, [], node.sentence.inlineComment ?? '');
++    if (updateNode(nodeId, statement)) {
++      // Native form values are initialized on mount. A separate recovery picker
++      // must refresh that one form, and retire callbacks from its prior buffer.
++      const next = { ...controlEpochsRef.current, [nodeId]: (controlEpochsRef.current[nodeId] ?? 0) + 1 };
++      controlEpochsRef.current = next;
++      setControlEpochs(next);
++    }
++  };
++  const removeAddition = (nodeId: string) => {
++    if (closed.current) return;
++    if (composing.current) { setMessage('请先完成中文候选输入，再撤掉新增设置。'); return; }
++    try {
++      setLocalSession(removeDirectorSessionNode(sessionRef.current, nodeId));
++      const nextErrors = { ...errorsRef.current };
++      delete nextErrors[nodeId];
++      errorsRef.current = nextErrors;
++      setErrors(nextErrors);
++      setMessage('');
++    } catch (error) {
++      setMessage(error instanceof Error ? error.message : '无法撤掉该设置，面板内容已保留。');
+     }
+   };
+ 
+@@ -101,6 +218,10 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose }:
+         setMessage('请先完成中文候选输入，再应用到草稿。');
+         return;
+       }
++      if (pendingAdditionRef.current) {
++        setMessage('新增设置尚未选择素材。请选择素材，或撤掉这项新增设置。');
++        return;
++      }
+       if (Object.keys(errorsRef.current).length) {
+         setMessage('仍有无法应用的输入。请修正下方提示，或取消本次修改。');
+         return;
+@@ -147,35 +268,87 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose }:
+         <DialogTitle>舞台与声音</DialogTitle>
+         <div className={styles.heading}>
+           <p className={styles.dialogue} title={selected.sentence.content}>{selected.sentence.content || '（空白对白）'}</p>
+-          <p className={styles.explanation}>编辑本句前相邻的 {editableCount} 项设置与本句语音；不推算更早对白或分支的继承状态。顺序与等待保持原样。</p>
++          <p className={styles.explanation}>集中编辑本句前的 {editableCount} 项设置与本句语音；新增设置按添加顺序放在本句之前，原有顺序与等待保持原样。</p>
+           <p className={styles.hint}>面板打开期间不能执行到此句或修改舞台预览。应用只进入场景草稿；保存后再预览。Ctrl+S 同样只应用到草稿。</p>
+         </div>
+         <DialogContent className={styles.content}>
++          <details className={styles.sources}>
++            <summary>本场景前文来源 <span>只读参考</span></summary>
++            <div className={styles.sourceContent}>
++              <p className={styles.hint}>列出本句之前最近可确认的脚本设置，随面板草稿更新；不代表素材已经上屏或音效仍在播放。</p>
++              <SourceRow title="背景" fact={session.inheritance.background} />
++              <SourceRow title="背景音乐" fact={session.inheritance.bgm} />
++              {session.inheritance.figures.map(fact => <SourceRow key={fact.target} title={`立绘 · ${sourceTarget(fact.target)}`} fact={fact} />)}
++              {session.inheritance.effects.map(fact => <SourceRow key={fact.target} title={`最近效果音 · ${sourceTarget(fact.target)}`} fact={fact} />)}
++              {session.inheritance.boundary && <p className={styles.sourceBoundary}>
++                来源检查止于第 {session.inheritance.boundary.startLine + 1} 行：{session.inheritance.boundary.reason} 边界之前的内容保持未知。
++              </p>}
++            </div>
++          </details>
++          <section className={styles.additions} aria-label="新增舞台与声音设置">
++            <div className={styles.additionHeading}>
++              <span className={styles.rowTitle}>在本句前新增</span>
++              <span className={styles.hint}>静态图片与音频；可撤掉本次新增项</span>
++            </div>
++            <div className={styles.additionActions}>
++              {additions.map(definition => <Button key={definition.command} disabled={!!pendingAddition}
++                onClick={() => beginAddition(definition)}>{`新增${definition.title}`}</Button>)}
++            </div>
++            {pendingAddition && <div className={styles.pendingAddition} data-director-pending-addition="true">
++              <strong>待添加 · {pendingAddition.definition.title}</strong>
++              <span className={styles.hint}>选择素材后可继续设置参数；未选素材的项目不能应用。</span>
++              <div className={styles.additionActions}>
++                <ChooseFile title={`选择${pendingAddition.definition.title}`} basePath={[pendingAddition.definition.basePath]}
++                  selectedFilePath="" extNames={pendingAddition.definition.extensions}
++                  onChange={file => chooseAddition(pendingAddition.token, file?.name)} />
++                <Button onClick={() => {
++                  if (closed.current || pendingAdditionRef.current?.token !== pendingAddition.token) return;
++                  setPending(null);
++                  setMessage('');
++                }}>撤掉待添加</Button>
++              </div>
++              {pendingAddition.error && <p role="alert" className={styles.error}>{pendingAddition.error}</p>}
++            </div>}
++          </section>
+           {session.nodes.map(node => {
+             const Editor = editorByCommand.get(node.sentence.command);
++            const controlEpoch = controlEpochs[node.nodeId] ?? 0;
++            const addition = node.origin === 'inserted' ? additions.find(item => item.command === node.command) : undefined;
+             if (!node.editable) return <div key={node.nodeId} className={styles.readOnly}>
+               <span>{rowTitle(node)}</span><small>{rowSummary(node)}</small>
+             </div>;
+-            return <details key={node.nodeId} className={styles.card} open={node.role === 'dialogue'}>
++            return <details key={node.nodeId} ref={node.nodeId === lastAddedNodeId ? addedRow : undefined}
++              className={styles.card} open={node.role === 'dialogue' || node.origin === 'inserted'}>
+               <summary>
+                 <span className={styles.rowTitle}>{rowTitle(node)}</span>
+                 <span className={styles.summary}>{rowSummary(node)}</span>
+-                <span className={styles.line}>第 {node.startLine + 1} 行{errors[node.nodeId] ? ' · 输入待修正' : node.raw !== node.originalRaw ? ' · 已修改' : ''}</span>
++                <span className={styles.line}>{node.origin === 'inserted' ? '本次新增' : `第 ${node.startLine + 1} 行`}{errors[node.nodeId] ? ' · 输入待修正' : node.origin !== 'inserted' && node.raw !== node.originalRaw ? ' · 已修改' : ''}</span>
+               </summary>
+               <div className={styles.controls}>
+                 {(node.command === 'changeBg' || node.command === 'changeFigure') && <p className={styles.hint}>此处编辑素材与原有参数。动画及更多选项请应用或取消后在原语句中设置。</p>}
+-                {Editor && <Editor sentence={node.sentence} index={node.startLine} targetPath={targetPath}
+-                  disableEffectEditor onSubmit={replacement => updateNode(node.nodeId, replacement)} />}
++                {addition && (!node.sentence.content || node.sentence.content === 'none' || errors[node.nodeId]) && <div className={styles.recoveryPicker}>
++                  <span className={styles.hint}>重新选择素材以显示或播放；其余参数会保留。</span>
++                  <ChooseFile title={`重新选择${addition.title}`} basePath={[addition.basePath]}
++                    selectedFilePath="" extNames={addition.extensions} onChange={file => chooseReplacement(node.nodeId, controlEpoch, file?.name)} />
++                </div>}
++                {Editor && <Editor key={`${node.nodeId}:${controlEpoch}`} sentence={node.sentence} index={node.startLine} targetPath={targetPath}
++                  disableEffectEditor onSubmit={replacement => {
++                    if ((controlEpochsRef.current[node.nodeId] ?? 0) !== controlEpoch) return;
++                    updateNode(node.nodeId, replacement);
++                  }} />}
+                 {errors[node.nodeId] && <p role="alert" className={styles.error}>{errors[node.nodeId]}</p>}
++                {node.origin === 'inserted' && <div className={styles.removeAddition}>
++                  <Button aria-label={`撤掉新增${rowTitle(node)}`} onClick={() => removeAddition(node.nodeId)}>撤掉本次新增</Button>
++                </div>}
+               </div>
+             </details>;
+           })}
+         </DialogContent>
+         {message && <p role="alert" className={styles.error}>{message}</p>}
+         <DialogActions className={styles.actions}>
+-          <span className={styles.pending}>{session.changed ? '面板修改尚未应用' : '尚未修改场景'}</span>
++          <span className={styles.pending}>{pendingAddition ? '新增设置待选素材' : session.changed ? '面板修改尚未应用' : '尚未修改场景'}</span>
+           <Button onClick={cancel}>取消</Button>
+-          <Button appearance="primary" onClick={apply}>应用到草稿</Button>
++          <Button appearance="primary" disabled={!!pendingAddition} onClick={apply}>应用到草稿</Button>
+         </DialogActions>
+       </DialogBody>
+     </DialogSurface>
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss b/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss
+index 8be94e4f6243a46cbf48dc40e4f113455e9f8f99..7b4222ab0fec6623c92176039f20d1a7864bf2a0 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss
+@@ -19,6 +19,22 @@
+ .dialogue { font-weight: 600; margin: 0 0 8px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+ .explanation, .hint { margin: 4px 0; font-size: 12px; color: var(--text-sub); line-height: 1.6; }
+ .content.content { flex: 1 1 auto; overflow-y: auto; min-height: 0; margin: 0; padding: 2px 6px 2px 2px; }
++.sources { border: var(--border-md); border-radius: var(--radius-md); margin-bottom: 12px; }
++.sources > summary { cursor: pointer; padding: 10px 12px; font-size: 12px; font-weight: 600; }
++.sources > summary span { color: var(--text-sub); font-weight: 400; margin-left: 8px; }
++.sources > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
++.sourceContent { padding: 0 12px 10px; }
++.sourceRow { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 7px 0; border-bottom: var(--border-md); font-size: 12px; }
++.sourceTitle { min-width: 108px; font-weight: 600; }
++.sourceValue { flex: 1; min-width: 140px; overflow-wrap: anywhere; }
++.sourceRow small { color: var(--text-sub); }
++.sourceBoundary { color: var(--text-sub); font-size: 12px; line-height: 1.6; margin: 8px 0 0; }
++.additions { border: var(--border-md); border-radius: var(--radius-md); padding: 12px; margin-bottom: 14px; }
++.additionHeading, .additionActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
++.additionHeading { margin-bottom: 8px; }
++.pendingAddition { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: var(--border-md); }
++.removeAddition { display: flex; justify-content: flex-end; margin-top: 10px; padding-top: 10px; border-top: var(--border-md); }
++.recoveryPicker { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; margin-bottom: 8px; border: var(--border-md); border-radius: var(--radius-md); }
+ .card { border: var(--border-md); border-radius: var(--radius-md); margin-bottom: 10px; overflow: hidden; }
+ .card summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px; cursor: pointer; background: var(--bg-card); }
+ .card summary::before { content: '›'; font-size: 18px; width: 10px; }
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts b/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
+index d29a76763cf2201a9790ad14d2217ecf59ebcf80..8fc88376fd7fcc3d7b718175e5f16de0be81a15a 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
++++ b/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
+@@ -1,9 +1,10 @@
+ import type { ISentence } from 'webgal-parser/src/interface/sceneInterface';
+-import { analyzeScene, assignMissingNodeIds, inspectSceneIdentity, type SceneBlock } from './sceneContract';
++import { analyzeScene, assignMissingNodeIds, inspectSceneIdentity, insertSceneStatement, deleteNode, type SceneBlock } from './sceneContract';
+ import { editGraphicalStatement, freshNodeId, nativeRanges } from './graphicalSourceEdits';
+ import { applySourceChanges } from '../../../../../terre2/src/Modules/scene-identity/scene-identity';
+ 
+ export interface DirectorSessionNode {
++  readonly origin: 'existing' | 'inserted';
+   /** Existing source identity, or an identity reserved only inside this session. */
+   readonly nodeId: string;
+   readonly startLine: number;
+@@ -25,12 +26,52 @@ export interface DirectorSession {
+   readonly selectedNodeId: string;
+   readonly nodes: readonly DirectorSessionNode[];
+   readonly changed: boolean;
++  readonly inheritance: DirectorInheritance;
++}
++
++/** A source fact, never a claim that a resource is loaded or still playing. */
++export interface DirectorSourceFact {
++  readonly target: string;
++  readonly status: 'source' | 'none' | 'not-seen' | 'unknown';
++  readonly command?: string;
++  readonly content?: string;
++  readonly startLine?: number;
++  readonly nodeId?: string;
++  readonly scope?: 'earlier' | 'local';
++}
++
++export interface DirectorInheritance {
++  readonly background: DirectorSourceFact;
++  readonly bgm: DirectorSourceFact;
++  readonly figures: readonly DirectorSourceFact[];
++  readonly effects: readonly DirectorSourceFact[];
++  readonly boundary: { readonly startLine: number; readonly command: string; readonly reason: string } | null;
+ }
+ 
+ const stageCommands = new Set(['changeBg', 'changeFigure', 'changeFigureDiff', 'bgm', 'playEffect']);
+ const dialogueBoundaries = new Set(['when', 'next', 'continue', 'concat', 'notend']);
+ const hasArgument = (sentence: ISentence, keys: ReadonlySet<string>) => sentence.args.some(arg => keys.has(arg.key));
+ const conditional = new Set(['when']);
++export const directorInsertCommands = ['changeBg', 'changeFigure', 'bgm', 'playEffect'] as const;
++export type DirectorInsertCommand = typeof directorInsertCommands[number];
++const imageFile = /\.(png|jpg|jpeg|webp|svg)$/i;
++const audioFile = /\.(mp3|ogg|wav|opus)$/i;
++
++function explicitlyNone(block: SceneBlock, sentence: ISentence) {
++  // The native contentParser maps both `none` and an empty token to ''. Only
++  // this literal source spelling distinguishes the author's explicit close.
++  return sentence.content === '' && /^[^:]+:\s*none(?:\s+-|\s*;|\s*$)/.test(block.raw);
++}
++
++function validateInsertedStage(block: SceneBlock, sentence: ISentence) {
++  const command = block.command as DirectorInsertCommand;
++  const fileType = command === 'changeBg' || command === 'changeFigure' ? imageFile : audioFile;
++  if (!directorInsertCommands.includes(command) || !acceptedStage(block, sentence)
++    || [sentence.content, ...sentence.args.map(arg => String(arg.value))].some(value => /[{}\r\n]/.test(value))
++    || (!explicitlyNone(block, sentence) && !fileType.test(sentence.content))) {
++    throw new Error('请为新增命令选择完整的静态图片或音频素材，或明确选择关闭；差分、模型、视频和高级命令请使用原有编辑方式。');
++  }
++}
+ 
+ function isSimpleDialogue(block: SceneBlock, sentence: ISentence) {
+   return block.kind === 'dialogue' && block.graphicalEditable && block.startLine === block.endLine
+@@ -48,6 +89,57 @@ function checkedAnalysis(source: string) {
+   return analysis;
+ }
+ 
++// Match the locked native argument conversions and position precedence. This
++// identifies the subject of a source command; it does not execute that command.
++function figureSourceTarget(sentence: ISentence) {
++  const id = sentence.args.find(arg => arg.key === 'id')?.value;
++  if (id !== undefined && String(id)) return `id:${String(id)}`;
++  const enabled = (key: string) => {
++    const value = sentence.args.find(arg => arg.key === key)?.value;
++    return value === true || (typeof value === 'number' && value !== 0)
++      || (typeof value === 'string' && value.trim().toLowerCase() === 'true');
++  };
++  return `position:${['center', 'left', 'right'].find(enabled) ?? 'center'}`;
++}
++
++function sourceInheritance(source: string, nodes: readonly DirectorSessionNode[], selectedLine: number): DirectorInheritance {
++  const analysis = checkedAnalysis(source);
++  const ranges = nativeRanges(source);
++  const identity = inspectSceneIdentity(source, ranges);
++  const facts = new Map<string, DirectorSourceFact>();
++  let boundary: DirectorInheritance['boundary'] = null;
++  const before = analysis.blocks.filter(block => block.endLine <= selectedLine);
++  for (const block of before.reverse()) {
++    if (block.kind === 'comment' || block.kind === 'blank') continue;
++    const sentence = ranges.find(item => item.startLine === block.startLine - 1 && !item.isLineBreakHolder);
++    const interpolated = sentence && [sentence.content, ...sentence.args.map(arg => String(arg.value))].some(value => /[{}]/.test(value));
++    if (!sentence || interpolated || (!isSimpleDialogue(block, sentence) && !acceptedStage(block, sentence))) {
++      boundary = { startLine: block.startLine - 1, command: block.command ?? sentence?.commandRaw ?? 'unknown', reason: '遇到不能证明线性来源的语句，已停止向前查找。' };
++      break;
++    }
++    if (isSimpleDialogue(block, sentence) || block.command === 'wait') continue;
++    const command = block.command!;
++    const target = command === 'changeBg' ? 'background' : command === 'bgm' ? 'bgm'
++      : command === 'playEffect' ? `effect:${String(sentence.args.find(arg => arg.key === 'id')?.value ?? '') || 'default'}`
++        : figureSourceTarget(sentence);
++    if (facts.has(target)) continue;
++    const local = nodes.find(node => node.startLine === sentence.startLine);
++    facts.set(target, {
++      target, command, content: explicitlyNone(block, sentence) ? 'none' : sentence.content, startLine: sentence.startLine,
++      nodeId: local?.nodeId ?? identity.nodes.find(node => node.startLine === sentence.startLine)?.nodeId,
++      scope: local ? 'local' : 'earlier',
++      // A diff may be ignored for a model target, or fall back to changeFigure.
++      // Keep its source visible while refusing to infer its resulting picture.
++      status: command === 'changeFigureDiff' ? 'unknown' : explicitlyNone(block, sentence) ? 'none' : !sentence.content ? 'unknown' : 'source',
++    });
++  }
++  const unseen = (target: string): DirectorSourceFact => ({ target, status: boundary ? 'unknown' : 'not-seen' });
++  const figures = ['position:left', 'position:center', 'position:right'].map(target => facts.get(target) ?? unseen(target));
++  figures.push(...[...facts.values()].filter(fact => fact.target.startsWith('id:')));
++  const effects = [facts.get('effect:default') ?? unseen('effect:default'), ...[...facts.values()].filter(fact => fact.target.startsWith('effect:') && fact.target !== 'effect:default')];
++  return { background: facts.get('background') ?? unseen('background'), bgm: facts.get('bgm') ?? unseen('bgm'), figures, effects, boundary };
++}
++
+ /**
+  * Collect only the immediately preceding linear native commands. This is a
+  * source group, not an inferred stage snapshot or a cross-branch reconstruction.
+@@ -88,13 +180,15 @@ export function createDirectorSession(source: string, startLine: number, history
+       ? 'comment' : block.command === 'wait' ? 'wait' : 'stage';
+     // A reserved ID is not written until this particular node actually changes.
+     return {
++      origin: 'existing',
+       nodeId: node?.nodeId ?? reserveId(), startLine: sentence.startLine,
+       command: block.command ?? sentence.commandRaw, sentence, raw: block.raw, originalRaw: block.raw,
+       originallyRegistered: !!node?.nodeId, registered: !!node?.nodeId,
+       editable: role === 'dialogue' || role === 'stage', role,
+     };
+   });
+-  return { expectedSource: source, historyVersion, source, selectedNodeId: nodes[nodes.length - 1].nodeId, nodes, changed: false };
++  return { expectedSource: source, historyVersion, source, selectedNodeId: nodes[nodes.length - 1].nodeId, nodes, changed: false,
++    inheritance: sourceInheritance(source, nodes, startLine) };
+ }
+ 
+ function refreshNodes(session: DirectorSession, source: string): DirectorSession {
+@@ -103,8 +197,9 @@ function refreshNodes(session: DirectorSession, source: string): DirectorSession
+   const identity = inspectSceneIdentity(source, ranges);
+   const nodes = session.nodes.map((node): DirectorSessionNode => {
+     const identified = identity.nodes.find(item => item.nodeId === node.nodeId);
+-    // Unregistered rows cannot move: this API never inserts, deletes or folds.
+-    if (!identified && node.originallyRegistered) throw new Error('节点身份已改变，导演草稿未应用。');
++    // Insertion/removal remaps physical lines before reaching this function.
++    // Reserved identities remain local; moving an untouched row never marks it.
++    if (!identified && (node.originallyRegistered || node.origin === 'inserted')) throw new Error('节点身份已改变，导演草稿未应用。');
+     const line = identified?.startLine ?? node.startLine;
+     const block = analysis.blocks.find(item => item.startLine === line + 1);
+     const sentence = ranges.find(item => item.startLine === line && !item.isLineBreakHolder);
+@@ -115,15 +210,24 @@ function refreshNodes(session: DirectorSession, source: string): DirectorSession
+     if (node.role === 'stage' && !acceptedStage(block, sentence)) {
+       throw new Error('该修改超出本面板支持的单行演出参数，导演草稿未应用。');
+     }
++    if (node.origin === 'inserted') validateInsertedStage(block, sentence);
+     return { ...node, sentence, raw: block.raw, registered: !!identified };
+   });
+-  return { ...session, source, nodes, changed: source !== session.expectedSource };
++  return { ...session, source, nodes, changed: source !== session.expectedSource,
++    inheritance: sourceInheritance(source, nodes, nodes.find(node => node.nodeId === session.selectedNodeId)!.startLine) };
+ }
+ 
+ /** Immutable local edit, using the existing native serializer/token projection. */
+ export function editDirectorSession(session: DirectorSession, nodeId: string, replacement: string): DirectorSession {
+   const selected = session.nodes.find(node => node.nodeId === nodeId);
+   if (!selected?.editable) throw new Error('该行仅供参考，不能在导演面板修改。');
++  if (selected.origin === 'inserted') {
++    if (/[\r\n\uFEFF]/.test(replacement)) throw new Error('新增命令必须保持完整的单行语句。');
++    const proposal = checkedAnalysis(replacement);
++    const sentence = nativeRanges(replacement).find(item => !item.isLineBreakHolder);
++    if (proposal.blocks.length !== 1 || !sentence) throw new Error('新增命令必须保持完整的单行语句。');
++    validateInsertedStage(proposal.blocks[0], sentence);
++  }
+   let source = session.source;
+   let ranges = nativeRanges(source);
+   let identity = inspectSceneIdentity(source, ranges);
+@@ -144,7 +248,7 @@ export function editDirectorSession(session: DirectorSession, nodeId: string, re
+   // A serializer spelling-only change must not silently register an identity.
+   if (edited === source) return session;
+   source = edited;
+-  if (!selected.originallyRegistered) {
++  if (!selected.originallyRegistered && selected.origin !== 'inserted') {
+     const editedNode = inspectSceneIdentity(source, nativeRanges(source)).nodes.find(node => node.nodeId === nodeId);
+     const suffix = `; @makenovel-node ${nodeId}`;
+     if (editedNode && source.slice(editedNode.start, editedNode.end) === selected.originalRaw + suffix) {
+@@ -156,6 +260,63 @@ export function editDirectorSession(session: DirectorSession, nodeId: string, re
+   return refreshNodes(session, source);
+ }
+ 
++/** Add one complete native command immediately before this session's dialogue. */
++export function addDirectorSessionNode(session: DirectorSession, statement: string): DirectorSession {
++  if (/[\r\n\uFEFF]/.test(statement)) throw new Error('一次只能新增一条完整的单行命令。');
++  const analysis = checkedAnalysis(statement);
++  const ranges = nativeRanges(statement);
++  const block = analysis.blocks[0];
++  const sentence = ranges.find(item => !item.isLineBreakHolder);
++  if (analysis.blocks.length !== 1 || !block || !sentence || sentence.inlineComment?.trim()
++    || inspectSceneIdentity(statement, ranges).nodes.some(node => node.nodeId)) {
++    throw new Error('新增命令不能携带注释、额外语句或节点身份。');
++  }
++  validateInsertedStage(block, sentence);
++  const selected = session.nodes.find(node => node.nodeId === session.selectedNodeId)!;
++  const occupied = new Set(session.nodes.map(node => node.nodeId));
++  const result = insertSceneStatement(session.source, nativeRanges(session.source), selected.startLine, statement, () => {
++    const id = freshNodeId();
++    if (occupied.has(id)) throw new Error('无法创建唯一的会话身份，请重试。');
++    return id;
++  }, nativeRanges);
++  const change = result.changes[0];
++  const insertionLine = session.source.slice(0, change.start).split('\n').length - 1;
++  const count = change.after.split('\n').length - 1;
++  const identity = inspectSceneIdentity(result.source, nativeRanges(result.source));
++  const added = identity.nodes.find(node => node.nodeId === result.nodeId)!;
++  const beforeRanges = nativeRanges(session.source);
++  const afterRanges = nativeRanges(result.source);
++  const insertedSentence = afterRanges.find(item => item.startLine === added.startLine)!;
++  const others = afterRanges.filter(item => item !== insertedSentence);
++  if (others.length !== beforeRanges.length || insertedSentence.command !== sentence.command
++    || insertedSentence.content !== sentence.content || JSON.stringify(insertedSentence.args) !== JSON.stringify(sentence.args)
++    || beforeRanges.some((before, index) => {
++      const after = others[index];
++      const shift = before.startLine >= insertionLine ? count : 0;
++      return after.startLine !== before.startLine + shift || after.endLine !== before.endLine + shift
++        || JSON.stringify({ ...after, startLine: before.startLine, endLine: before.endLine }) !== JSON.stringify(before);
++    })) throw new Error('新增命令会改变相邻原生语句的含义，导演草稿未应用。');
++  const node: DirectorSessionNode = {
++    origin: 'inserted', nodeId: result.nodeId, startLine: added.startLine, command: block.command!, sentence,
++    raw: '', originalRaw: '', originallyRegistered: false, registered: true, editable: true, role: 'stage',
++  };
++  const nodes = [...session.nodes.map(item => item.startLine >= insertionLine ? { ...item, startLine: item.startLine + count } : item), node]
++    .sort((left, right) => left.startLine - right.startLine);
++  return refreshNodes({ ...session, nodes }, result.source);
++}
++
++/** Removing an original source row is deliberately outside this transaction. */
++export function removeDirectorSessionNode(session: DirectorSession, nodeId: string): DirectorSession {
++  const selected = session.nodes.find(node => node.nodeId === nodeId);
++  if (selected?.origin !== 'inserted') throw new Error('只能撤掉本次面板中新建的命令；原有语句保持原位。');
++  const result = deleteNode(session.source, nativeRanges(session.source), nodeId);
++  const removed = result.changes[0];
++  const count = removed.before.split('\n').length - 1;
++  const nodes = session.nodes.filter(node => node.nodeId !== nodeId).map(node => node.startLine > selected.startLine
++    ? { ...node, startLine: node.startLine - count } : node);
++  return refreshNodes({ ...session, nodes }, result.source);
++}
++
+ /** Caller commits the returned text with exactly one shared document.edit(). */
+ export function commitDirectorSession(currentSource: string, currentHistoryVersion: number, session: DirectorSession): string {
+   if (currentSource !== session.expectedSource || currentHistoryVersion !== session.historyVersion) {

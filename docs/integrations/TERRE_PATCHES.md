@@ -100,3 +100,30 @@ if ($LASTEXITCODE -ne 0) { throw 'Terre independent replay failed' }
 ```
 
 最终独立重放 **18/18** 通过，准确匹配上表 `0004` 摘要和完整树，未沿用旧补丁或前轮树的检查结论。新脚本使用无 hardlinks/alternates 的独立 clone、临时 index 验证正反向和幂等，并核对开发树及真实 index 不变；完整语义见 [补丁回归说明](../../integrations/patch-tests/README.md)。最终 GUI、模板同步和 EXE 结果分别记录，不由补丁应用成功推定。第七轮最终 EXE 在开发服务全程停止时独立通过坏 SVG failed 后两种拒存、原槽保留、快读 BASE、换 day 恢复两种保存，以及正常退出重启后槽 2 恢复 RECOVER 和双角色；未全机断网，详细有限证据见 [第七轮记录](../evidence/2026-10-08-round7.md)。
+
+## 第八轮新增命令与来源补丁
+
+`0.0.8`（2026-10-09）保留 `0001` 至 `0004` 的原始字节，追加 `0005-director-insertion-source-context.patch`。第五份从第七轮完整树导出增量，不重打前四份，也不修改 submodule 的锁定 HEAD。
+
+| 来源 | 第八轮审查值 |
+| --- | --- |
+| 增量导出基树 | `bf2524446919f35385194a1e7b9a3dab3c0aa09a` |
+| `0005` SHA-256 | `ea937296a3d21d9d0d9a1a1c495b06a4276a83c36bfe792963877f7306415d22` |
+| 五份补丁后的完整 tree | `40dc0cb9472a10018d43e16eb462dc2d5e4ba79e` |
+
+审查范围仅为原导演会话、面板及其样式三个文件。局部会话可新增完整单行 `changeBg`、`changeFigure`、`bgm` 和 `playEffect`，复用既有原生插入器放到所选对白及其独立身份标记前。新增命令有新身份，仅本次新行可撤掉；原行不删不重排，未改原行不因位移补登记身份。插入后核对原生语句数量、语义与行位移，提交仍检查完整源文和历史版本，一次应用只产生一步共享文档修改。
+
+新建素材限定静态图片 png/jpg/jpeg/webp/svg、音频 mp3/ogg/wav/opus，或明确关闭 `none`；空素材、占位提示、条件、插值、未知参数及身份/额外语句注入不能作为新增命令进入共享稿。面板选材未完成时保留独立待选卡并阻止应用；撤掉或取消后迟到回调不得写入。原生序列化器的长行折叠经过原生预处理及单命令检查，新增行另有重选素材入口用于从关闭状态恢复，重选后更新该控件实例并拒绝旧缓存回调。
+
+只读来源展示当前场景线性前文的最近命令及位置，区分本句前设置与较早前文、明确 `none`、未见及未知。允许越过简单对白、等待和注释；标签、控制流、动作、条件、未知参数与插值构成边界。差分仅显示命令来源，不推断模型/图片目标上的结果；效果音来源不代表此刻仍在播放。这不是跨分支舞台重建，也不扩展到新增差分、视频、模型、原行删除或完整时间轴。
+
+在构建、导出和源码写入停止后，按五份清单进行独立重放：
+
+```powershell
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL_Terre -ExpectedPatchCount 5 -EvidencePath docs/evidence/local/round8/terre-independent-replay.json
+if ($LASTEXITCODE -ne 0) { throw 'Terre independent replay failed' }
+```
+
+以上 hash/tree 记录导出目标，不等于重放或产品验收结果。第八轮重放、构建、真实 GUI 与 Windows 结果分别以当轮最终证据为准，不能沿用第七轮 `4/4` 和 `18/18` 的结论。
+
+最终本轮五补丁独立重放 **18/18 通过**，准确匹配上述 `0005` SHA 与完整树，两个真实 index 保持原字节；证据为 `docs/evidence/local/round8/terre-independent-replay.json`。构建和有限 GUI/Windows 结果独立记录于 [第八轮证据](../evidence/2026-10-09-round8.md)。

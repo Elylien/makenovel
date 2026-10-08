@@ -1,8 +1,10 @@
 # 测试入口与证据
 
-更新：2026-10-08，MakeNovel `0.0.7`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-09，MakeNovel `0.0.8`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-第七轮增加原生导演局部会话、图形控件重同步、静态主图片加载失败保存门禁，以及导演与资源故障样片。最终代码回归 **646/646**：运行时 339、作者侧 304、导演样片 3；SVG 原生错误桥接后十三个运行时入口已完整重跑通过。受控构建、模板传播、HTTP 25/25、服务 22/22、两端独立重放各 18/18，以及有限导演与资源故障浏览器实测均有独立证据。Windows 最终包文件核对 21/21；全程停开发服务后，真实 EXE 的改稿呈现、资源失败拒存/旧槽保留、恢复保存及正常退出重启读档通过本机有限路径。第六轮 301 项、第四至六轮的有限现场验证和第四轮 259 项作者工具回归保留为历史证据；本轮作者入口已重新执行，按本轮数量另计。任何子项通过都不表示 G0、G1、G2 或完整 AT 整体验收通过。
+第八轮完成对白前四类素材命令新增、仅撤掉本次新增行与前文源码来源参考。本轮实际代码回归 **456/456**：作者侧 346、两个导演样片 6、运行时资源/恢复回归 104。runtime 源码与四份补丁未改变，本轮重新受控构建，但没有重新执行完整 339 项运行时套件。Terre 五补丁独立重放 18/18、HTTP 引擎 25/25、服务 22/22、源字节核验 16/16，以及浏览器作者闭环和 Windows 最终包正常退出重启恢复均有独立证据；重放、文件数与 GUI 步骤不加入代码总数。完整 G0/G1/G2、AT 与正式发行仍未整体验收，详见 [第八轮证据](evidence/2026-10-09-round8.md)。
+
+历史摘要（第七轮）：增加原生导演局部会话、图形控件重同步、静态主图片加载失败保存门禁，以及导演与资源故障样片。最终代码回归 **646/646**：运行时 339、作者侧 304、导演样片 3；SVG 原生错误桥接后十三个运行时入口已完整重跑通过。受控构建、模板传播、HTTP 25/25、服务 22/22、两端独立重放各 18/18，以及有限导演与资源故障浏览器实测均有独立证据。Windows 最终包文件核对 21/21；全程停开发服务后，真实 EXE 的改稿呈现、资源失败拒存/旧槽保留、恢复保存及正常退出重启读档通过本机有限路径。第六轮 301 项、第四至六轮的有限现场验证和第四轮 259 项作者工具回归保留为历史证据；本轮作者入口已重新执行，按本轮数量另计。任何子项通过都不表示 G0、G1、G2 或完整 AT 整体验收通过。
 
 ## 安装、补丁与构建
 
@@ -42,6 +44,7 @@ node integrations/scene-document-tests/run-message-tests.mjs
 npm.cmd run test:source-input
 npm.cmd run test:graph-input
 npm.cmd run test:director
+npm.cmd run test:director-insertion-demo
 npm.cmd run test:identity
 npm.cmd run test:manifest
 npm.cmd run test:save-backup
@@ -66,7 +69,7 @@ npm.cmd test
 机器可读报告：
 
 ```powershell
-$resultPath = Join-Path (Get-Location).Path 'docs/evidence/local/round7/terre-backend-all.json'
+$resultPath = Join-Path (Get-Location).Path 'docs/evidence/local/round8/terre-backend-all.json'
 node integrations/terre-tests/run.cjs --no-cache --json --outputFile $resultPath
 if ($LASTEXITCODE -ne 0) { throw 'Terre tests failed' }
 ```
@@ -87,7 +90,49 @@ pwsh -NoLogo -NoProfile -File scripts/Start-Editor.ps1 -Stop
 
 HTTP API 与两个 WebSocket gateway 使用同一个 loopback listener，并核验准确的 Host、Origin/Referer 与 Fetch Metadata。命令行 API 请求需带 `Origin: http://127.0.0.1:3001`；PowerShell 请求同时用 `-NoProxy`。这些限制防止其他网页从浏览器驱动本机接口，不认证可自行构造请求头的本地进程，也不隔离可信本地代码。详见 [启动器说明](../integrations/terre-launcher/README.md)。
 
-## 第七轮 0.0.7 当前代码回归与验收状态
+## 第八轮 0.0.8 当前代码回归与验收状态
+
+本轮串行记录在 `docs/evidence/local/round8/checks-summary.json`，12 个入口全部退出 0，**456/456** 通过。下表只累计本轮重新执行的代码回归；不把第七轮完整 339 项运行时结果、独立补丁重放、服务断言、文件核对或现场操作重复加入总数。
+
+| 入口 / 检查 | 本轮结果 | 执行范围与边界 |
+| --- | --- | --- |
+| 根源码实验 / documents 与 vault / messages | 19 / 66 / 3 项通过 | 保留的源码实验、真实共享文档与恢复副本模块、消息边界 |
+| `test:source-input` / `test:identity` / 后端 | 12 / 28 / 124 项通过 | 输入与身份模块、真实 parser、后端原断言及事务回归；不将合成事件视为 Windows IME 验收 |
+| `test:director` | **51 项通过** | 新增四类完整命令、撤掉本会话新行、未改行/身份/legacy 标记与 BOM/混合行尾保留、原生语义守卫、来源边界及整步撤销 |
+| `test:graph-input` | **43 项通过** | 含新增待选材拦截、取消/撤行迟到回调、长路径的原生折行、控制字符拒绝、明确关闭后重选及旧控件缓冲隔离；真实生产 TSX 回调，React/Fluent/DOM 边界为替身 |
+| 作者侧小计 | **346 项通过** | 19 + 66 + 3 + 12 + 28 + 124 + 51 + 43 |
+| 第七轮导演样片 / `test:director-insertion-demo` | 3 / 3 项通过 | 两个独立生成器均使用真实 parser、assetSetter、manifest 与临时文件；第八轮覆盖空局部新增目标和标签/不透明参数边界 |
+| 两个样片小计 | **6 项通过** | 保留旧样片回归与新增样片分别计数 |
+| `test:resource-lifecycle` / `test:runtime-restore` | 38 / 66 项通过 | 本轮重新执行静态主图/SVG 与恢复门禁回归，共 104 项；runtime 源码未改，未重新跑完整十三入口 339 项 |
+| 代码总计 | **456 项通过** | 346 + 6 + 104；无失败或跳过 |
+| 受控 runtime / Terre 构建 | 通过 | runtime Yarn 130.48 s / Vite 56.05 s；Terre 前端外层 248.22 s（内层 247.55 s）、后端外层 27.00 s（内层 26.52 s）；来源为本轮两份 build 日志 |
+| 共享模板 / HTTP / 服务 | 25 文件同步、25/25、22/22 | runtime 文件签名保持 `aa10038a666fcea893a5501f09723d2427aabee4b433bd0122060e0ea7264e93`；模板 game 保留，真实 round8 HTTP 逐文件摘要匹配，服务与 WebSocket 来源检查通过 |
+| Terre 最终五补丁独立重放 | **18/18 通过** | 独立对象 clone，无 alternates/hardlinks；0/5→5/5、幂等、临时 index 逆序恢复 base、开发树和两个真实 index 不变；源码重放不替代构建或 GUI |
+| 浏览器导演新增闭环 | 有限真实 GUI 通过 | 四类新增、待选材阻止应用、撤掉新行、关闭后重选、取消不改稿；四条新增及对白修改整批应用，一次撤销/重做，保存刷新重开 |
+| 浏览器来源与原生预览 | 有限真实 GUI 通过 | R8-03 重开后显示来源；标签前来源保持未知，不透明参数构成边界；原生执行到修改后的第 13 行，显示夜景、左侧 smile、右侧 neutral 与改稿对白 |
+| 源码字节与原清单拒绝 | **16/16 通过** | 原 17 行增为 21 行；只加 4 行和修改 1 条目标对白，其余 16 条原行连同行尾字节不变；BOM/CRLF/作者注释与独立 readonly 场景保留；仅 5 个实际变动节点获得唯一 ID；旧 manifest 拒绝改稿且检查不写文件 |
+| 重新封存 / 最终导出核对 | verify 通过；game **20/20** | 最终 manifest `20254c8bac4269ad92b142ec596b2174738121d4b1b7cb9361c3fffe30342e30`，19 个登记文件加清单；导出读取 23 个源文件，最终包标识 `20261009-002045-13935b` |
+| Windows 最终 EXE 保存与重启恢复 | 本机有限真实 GUI 通过 | 停 3000/3001 后从日景推进到新增夜景和 R8-03，快存及普通槽 1（2026/10/9 00:25:28）成功；正常退出精确进程归零后重启同包，读槽 1 恢复夜景/左 smile/右 neutral/R8-03；推进到选择后快速读档同样恢复 |
+| 收尾进程 | 测试 EXE 正常关闭；编辑器恢复 | `windows-final-exit.json` 记录精确包路径 0 进程、3000/3001 为 0 listener；随后编辑器恢复 PID 28592、UTC `2026-10-08T16:27:56.8502082Z`，入口仅 loopback 3001。恢复时重新核验，不使用陈旧 PID 操作 |
+| 全机断网 / 干净机器 / 真实 IME / 全设备与正式发行 | 未执行或未整体验收 | 停本项目服务、合成输入、正常退出重启与有限视口不授予物理断网、全输入法、设备/编解码器矩阵、强杀/断电或签名发行通过 |
+
+本轮 Terre 新增 `0005-director-insertion-source-context.patch`，SHA-256 为 `ea937296a3d21d9d0d9a1a1c495b06a4276a83c36bfe792963877f7306415d22`；五补丁完整 tree 为 `40dc0cb9472a10018d43e16eb462dc2d5e4ba79e`，与独立 clone 和开发工作树一致。重放入口：
+
+```powershell
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL_Terre -ExpectedPatchCount 5 -EvidencePath docs/evidence/local/round8/terre-independent-replay.json
+npm.cmd run test:director-insertion-demo
+npm.cmd run demo:director-insertion -- --output .local/editor-profile/games/<新的独立目录>
+```
+
+生成目录必须不存在；实际第八轮作品为 `.local/editor-profile/games/makenovel-round8`，不要重新生成覆盖。生成收据保留最初 manifest `f831fb86…cdddb6f`；GUI 改稿完成后显式重新封存，使用上表最终清单。改稿后 start SHA-256 为 `a03313a62dd56899131036a81a4786ad9ea1cf0ebddc1c1de313fcfbe81db867`。源码检查 16 项只证明该次实际变更，不扩展到任意语法或插件。
+
+第八轮新增卡仅允许静态图片与音频，完整素材选择前不产生占位行；已有语句不能通过“撤掉本次新增”删除。只读来源展示最近可确认的源码行，不证明舞台或声音的实时状态。遇到标签、变量、条件、未知参数和高级源码即停止向更早前文查找；没有来源、明确关闭与未知分别处理。差分与音效不推断执行终态，不跨场景或分支还原舞台，来源跳转仍未实现。
+
+审查期间修复三条实际可复现边界：长合法素材名经原生 serializer 折行导致新增被拒；新卡明确关闭后原控件隐藏选材入口；原始路径中的回车被原生预处理剥除而接受另一个文件名。最终处理在序列化前拒绝路径控制字符/BOM，仅接受原生续行占位的单条提案，并为关闭或错误的新卡提供重选入口；重选后退休旧表单回调。43 项图形回归包含这些路径，实际 none→重选另由浏览器操作验证。
+
+实际 HTTP 与服务日志分别为 `final-http.json`、`service-check.log`；封存与导出为 `final-seal.log`、`final-manifest-verify.json`、`windows-export.log`。最终包 ASAR SHA-256 为 `b6355ea63769921c5b536a664c174e310853d8098574085474c7d965a3a6e2a2`，必须保留完整导出目录。构建模板备份为 `.local/runtime-sync/20261008-161233-d2a6ede840a245b9b673cff3d2cb819a/previous-template`。完整现场步骤及截图索引见 [第八轮证据](evidence/2026-10-09-round8.md)。
+
+## 第七轮 0.0.7 历史代码回归与验收状态
 
 本轮最终代码回归 **646/646**（运行时 339 + 作者 304 + 导演样片 3），上述入口均退出 0、无失败。SVG 桥接后十三个运行时入口已完整串行重跑；此前 329/329 仅保留为修复前记录。历史测试、重放断言、构建文件数和 GUI 步骤不加入代码总数。原始本机日志位于忽略目录 `docs/evidence/local/round7/`；最终运行时汇总为 `runtime-suites-summary.json`。作者串行七入口 `author-tests-summary.json` 记录 274 项，另加 `graph-input.log` 最终 30 项，得到作者侧 304 项。
 

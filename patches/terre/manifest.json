@@ -16,6 +16,10 @@
     {
       "file": "0004-dialogue-director-session.patch",
       "sha256": "8d9f4c93e176ef47ca372b9b804a190ba1f225859cf3aca058801e759f92aafb"
+    },
+    {
+      "file": "0005-director-insertion-source-context.patch",
+      "sha256": "ea937296a3d21d9d0d9a1a1c495b06a4276a83c36bfe792963877f7306415d22"
     }
   ]
 }

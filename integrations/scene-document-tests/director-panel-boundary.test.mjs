@@ -48,17 +48,17 @@ const form = (tree,command) => collect(tree,node=>node.type==='director-editor'&
 const alerts = tree => collect(tree,node=>node.props?.role==='alert').map(node=>node.props.children).join('\n');
 const flush = async () => { await Promise.resolve();await Promise.resolve();await Promise.resolve(); };
 
-async function harness() {
+async function harness(initialSource=source,selectedLine=5) {
   let writes=0, closed=0, holds=0;
   const closeHolds=[];
-  const transport={read:async()=>({text:source,revision:A}),save:async text=>{writes++;return {text,revision:B};}};
+  const transport={read:async()=>({text:initialSource,revision:A}),save:async text=>{writes++;return {text,revision:B};}};
   const document=new SceneDocument(transport,{read:()=>null,write:()=>{},clear:()=>{}});
   await document.load();
   globalThis.document={activeElement:null};
   globalThis.HTMLInputElement=class {};
   globalThis.HTMLTextAreaElement=class {};
   globalThis.__directorHold=()=>{holds++;let released=false;return ()=>{if(!released){released=true;holds--;}};};
-  const props={initialSession:createDirectorSession(source,5,document.getSnapshot().historyVersion),document,targetPath:'games/test/game/scene/start.txt',onClose:()=>{closeHolds.push(holds);closed++;}};
+  const props={initialSession:createDirectorSession(initialSource,selectedLine,document.getSnapshot().historyVersion),document,targetPath:'games/test/game/scene/start.txt',onClose:()=>{closeHolds.push(holds);closed++;}};
   const hooks=new Hooks();
   const render=()=>hooks.render(DirectorPanel,props);
   let tree=render(); hooks.commit();
@@ -245,4 +245,219 @@ test('an unapplied director draft participates in beforeunload protection until 
   let prevented=0;const event={preventDefault(){prevented++;},returnValue:null};
   unloadListeners.get('beforeunload')(event);assert.equal(prevented,1);assert.equal(event.returnValue,'');
   release();unloadListeners.get('beforeunload')(event);assert.equal(prevented,1);
+});
+
+const pendingPicker=tree=>collect(tree,node=>node.props?.['data-director-pending-addition']==='true')
+  .flatMap(card=>collect(card,node=>node.type==='choose-file'))[0];
+const addFromPicker=(h,label,name)=>{
+  button(h.render(),`新增${label}`).props.onClick();
+  pendingPicker(h.render()).props.onChange({name});
+};
+const removals=tree=>collect(tree,node=>node.type==='button'&&node.props.children==='撤掉本次新增');
+
+test('a pending addition uses the native picker and blocks both apply and Ctrl+S without writing a placeholder',async()=>{
+  const h=await harness();button(h.tree,'新增背景').props.onClick();
+  const picker=pendingPicker(h.render());
+  assert.deepEqual(picker.props.basePath,['background']);assert.ok(picker.props.extNames.includes('.svg'));
+  assert.equal(picker.props.extNames.includes('.mp4'),false);
+  assert.equal(button(h.render(),'应用到草稿').props.disabled,true);
+  picker.props.onChange(null);assert.ok(pendingPicker(h.render()));
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  surface(h.render()).props.onKeyDownCapture({ctrlKey:true,key:'s',nativeEvent:{},preventDefault(){},stopPropagation(){}});
+  await flush();assert.match(alerts(h.render()),/尚未选择素材/);
+  assert.equal(h.document.getSnapshot().text,source);assert.equal(h.closed,0);assert.equal(h.writes,0);
+  button(h.render(),'撤掉待添加').props.onClick();
+  assert.equal(button(h.render(),'应用到草稿').props.disabled,false);
+  button(h.render(),'应用到草稿').props.onClick();await flush();assert.equal(h.document.getSnapshot().canUndo,false);
+  h.hooks.unmount();
+});
+
+test('removed or cancelled pending pickers cannot add a row through late callbacks',async()=>{
+  const h=await harness();button(h.tree,'新增背景').props.onClick();
+  const oldPicker=pendingPicker(h.render());button(h.render(),'撤掉待添加').props.onClick();
+  button(h.render(),'新增立绘').props.onClick();oldPicker.props.onChange({name:'late.svg'});
+  assert.equal(pendingPicker(h.render()).props.title,'选择立绘');assert.equal(removals(h.render()).length,0);
+  const currentPicker=pendingPicker(h.render());button(h.render(),'取消').props.onClick();
+  currentPicker.props.onChange({name:'also-late.svg'});h.hooks.unmount();await flush();
+  assert.equal(h.closed,1);assert.equal(h.document.getSnapshot().text,source);assert.equal(h.holds,0);
+});
+
+test('four native additions keep source order and apply in one shared undo step',async()=>{
+  const h=await harness();
+  for(const [label,name] of [['背景','night.svg'],['立绘','smile.svg'],['背景音乐','new.wav'],['效果音','bell.wav']]) {
+    addFromPicker(h,label,name);
+    assert.equal(pendingPicker(h.render()),undefined);
+  }
+  assert.equal(removals(h.render()).length,4);
+  assert.equal(h.document.getSnapshot().text,source);
+  const cards=collect(h.render(),node=>node.type==='details'&&collect(node,n=>n.type==='director-editor').length);
+  assert.ok(cards.every(card=>typeof card.key==='string'&&card.key.length));
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  const result=h.document.getSnapshot().text;
+  assert.ok(result.startsWith(source.slice(0,source.indexOf('say:'))));
+  const lines=result.split('\r\n');
+  assert.match(lines[5],/^changeBg:night.svg -next;/);
+  assert.match(lines[6],/^changeFigure:smile.svg -next;/);
+  assert.match(lines[7],/^bgm:new.wav;/);
+  assert.match(lines[8],/^playEffect:bell.wav;/);
+  assert.equal(lines[9],source.split('\r\n')[5]);assert.equal(h.writes,0);
+  h.document.undo();assert.equal(h.document.getSnapshot().text,source);assert.equal(h.document.getSnapshot().canUndo,false);
+  h.document.redo();assert.equal(h.document.getSnapshot().text,result);h.hooks.unmount();
+});
+
+test('only added rows can be removed and removed native callbacks cannot retarget or leave ghost errors',async()=>{
+  const h=await harness();assert.equal(removals(h.tree).length,0);
+  addFromPicker(h,'背景音乐','new.wav');
+  const newForm=collect(h.render(),node=>node.type==='director-editor'&&node.props.sentence.content==='new.wav')[0];
+  newForm.props.onSubmit('bgm:new.wav -volume=wrong;');assert.ok(alerts(h.render()).length>0);
+  removals(h.render())[0].props.onClick();
+  newForm.props.onSubmit('bgm:late.wav;');newForm.props.onSubmit('bgm:new.wav -volume=wrong;');
+  assert.equal(removals(h.render()).length,0);assert.equal(alerts(h.render()),'');
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.document.getSnapshot().text,source);assert.equal(h.document.getSnapshot().canUndo,false);h.hooks.unmount();
+});
+
+test('an older native dialogue callback follows stable identity across inserted and removed lines',async()=>{
+  const h=await harness();const oldSay=form(h.tree,'say');
+  const oldCard=collect(h.tree,node=>node.type==='details'&&collect(node,n=>n===oldSay).length)[0];
+  addFromPicker(h,'效果音','bell.wav');
+  assert.equal(form(h.render(),'say').props.index,6);
+  const currentCard=collect(h.render(),node=>node.type==='details'&&collect(node,n=>n.type==='director-editor'&&n.props.sentence.commandRaw==='say').length)[0];
+  assert.equal(currentCard.key,oldCard.key);
+  oldSay.props.onSubmit('say:位移后仍是本句 -speaker=林 -vocal=voice.wav;');
+  removals(h.render())[0].props.onClick();assert.equal(form(h.render(),'say').props.index,5);
+  oldSay.props.onSubmit('say:撤掉后仍是本句 -speaker=林 -vocal=voice.wav;');
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.document.getSnapshot().text,source.replace('第一句','撤掉后仍是本句'));h.hooks.unmount();
+});
+
+test('real Say buffered input survives an insertion and flushes into the same moved dialogue',async()=>{
+  const h=await harness(),sayHooks=new Hooks();
+  let props=form(h.tree,'say').props,tree=sayHooks.render(Say,props);sayHooks.commit();
+  collect(tree,node=>node.type==='textarea')[0].props.onChange({target:{value:'新增设置时保留中文缓冲'}});
+  tree=sayHooks.render(Say,props);sayHooks.commit();
+  addFromPicker(h,'效果音','bell.wav');
+  props=form(h.render(),'say').props;tree=sayHooks.render(Say,props);sayHooks.commit();
+  assert.equal(collect(tree,node=>node.type==='textarea')[0].props.value,'新增设置时保留中文缓冲');
+  const active=new HTMLTextAreaElement();active.blur=()=>collect(tree,node=>node.type==='textarea')[0].props.onBlur();
+  globalThis.document.activeElement=active;button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.match(h.document.getSnapshot().text,/playEffect:bell.wav;[^\r\n]*\r\nsay:新增设置时保留中文缓冲/);
+  sayHooks.unmount();h.hooks.unmount();await flush();h.document.undo();assert.equal(h.document.getSnapshot().text,source);
+});
+
+test('new rows use real Bgm controls and reject an incomplete native toggle until repaired or removed',async()=>{
+  const h=await harness();addFromPicker(h,'背景音乐','new.wav');
+  const newForm=collect(h.render(),node=>node.type==='director-editor'&&node.props.sentence.content==='new.wav')[0];
+  const hooks=new Hooks();let tree=hooks.render(Bgm,newForm.props);hooks.commit();
+  const volume=collect(tree,node=>node.type==='input'&&node.props.placeholder==='百分比。 0-100 有效')[0];
+  volume.props.onChange({target:{value:'53'}});tree=hooks.render(Bgm,newForm.props);hooks.commit();
+  collect(tree,node=>node.type==='input'&&node.props.placeholder==='百分比。 0-100 有效')[0].props.onBlur();
+  let current=collect(h.render(),node=>node.type==='director-editor'&&node.props.sentence.content==='new.wav')[0];
+  assert.equal(current.props.sentence.args.find(arg=>arg.key==='volume').value,53);
+  current.props.onSubmit('bgm:选择背景音乐;');button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,0);assert.equal(h.document.getSnapshot().text,source);
+  current.props.onSubmit('bgm:none;');button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,1);assert.match(h.document.getSnapshot().text,/bgm:none;/);hooks.unmount();h.hooks.unmount();
+});
+
+test('new image pickers reject unsupported content and retain the pending choice for correction',async()=>{
+  const h=await harness();button(h.tree,'新增立绘').props.onClick();
+  let picker=pendingPicker(h.render());assert.equal(picker.props.extNames.includes('.json'),false);
+  picker.props.onChange({name:'model.json'});assert.ok(pendingPicker(h.render()));assert.match(alerts(h.render()),/静态图片/);
+  pendingPicker(h.render()).props.onChange({name:'smile.svg'});assert.equal(pendingPicker(h.render()),undefined);
+  assert.equal(removals(h.render()).length,1);button(h.render(),'取消').props.onClick();h.hooks.unmount();
+});
+
+test('composition prevents adding or removing a stage row until input settles',async()=>{
+  const h=await harness();surface(h.tree).props.onCompositionStartCapture();
+  button(h.render(),'新增背景').props.onClick();assert.equal(pendingPicker(h.render()),undefined);
+  surface(h.render()).props.onCompositionEndCapture();await flush();addFromPicker(h,'背景','night.svg');
+  surface(h.render()).props.onCompositionStartCapture();removals(h.render())[0].props.onClick();
+  assert.equal(removals(h.render()).length,1);assert.match(alerts(h.render()),/中文候选/);
+  surface(h.render()).props.onCompositionEndCapture();await flush();removals(h.render())[0].props.onClick();
+  assert.equal(removals(h.render()).length,0);button(h.render(),'取消').props.onClick();h.hooks.unmount();
+});
+
+test('source references distinguish explicit none, unseen state and a branch boundary without asserting a live stage',async()=>{
+  const previous='changeBg:none;\r\nsay:前一句;\r\nsay:当前句;';
+  const h=await harness(previous,2);
+  const refs=collect(h.tree,node=>typeof node.type==='function'&&node.props.fact);
+  const background=refs.find(node=>node.props.title==='背景');assert.equal(background.props.fact.status,'none');
+  const rendered=background.type(background.props);
+  assert.equal(rendered.props['data-director-source-status'],'none');assert.equal(background.props.fact.startLine,0);
+  assert.equal(refs.find(node=>node.props.title==='背景音乐').props.fact.status,'not-seen');
+  h.hooks.unmount();
+  const unknown=await harness('changeBg:old.svg;\r\nchoose:路线:a;\r\nsay:当前句;',2);
+  const unknownRefs=collect(unknown.tree,node=>typeof node.type==='function'&&node.props.fact);
+  assert.equal(unknownRefs.find(node=>node.props.title==='背景').props.fact.status,'unknown');
+  const boundary=collect(unknown.tree,node=>node.type==='p'&&Array.isArray(node.props.children)&&node.props.children.includes('来源检查止于第 '))[0];
+  assert.ok(boundary);unknown.hooks.unmount();
+});
+
+test('long native asset names fold back to one safe new row without truncating the name',async()=>{
+  const h=await harness();
+  const background=`nested/${'a'.repeat(70)}.svg`,figure=`人物/${'角色'.repeat(35)}.png`;
+  addFromPicker(h,'背景',background);assert.equal(pendingPicker(h.render()),undefined);
+  addFromPicker(h,'立绘',figure);assert.equal(pendingPicker(h.render()),undefined);
+  assert.ok(collect(h.render(),node=>node.type==='director-editor'&&node.props.sentence.content===background).length);
+  const figureForm=collect(h.render(),node=>node.type==='director-editor'&&node.props.sentence.content===figure)[0];
+  const hooks=new Hooks();const tree=hooks.render(Figure,figureForm.props);hooks.commit();
+  collect(tree,node=>node.type==='wheel'&&node.props.options?.has('left'))[0].props.onValueChange('left');
+  assert.equal(alerts(h.render()),'');
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  const lines=h.document.getSnapshot().text.split('\r\n');
+  assert.equal(lines.length,8);assert.ok(lines[5].startsWith(`changeBg:${background} -next;`));
+  assert.ok(lines[6].startsWith(`changeFigure:${figure}`));assert.match(lines[6],/ -left(?:=true)?(?: |;)/);
+  hooks.unmount();h.hooks.unmount();
+});
+
+test('a new native clear state can select a fresh asset, retire old buffers and either apply or cancel',async()=>{
+  for(const action of ['应用到草稿','取消']) {
+    const h=await harness();addFromPicker(h,'背景音乐','new.wav');
+    let newForm=collect(h.render(),node=>node.type==='director-editor'&&node.props.sentence.content==='new.wav')[0];
+    const staleCallback=newForm.props.onSubmit,oldKey=newForm.key;
+    const hooks=new Hooks();let tree=hooks.render(Bgm,newForm.props);hooks.commit();
+    collect(tree,node=>node.type==='toggle')[0].props.onChange(true);
+    let refs=collect(h.render(),node=>typeof node.type==='function'&&node.props.fact);
+    assert.equal(refs.find(node=>node.props.title==='背景音乐').props.fact.status,'none');
+    newForm=collect(h.render(),node=>node.type==='director-editor'&&node.props.sentence.commandRaw==='bgm').at(-1);
+    tree=hooks.render(Bgm,newForm.props);hooks.commit();
+    assert.equal(collect(tree,node=>node.type==='choose-file').length,0);
+    collect(tree,node=>node.type==='toggle')[0].props.onChange(false);
+    assert.ok(alerts(h.render()).length>0);
+    const recovery=collect(h.render(),node=>node.type==='choose-file'&&node.props.title==='重新选择背景音乐')[0];
+    assert.ok(recovery);recovery.props.onChange({name:'restored.wav'});
+    newForm=collect(h.render(),node=>node.type==='director-editor'&&node.props.sentence.content==='restored.wav')[0];
+    assert.notEqual(newForm.key,oldKey);assert.equal(alerts(h.render()),'');
+    staleCallback('bgm:late-buffer.wav;');
+    recovery.props.onChange({name:'late-picker.wav'});
+    refs=collect(h.render(),node=>typeof node.type==='function'&&node.props.fact);
+    const fact=refs.find(node=>node.props.title==='背景音乐').props.fact;
+    assert.equal(fact.status,'source');assert.equal(fact.content,'restored.wav');
+    assert.equal(h.document.getSnapshot().text,source);assert.equal(h.writes,0);
+    button(h.render(),action).props.onClick();await flush();
+    if(action==='取消') assert.equal(h.document.getSnapshot().text,source);
+    else assert.match(h.document.getSnapshot().text,/bgm:restored.wav;/);
+    hooks.unmount();h.hooks.unmount();
+  }
+});
+
+test('asset control characters and extra script lines cannot become a truncated successful selection',async()=>{
+  const h=await harness();button(h.tree,'新增背景').props.onClick();
+  for(const name of ['a\rb.svg','a\nb.svg','a\uFEFFb.svg','a\u0000b.svg','a.svg;\nchangeBg:injected.svg;']) {
+    pendingPicker(h.render()).props.onChange({name});
+    assert.ok(pendingPicker(h.render()));assert.equal(removals(h.render()).length,0);
+    assert.match(alerts(h.render()),/控制字符/);assert.equal(h.document.getSnapshot().text,source);
+  }
+  pendingPicker(h.render()).props.onChange({name:'normal.svg'});
+  let newForm=collect(h.render(),node=>node.type==='director-editor'&&node.props.sentence.content==='normal.svg')[0];
+  newForm.props.onSubmit('changeBg:normal.svg;\nchangeFigure:injected.svg;');
+  assert.match(alerts(h.render()),/一条完整命令/);
+  newForm.props.onSubmit('changeBg:none;');
+  const recovery=collect(h.render(),node=>node.type==='choose-file'&&node.props.title==='重新选择背景')[0];
+  recovery.props.onChange({name:'a\rb.svg'});assert.match(alerts(h.render()),/控制字符/);
+  assert.equal(collect(h.render(),node=>node.type==='director-editor'&&node.props.sentence.content==='ab.svg').length,0);
+  recovery.props.onChange({name:'fixed.svg'});button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,1);assert.match(h.document.getSnapshot().text,/changeBg:fixed.svg/);
+  assert.doesNotMatch(h.document.getSnapshot().text,/injected|ab.svg/);h.hooks.unmount();
 });
