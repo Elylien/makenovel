@@ -2,7 +2,7 @@
 
 面向 Windows 的视觉小说创作工具链：传统玩家体验、人工导演模式，以及共享同一份源码的 AI 创作接口。
 
-**当前版本 0.0.4：共享撤销/重做、关闭标签后手动恢复草稿，以及播放器菜单裁切修复已通过有限真实界面验证。** 259 项代码回归、构建与两子仓独立补丁重放通过；已有 Windows 开发包和一槽退出重启读档证据来自第三轮。完整导演工具、插件、旧档迁移与正式发行仍在开发。
+**当前版本 0.0.5：增加作品版本登记、精确版本存档、完整玩家备份及异步恢复门禁。** 继续复用锁定的 WebGAL 与 Terre；保留已有共享编辑历史、草稿恢复和播放器视口修复。代码、界面及 Windows 的实际通过范围见 [测试记录](docs/TESTING.md)，完整导演工具、跨版本旧档迁移与正式发行仍在开发。
 
 ## 开始
 
@@ -44,7 +44,20 @@ npm.cmd run editor:start
 
 同一标签页刷新可自动恢复 session 草稿；关闭浏览器标签页后，在相同浏览器、工作区和场景的“本机恢复副本”中手动选择 localStorage 副本。各窗口副本独立，旧版无工作区身份的 session 数据只作为手动候选；容量不足会提示下载备份，不自动淘汰其他副本。这不是作品目录中的崩溃恢复或跨设备同步。JSON/模板仍沿用上游保存方式；多行、不安全参数与未知代码保留源码编辑。完整限制见 [已知问题](docs/KNOWN_ISSUES.md)。
 
-两个 submodule 的 HEAD 仍是锁定原版提交，工作树有意保留应用后的改动；公开来源分别在 [patches/terre](patches/terre/) 和 [patches/webgal](patches/webgal/)。`npm.cmd run patch:check` 检查 Terre，`npm.cmd run patch:runtime:check` 检查 WebGAL。第四轮最终导出与重放结果见 [当前状态](docs/PROJECT_STATUS.md)；不要 reset 预期的补丁工作树。详见 [Terre 补丁](docs/integrations/TERRE_PATCHES.md) 和 [运行时补丁与模板同步](docs/integrations/RUNTIME_PATCHES.md)。
+两个 submodule 的 HEAD 仍是锁定原版提交，工作树有意保留应用后的改动；公开来源分别在 [patches/terre](patches/terre/) 和 [patches/webgal](patches/webgal/)。`npm.cmd run patch:check` 检查 Terre，`npm.cmd run patch:runtime:check` 检查 WebGAL。最终导出与重放结果见 [当前状态](docs/PROJECT_STATUS.md)；不要 reset 预期的补丁工作树。详见 [Terre 补丁](docs/integrations/TERRE_PATCHES.md) 和 [运行时补丁与模板同步](docs/integrations/RUNTIME_PATCHES.md)。
+
+## 登记可存档的作品版本
+
+在作品编辑完成后暂停写入，登记包含剧情、配置和资源的完整版本：
+
+```powershell
+npm.cmd run game:seal -- -GamePath '.local/editor-profile/games/你的作品目录' -Action Init
+npm.cmd run game:seal -- -GamePath '.local/editor-profile/games/你的作品目录' -Action Verify
+```
+
+已有清单的作品修改后使用 `-Action Update`，然后重开游戏。作品身份保留，剧情版本变化会使用新的原生存储前缀；旧存档、已读和鉴赏保留在原版本，可以从系统设置“导出完整备份”。未登记作品可游玩，但暂不能存读档。共享模板更新后，旧普通作品也遵守此规则；工具不自动改写已有作者作品或迁移旧档。
+
+详细协议、备份覆盖与限制见 [存档版本说明](docs/SAVE_COMPATIBILITY.md)。导出的备份可以校验，本轮不提供覆盖式导入或跨版本位置猜测。
 
 ## 导出 Windows 开发包
 
@@ -64,7 +77,7 @@ npm.cmd run game:export -- -GamePath '.local/editor-profile/games/你的作品�
 - [开发计划](docs/DEVELOPMENT_PLAN.md) / [需求追踪](docs/REQUIREMENTS_TRACEABILITY.md)
 - [引擎评估](docs/ENGINE_EVALUATION.md) / [Terre 实测](docs/TERRE_BASELINE.md)
 - [对标范围](docs/REFERENCE_PARITY.md) / [决策](docs/DECISIONS.md)
-- [存档兼容边界与下一步](docs/SAVE_COMPATIBILITY.md)（设计审查，未实现迁移）
+- [存档版本与完整备份](docs/SAVE_COMPATIBILITY.md)（跨版本迁移尚未实现）
 
 `vendor/` 使用 Git submodule 固定上游提交，`upstream.lock.json` 记录版本和锁文件摘要。实验不创建第二套剧情执行器或存档系统。
 

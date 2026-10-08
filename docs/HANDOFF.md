@@ -1,52 +1,54 @@
 # 交接与恢复
 
-记录：2026-10-07，MakeNovel `0.0.4` / `main`。公开远程为 `https://github.com/Elylien/makenovel.git`。提交与发布状态以 `git log -1 --oneline`、`git status` 和远程现场结果为准。
+记录：2026-10-08，MakeNovel `0.0.5` / `main`。公开远程 `https://github.com/Elylien/makenovel.git`。提交/推送以本地 Git 和远程现场查询为准。
 
 ## 恢复先核查
 
 ```powershell
 git status --short --branch
 git submodule status
-git -C vendor/WebGAL status --short
-git -C vendor/WebGAL_Terre status --short
 npm.cmd run patch:check
-pwsh -NoLogo -NoProfile -File scripts/Apply-Patches.ps1 -Target WebGAL -Check
+npm.cmd run patch:runtime:check
 Get-Content -LiteralPath .local/editor-runtime/process.json
 Get-NetTCPConnection -State Listen -LocalPort 3000,3001 -ErrorAction SilentlyContinue
 ```
 
-两个上游 HEAD 仍为锁定原版，工作树有意保留审查改动；公开补丁在根仓，不创建未推送的子仓提交。第四轮 Terre 3/3 独立重放 17 项通过，树 `18b0104c074def8309016c95b9e6e173d743bd47`；WebGAL 1/1 独立重放 18 项通过，树 `8561dc40298a2b72704255d25325b0aefd2aa617`。均与开发树一致，两个真实 index 不变；本地报告为 `docs/evidence/local/round4/product-patch-replay.json` 与 `runtime-independent-replay.json`。第三轮两补丁树仅为历史基线，不能拿它覆盖本轮工作。不要 reset/clean，不把已知补丁状态当外部修改。两份私有原件在 `docs/private/`，任何情况下不公开。
+先读 PROJECT_STATUS、DEVELOPMENT_PLAN、TESTING、SAVE_COMPATIBILITY、KNOWN_ISSUES。原始用户文件只在被忽略的 `docs/private/`，不得 stage/upload。两个子仓 HEAD 是原版锁定提交，工作树有意应用补丁；不要 reset/clean 或创建未推送的嵌套提交。
 
-先读 `PROJECT_STATUS.md`、`TESTING.md`、`KNOWN_ISSUES.md`、`DEVELOPMENT_PLAN.md` 和 `SAVE_COMPATIBILITY.md`。公开 clone 对两个目标分别应用补丁后再构建。更新模板前先停止编辑器；`baseline:build` 生成 runtime hash 凭据，`editor:build` 检查后串行构建并 Sync。直接运行上游后端 build 会刷新 npm 引擎模板，需再显式 Sync；详细命令见 TESTING。
+WebGAL 当前 2/2 补丁，最终树 `646fda6f874467a892df41f368935fdb00c32ba6`，新补丁 SHA256 `82090d7629b595e484eb09d30afaa3c7aabffe3fdae2faf6316c3acbe3fcdbb4`。本轮独立 clone 重放 18 项通过，无 alternates/hardlinks、幂等/逆向和两真实 index 字节不变。Terre 仍为既有 3/3，第四轮树 `18b0104c074def8309016c95b9e6e173d743bd47`。不要用第四轮单 runtime 补丁覆盖本轮改动。
 
-## 第四轮完成范围
+## 第五轮已完成
 
-- SceneDocument 共用撤销/重做：100 步、2 MiB 增量上限，连续输入合组，图形操作独立，保存不清历史；内存历史不随浏览器关闭保存。图形控件响应历史版本同步。
-- localStorage 恢复副本按 workspace/path/document owner 隔离，关闭标签页后手动选择；本标签页 session 刷新自动恢复；无工作区身份的旧 v1 session 只列候选。失败保留可用副本并提示下载，不自动清其他窗口副本；没有项目文件系统恢复仓。
-- 保存携带 expectedWorkspaceId 并在后端写前检查，防止同名同 revision 跨工作区误写。新增真实 HTTP 3 项回归，相关套件 9/9；根全后端 14 suites / 124 tests 已通过。
-- 代码回归 259 项通过：后端 124、文档 56、vault 10、消息 3、源码输入 12、图形输入 7、身份 28、源码实验 19。不能用合成事件或中文填写代替 Windows 真实候选输入验收。
-- 最终 GUI 通过图形填中文立即 Ctrl+S、保存后跨视图撤销重做、源码粘贴后 Ctrl+Z/Y/Z、两场景未保存草稿隔离、真实关标签后手动恢复全句再保存，以及另一作品同名场景原文/副本隔离。撤销期间磁盘 hash 不变，最后主作品为已保存。
-- 原 1280×720 存档点击导致 body 滚动 332.666…、画布/菜单上移的问题已复现并修复；fixed 根画布在 1280×720、1600×900 和 1280×960 重开存档菜单通过，后者正常上下留白，body 均为 0。
-- 受控 runtime Build 174.1 s，25 个非 game 文件已 Sync；模板 game 逐文件 hash 不变，缺失凭据/过期源码/额外产物三个拒绝测试通过。首轮备份在 `.local/runtime-sync/20261007-152815-43345766645c49dcbf32b418cb35a540/previous-template`。完整 editor:build 已通过（前端 262.08 s、后端 46.31 s、再 Sync 25 文件），最终前端重编 2m53s 通过。
-- 新作品实际 HTTP 的 25 个引擎文件均匹配凭据，游戏菜单 fixed/root (0,0,1280,720)/body 滚动 0；两个场景 BOM/ID/CRLF 保留（start 10 个 CRLF，chapter-two 2 个，无单独 LF）。本轮未重新验收 Windows EXE。
-- 存档兼容只完成锁定源码审查与下一步策略，未迁移原生槽、调用帧、已读或收藏；详见 [SAVE_COMPATIBILITY.md](SAVE_COMPATIBILITY.md)。
+精确 manifest 与版本空间、初始化前完整原值备份、串行可靠存储、当前/父场景/历史的恢复预检、异步会话失效、已核验启动资源等待、玩家备份下载及只校验文件、作者预览持续禁存。普通字体初始化免禁存；四个原生鉴赏解锁入口统一使用受控存储。
 
-本轮确定结果见 [第四轮记录](evidence/2026-10-07-round4.md)。第三轮已完成的核心诊断、持久节点、局部写回和 EXE 一槽正常退出重启证据保留在 [第三轮记录](evidence/2026-10-07-round3.md) 与 [Windows 记录](evidence/2026-10-07-windows-export.md)。这些不是第四轮新包验收。
+新增代码 220/220（33 manifest、35 backup、34 compatibility、35 storage、16 initialization、55 restore、12 UI），另有身份 28、源码实验 19、原 parser 34。最终 runtime build 和受控 Sync、完整 Terre build、25 个 HTTP 引擎文件与服务 22 项通过。没有重跑全编辑器历史 259 项。
 
-## 当前进程和数据
+真实浏览器普通槽和快档、子场景 `letter=7` 与父返回 `answer=42, visit=1`、父文件改动拒绝且原进度保留、备份 8 项/2 副本下载并校验已通过。最终 EXE 40/40 文件一致；3000/3001 服务停止后，一槽正常退出重启读取和 call/return 恢复通过。详细取证见 [第五轮证据](evidence/2026-10-08-round5.md)。
 
-第四轮结束时编辑器 PID 33200，仅监听 `127.0.0.1:3001`，真实服务 22 项检查通过；专用 `3000` runtime 预览已关闭，其他用户服务未动。全局 `~/.webgal_terre` 不存在。最终主作品页面为已保存，截图 `docs/evidence/local/round4/editor-ready.png`。恢复时仍须重查，不能按记录的 PID 直接停止程序。
+## 进程、作品和本地产物
 
-编辑器 `npm.cmd run editor:start`，停止 `npm.cmd run editor:stop`。启动器核验入口、PID、启动时间，作者数据在 `.local/editor-profile/`，状态在 `.local/editor-runtime/`；不能杀所有 Node 进程。原始证据按轮次保存在被忽略的 `docs/evidence/local/`。
+收尾时已关闭本轮测试 EXE，编辑器重新启动，PID **2812**，仅 `127.0.0.1:3001`。恢复须现场重新核验 PID/启动时间/入口，不能按记录直接杀进程。专用 3000 预览未启动，其他用户进程未动。启动/停止用 `npm.cmd run editor:start` / `npm.cmd run editor:stop`。
 
-`makenovel-round2`、`makenovel-round3` 和第四轮仅含 game 目录的 `makenovel-round4-template` 位于 `.local/editor-profile/games/`。第四轮样片显示名“雨后回信 · 第四轮”，使用独立 Game_key；它用于验证共享模板链路。先读真实文件，不覆盖用户后续编辑。第三轮 EXE 历史产物位于 `.local/exports/MakeNovel 离线样片 20261007-220449-3e6978/WebGAL.exe`。CLI 独立玩家 profile 与 GUI `%APPDATA%/webgal-electron-project` 不得混写成同一证据；普通退出恢复不等于异常退出耐久性。
+新样片 `.local/editor-profile/games/makenovel-round5`，显示名“雨后回信 · 存档验证”，projectId `e731719f-e211-4fe7-9d41-0df5605750a3`，Game_key `makenovel-round5-9e0120660bde`，manifest `3a43048a4659f35a8b07c9879cf17e3d4c8288b615cd514e0cbadc9f2ce027c9`。37 个登记文件；另有 manifest 和 2 个空 `.gitkeep`，总40文件。空普通 `.gitkeep` 不列入 HTTP 核验，其非空/链接形式不放行。先读真实文件，不覆盖用户后续修改。
 
-## 下一单元候选
+最终开发包 `.local/exports/MakeNovel 第五轮存档样片 20261008-190446-6619c3/WebGAL.exe`。需要保留整个目录。GUI 使用原生 `%APPDATA%/webgal-electron-project`；浏览器与它属于不同存储环境。早先 184359 / 184656 包已被后续修正取代，不能用它交付或当最终验收。未签名、无正式品牌图标，不是正式发行。
 
-下一轮优先做两场景 call/return 的原生存档版本门禁、完整导出备份和可靠异步恢复；同 manifest 允许、不同 manifest 拒绝、来源不明旧档保留导出，暂不猜跨版本节点映射。可并行补 Windows 真实中文 IME、DPI、断网/干净环境及更复杂的多场景草稿操作。
+原始日志、截图、备份在 `docs/evidence/local/round5/`；下载备份另在用户 Downloads。编辑器作者数据仍在 `.local/editor-profile/`，模板备份在 `.local/runtime-sync/`。封存前旧清单备份在 `.local/manifest-backups/`，不可清除作者数据或旧玩家键。
 
-重放入口：`npm.cmd run test:editor`、`npm.cmd run test:documents`、`npm.cmd run test:source-input`、`npm.cmd run test:graph-input`、`npm.cmd run test:identity`、`npm.cmd test`。针对本轮工作区 API：`node integrations/terre-tests/run.cjs --no-cache --runTestsByPath src/Modules/webgal-fs/text-snapshot-api.spec.ts`，路径相对 runner 的 Terre backend 工作目录。
+## 下一具体单元
 
-导出已有作品仍用 `npm.cmd run game:export -- -GamePath '.local/editor-profile/games/makenovel-round2'`；它调用真实 Terre 服务，先核对模板同步凭据。同步不改作者文件，但无自带 index.html 的普通作品运行/导出会使用更新后的共享模板；自带入口或衍生作品保留自身引擎。两角色演出、声音、等待取消和转场仍沿原执行器推进。
+先运行以下只读命令核对样片：
 
-保留边界：完整表达式/插件、JSON/模板事务、项目级恢复、三方合并、非协作 writer 竞态、物理磁盘满、断电耐久性、孤立锁恢复、完整 G0/G1/AT 与正式发行均未完成。Windows 优先、Steam 中文参考、公开仓库/环境工具/Computer Use 授权已确认，不必重问。
+```powershell
+node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round5
+npm.cmd run test:runtime-restore
+npm.cmd run test:save-storage
+```
+
+然后优先补 G2-A 的两角色差分/运动、声音和等待取消、转场中菜单/快进/恢复终态；可先在独立样片中验证。同步测量全资源 hash 的耗时/内存，改善封存与作者预览提示。Windows 真正 IME/DPI/全屏、异常关闭、多槽与流程图/历史恢复、全机离线/干净用户矩阵仍独立推进。
+
+改作品源文件或资产后应先停止其他写入，再 `npm.cmd run game:seal -- -GamePath '<作品目录>' -Action Update` 并重开页面；新版本不会读取旧版本槽，完整旧数据仍保留供备份。校验文件不执行恢复导入，不能靠重新封存推断旧档兼容。
+
+修改 vendor 后重新导出审查补丁，再停止 editor → `baseline:build` → `editor:build`；Terre 无变更且已构建时，重新 runtime build 后 `Sync-Runtime.ps1 -Action Sync` 即可。不得并发 Terre 两 workspace build。共享模板影响普通无自带入口作品的运行/导出；自带引擎需各自升级。
+
+所有完整 AT/G0/G1/G2 仍保留未覆盖边界。用户已确认 Windows 优先、Steam 中文参考、公开 Git/工具/Computer Use 授权；付费服务、正式发行、商业素材另行处理。

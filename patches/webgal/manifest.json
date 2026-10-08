@@ -4,6 +4,10 @@
     {
       "file": "0001-fixed-player-viewport.patch",
       "sha256": "a0de4fcea456534f1373492428d6ebc435b4b4374532a6007254691025f70f50"
+    },
+    {
+      "file": "0002-versioned-player-saves.patch",
+      "sha256": "82090d7629b595e484eb09d30afaa3c7aabffe3fdae2faf6316c3acbe3fcdbb4"
     }
   ]
 }

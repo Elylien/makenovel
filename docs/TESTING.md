@@ -1,8 +1,8 @@
 # 测试入口与证据
 
-更新：2026-10-07，MakeNovel `0.0.4`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-08，MakeNovel `0.0.5`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-第四轮增加共享历史、浏览器草稿恢复副本、工作区写入前置检查与 runtime 菜单视口修复，代码回归 259 项、最终构建、有限真实 GUI 和两子仓独立重放均通过。下面按轮次保留历史证据；任何子项通过都不表示 G0、G1 或完整 AT 整体验收通过。
+第五轮增加精确作品版本、初始化前玩家备份、原生存储确认与恢复/启动时序回归。代码、构建/补丁重放、真实 GUI 和 Windows 结果分开记账；本轮浏览器恢复/拒绝/备份及 Windows 新包一槽重启已通过下述有限范围。第四轮 259 项代码、最终构建、有限 GUI 和两子仓独立重放作为历史证据保留；任何子项通过都不表示 G0、G1、G2 或完整 AT 整体验收通过。
 
 ## 安装、补丁与构建
 
@@ -19,7 +19,7 @@ pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action
 pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL_Terre -Action Build
 ```
 
-补丁工具检查锁定 SHA、补丁摘要和已知补丁前缀；未知 tracked、untracked 或 staged 改动会拒绝，不会 reset/clean 用户修改。默认目标是 Terre，WebGAL 必须显式传 `-Target WebGAL`。`-Check` 成功只代表当前为合法 base 或补丁前缀，剩余补丁需执行 `-Apply`。第四轮 Terre 3/3、WebGAL 1/1 清单与独立重放均已核实；规则和导出流程见 [TERRE_PATCHES.md](integrations/TERRE_PATCHES.md)。
+补丁工具检查锁定 SHA、补丁摘要和已知补丁前缀；未知 tracked、untracked 或 staged 改动会拒绝，不会 reset/clean 用户修改。默认目标是 Terre，WebGAL 必须显式传 `-Target WebGAL`。`-Check` 成功只代表当前为合法 base 或补丁前缀，剩余补丁需执行 `-Apply`。第四轮 Terre 3/3、WebGAL 1/1 清单与独立重放为历史已核实结果；第五轮追加 runtime 补丁的准确状态读取当前清单与本轮报告，不沿用旧树的通过状态。规则和导出流程见 [TERRE_PATCHES.md](integrations/TERRE_PATCHES.md)。
 
 已有运行中的编辑器须先用 `npm.cmd run editor:stop` 停止，再构建/同步模板。WebGAL Build 经 `scripts/Sync-Runtime.ps1 -Action Build` 核验补丁与锁定来源，构建后记录源码和非 game 产物 hash 至 `.local/runtime-sync/runtime-build.json`。Terre Build 先检查凭据，串行构建前后端，最后同步已核验的 runtime；缺失、源码过期或产物改动的凭据均拒绝同步。
 
@@ -40,6 +40,13 @@ node integrations/scene-document-tests/run-message-tests.mjs
 npm.cmd run test:source-input
 npm.cmd run test:graph-input
 npm.cmd run test:identity
+npm.cmd run test:manifest
+npm.cmd run test:save-backup
+npm.cmd run test:save-compatibility
+npm.cmd run test:save-storage
+npm.cmd run test:save-initialization
+npm.cmd run test:runtime-restore
+npm.cmd run test:save-ui
 pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-PatchReplay.ps1
 npm.cmd test
 ```
@@ -49,7 +56,7 @@ npm.cmd test
 机器可读报告：
 
 ```powershell
-$resultPath = Join-Path (Get-Location).Path 'docs/evidence/local/round4/terre-backend-all.json'
+$resultPath = Join-Path (Get-Location).Path 'docs/evidence/local/round5/terre-backend-all.json'
 node integrations/terre-tests/run.cjs --no-cache --json --outputFile $resultPath
 if ($LASTEXITCODE -ne 0) { throw 'Terre tests failed' }
 ```
@@ -69,6 +76,35 @@ pwsh -NoLogo -NoProfile -File scripts/Start-Editor.ps1 -Stop
 默认编辑器为 `http://127.0.0.1:3001`，`-Port 3011` 可选择空闲端口。作者数据置于 `.local/editor-profile/`，进程状态和日志置于 `.local/editor-runtime/`；不使用既有全局作者目录，也不运行上游开放 host/80 代理入口。停止命令核对 PID、启动时间、进程名和入口。当前进程状态以现场为准，不依赖旧 PID。
 
 HTTP API 与两个 WebSocket gateway 使用同一个 loopback listener，并核验准确的 Host、Origin/Referer 与 Fetch Metadata。命令行 API 请求需带 `Origin: http://127.0.0.1:3001`；PowerShell 请求同时用 `-NoProxy`。这些限制防止其他网页从浏览器驱动本机接口，不认证可自行构造请求头的本地进程，也不隔离可信本地代码。详见 [启动器说明](../integrations/terre-launcher/README.md)。
+
+## 第五轮 0.0.5 代码回归与验收状态
+
+下表记录本轮最终代码检查及对应的有限现场验证。原始日志、构建与包核对、截图和操作步骤统一记在 [第五轮证据](evidence/2026-10-08-round5.md)；不把历史轮次测试数直接相加为“本轮全仓通过”。
+
+| 入口 / 套件 | 本轮最终记录 | 执行范围与边界 |
+| --- | --- | --- |
+| `test:manifest` | 33 项 | `integrations/game-manifest/manifest.test.mjs`；真实临时文件、锁定原生 parser、清单字节/身份/增删、路径和备份写入边界。只封存作者作品，不读写玩家数据 |
+| `test:save-backup` | 35 项 | 生产 saveBackup：全部相关持久化键、同项目旧版本、原始值/损坏值保留、摘要/跨键拒绝、配额/读回/并发变化。包括从原 Game_key 严格派生的隔离设置根键；localforage 使用可控替身 |
+| `test:save-compatibility` | 34 项 | 生产兼容模块 + 作者工具实际封存夹具、WebCrypto、HTTP fetch/Response 边界；精确清单/文件、原生舞台结构、父子场景/历史、预览锁定与已核验启动字节。不是完整浏览器或执行器验收 |
+| `test:save-storage` | 35 项 | 生产用户/槽/快档存储的 27 项顺序、失败、过时读取、namespace/epoch 检查；另 8 项执行 bgm/changeBg/unlockBgm/unlockCg 原生 handler、userDataReducer 与 storageController，验证禁写仍保留内存解锁及启用后仅写版本空间 |
+| `test:save-initialization` | 16 项 | 生产 infoFetcher/backup/storage 接线 9 项，加 initializeScript/templateLoader/useConfigData 启动与 hook 7 项；备份读回前不开门、失败仍释放渲染、verified config 替换旧响应、等待动画/模板、缓存零重复请求、hook 不重写版本空间。React/DB/渲染等边界为替身 |
+| `test:runtime-restore` | 55 项 | 生产 SceneManager、原生快照/保存/普通和快速恢复、历史/流程图、call/return、perform、标题/开始/作者预览接线，使用实际 parser 预检。含原 Game_key 预览注册与玩家 namespace 分离、字体优化初始化豁免及已读覆盖仍禁存；网络/存储/渲染失败由替身控制 |
+| `test:save-ui` | 12 项 | 生产 Save/Load/BottomControlPanel 的事件处理：等待成功才播放成功反馈/写设置、坏缩略预览可渲染、异步拒绝已处理。React/JSX/服务边界替身，不证明浏览器焦点、布局、实际声音或可访问性 |
+| 上述七入口小计 | **220 项** | 33 + 35 + 34 + 35 + 16 + 55 + 12；不含既有作者编辑器回归，也不计构建、文件数、GUI步骤或补丁重放项 |
+| 最终补丁、受控构建与模板传播 | 单独验收 | 读取本轮最终日志/凭据；源码继续变化时旧构建凭据失效。不能用第四轮单补丁树证明第五轮存档接入已构建或传播 |
+| 浏览器普通槽 / call-return | 通过有限实际 GUI | 子场景 `letter=7`，返回父场景显示 `42/1`；读回子场景槽后继续返回，仍为 `42/1`，没有重复累计 |
+| 浏览器快档 | 通过有限实际 GUI | 从父场景读取快档回到子场景第二句；沿原生执行器恢复 |
+| 浏览器版本变化拒绝 | 通过实际负例与恢复 | 改动父场景 start 原字节后读槽报告内容变化，原先子场景第二句保持；恢复该文件原字节后继续返回 `42/1` |
+| 系统完整备份下载 / 校验 | 通过真实文件操作 | 下载文件包含 8 records / 2 preserved；选择该文件后仅本地校验成功，没有执行覆盖式导入 |
+| Windows 最终开发包核对 | 通过：40/40 文件一致 | 本轮新包独立核对；不沿用第三轮旧包的 37/37 结果 |
+| Windows 新包普通退出重启 | 通过一槽实际 GUI | 停止 3000/3001 后启动最终 EXE；子场景存槽 2、Alt+F4 后进程退出，重启同包读槽恢复 `letter=7`→子场景第二句→父场景 `42/1` |
+| 全机断网 / 干净机 / 异常退出 / 声音 | 未验收 | 停止本项目服务不等于全机断网；正常退出不证明异常终止或断电耐久性。声音、完整窗口/输入法矩阵及正式发行仍独立验收 |
+
+套件细节见 [作品封存](../integrations/game-manifest/README.md)、[备份](../integrations/save-backup-tests/README.md)、[兼容门禁](../integrations/save-compatibility-tests/README.md)、[存储](../integrations/save-storage-tests/README.md)、[初始化](../integrations/save-initialization-tests/README.md) 和 [原生恢复/UI](../integrations/runtime-restore-tests/README.md)。根目录 `.scratch/round5-save-backup.log`、`round5-save-storage.log`、`round5-save-initialization.log` 保存相应运行输出；后续恢复/解锁检查在 `.scratch/round5-save-review/restore-tests.log` 与 `unlock-storage-tests.log`。归档位置和最终结果见 [第五轮证据](evidence/2026-10-08-round5.md)，历史 scratch 输出不单独充当新的通过证明。
+
+本轮运行验收需分清三个门禁：清单/文件核对决定版本兼容；备份写入并读回成功才开放原生存储；首场景、模板样式与动画完成后才释放运行时初始化。修改剧情/变量的作者预览指令会在当前页面持续禁用玩家持久化，晚到的初始化完成或启用调用不能解除；自动字体优化初始化命令 `preview.command.set-font-optimization` 豁免，不能因此误禁普通玩家存档。清单状态正常也不能越过后两个门禁。
+
+尚未由上述代码测试覆盖：IndexedDB/Electron 真正配额或断电耐久性、跨标签原子快照、大作品全资源 hash 时间/内存、beforeunload 等待、任意插件副作用回退、完整舞台/音频、真实 Windows 中文 IME、DPI/全屏、全机断网/干净机器和正式发行。静态 HTTP 只能核验清单列出的文件，新增文件需本地 verify/重新封存。具体协议与限制见 [SAVE_COMPATIBILITY.md](SAVE_COMPATIBILITY.md)。
 
 ## 第四轮 0.0.4 实际结果
 
@@ -94,7 +130,7 @@ HTTP API 与两个 WebSocket gateway 使用同一个 loopback listener，并核�
 | 真实服务检查 | 通过：22 项 | PID 33200 仅监听 127.0.0.1:3001，专用 3000 已停，全局作者目录不存在；最后页面已保存，`local/round4/editor-ready.png` |
 | runtime 单补丁独立重放 | 通过：18 项，无 alternates / hardlinks | 0/1→1/1→幂等、临时 index 逆向回 base、fsck、开发树一致及两真实 index 保持；`local/round4/runtime-independent-replay.json`。此前 shared 报告仅为历史 |
 | Terre 三补丁独立重放 | 通过：17 项，无 alternates / hardlinks | 0/3→3/3→幂等、临时 index 逆序 3→2→1 回 base；最终树 `18b0104c074def8309016c95b9e6e173d743bd47` 与开发一致、两真实 index 不变；`local/round4/product-patch-replay.json` |
-| 存档兼容 | 源码审查与设计完成 | 见 [SAVE_COMPATIBILITY.md](SAVE_COMPATIBILITY.md)；版本门禁、旧档迁移、已读/收藏映射均未实现 |
+| 存档兼容 | 源码审查与设计完成 | 第四轮时尚未实施版本门禁、旧档迁移或已读/收藏映射；第五轮新增门禁见上表，迁移仍未完成 |
 | 真实 Windows 中文候选输入、DPI/全屏、断网/干净机、新 EXE | 本轮未验收 | 中文填写/合成事件、浏览器三视口和第三轮 EXE 结果不能替代这些验收 |
 
 本轮记录见 [第四轮证据](evidence/2026-10-07-round4.md)。针对工作区回归，在根目录运行 `node integrations/terre-tests/run.cjs --no-cache --runTestsByPath src/Modules/webgal-fs/text-snapshot-api.spec.ts`。runner 的工作目录是 Terre backend，因此测试路径从 `src/` 开始。
@@ -190,7 +226,7 @@ Preview 限定 `127.0.0.1:3000`，端口占用时失败，显示上游示例与�
 
 1. 扩大核心语法与未知代码边界用例，验证导入/多场景/所有预览入口；完整语言与插件能力单独登记。
 2. 完成真实 Windows 中文 IME 与多场景历史/恢复边界；100 步/2 MiB 历史及浏览器副本不代替全套作者操作验收。
-3. 依据存档兼容设计先做原生版本门禁、完整备份与两场景可靠恢复，暂不猜旧索引映射；项目文件系统恢复、三方合并和其他资源事务独立推进。
+3. 对已实现的原生版本门禁、完整备份与两场景恢复补齐最终 GUI/下载文件/新 EXE 故障验证；测量大作品 hash 与自动快存成本，不猜旧索引映射。项目文件系统恢复、三方合并和其他资源事务独立推进。
 4. 扩大 DPI/全屏与窗口矩阵，核对 runtime 修复进入新模板/新 EXE，补声音、分支、跨场景、多槽与异常存档验收。
 5. 用既有 Windows 导出入口验证全机断网或干净用户机器、只读安装位置与异常写盘；正式签名/安装仍为独立发行工作。
 

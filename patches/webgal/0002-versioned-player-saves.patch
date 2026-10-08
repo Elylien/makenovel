@@ -1,0 +1,3595 @@
+diff --git a/packages/webgal/src/App.tsx b/packages/webgal/src/App.tsx
+index 5b1427abc5407222326d5ccf8a2ecbba59e4991c..343b91424bbbf8ac2425883f5ae8b56bfc8f3c4c 100644
+--- a/packages/webgal/src/App.tsx
++++ b/packages/webgal/src/App.tsx
+@@ -12,6 +12,7 @@ import Menu from '@/UI/Menu/Menu';
+ import GlobalDialog from '@/UI/GlobalDialog/GlobalDialog';
+ import PanicOverlay from '@/UI/PanicOverlay/PanicOverlay';
+ import DevPanel from '@/UI/DevPanel/DevPanel';
++import { SaveDataNotice } from '@/UI/SaveDataTools/SaveDataTools';
+ 
+ export default function App() {
+   useEffect(() => {
+@@ -31,6 +32,7 @@ export default function App() {
+       <GlobalDialog />
+       <PanicOverlay />
+       <DevPanel />
++      <SaveDataNotice />
+     </div>
+   );
+ }
+diff --git a/packages/webgal/src/Core/Modules/backlog.ts b/packages/webgal/src/Core/Modules/backlog.ts
+index ac24fddf84b3c363695992db96add0c7e17e92e1..933f794e9bf60796cee465e58f5960fdb34bc950 100644
+--- a/packages/webgal/src/Core/Modules/backlog.ts
++++ b/packages/webgal/src/Core/Modules/backlog.ts
+@@ -8,8 +8,10 @@ import cloneDeep from 'lodash/cloneDeep';
+ import { SYSTEM_CONFIG } from '@/config';
+ import { SceneManager } from '@/Core/Modules/scene';
+ import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
++import { captureSaveCompatibility, type SaveCompatibility } from '@/Core/controller/storage/makenovelCompatibility';
+ 
+ export interface IBacklogItem {
++  makenovel?: SaveCompatibility;
+   currentStageState: IStageState;
+   saveScene: ISaveScene;
+ }
+@@ -47,6 +49,7 @@ export class BacklogManager {
+       });
+     });
+     const backlogElement: IBacklogItem = {
++      makenovel: captureSaveCompatibility(),
+       currentStageState: stageStateToBacklog,
+       saveScene: {
+         currentSentenceId: this.sceneManager.sceneData.currentSentenceId, // 当前语句ID
+diff --git a/packages/webgal/src/Core/Modules/flowchart.ts b/packages/webgal/src/Core/Modules/flowchart.ts
+index 3726438f4cd9c431d282703fd9c5c903126ef44e..ca1bdf48ed3bce07138dfd75be6f083c0f2466fe 100644
+--- a/packages/webgal/src/Core/Modules/flowchart.ts
++++ b/packages/webgal/src/Core/Modules/flowchart.ts
+@@ -1,8 +1,14 @@
++import { WebGAL } from '@/Core/WebGAL';
++import { generateCurrentStageData } from '@/Core/controller/storage/saveGame';
++import {
++  validateForSave,
++  reportSaveError,
++  isSaveStorageEnabled,
++  getSaveStorageEpoch,
++} from '@/Core/controller/storage/makenovelCompatibility';
+ import { SceneManager } from '@/Core/Modules/scene';
+-import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
+ import { ISaveData } from '@/store/userDataInterface';
+ import axios from 'axios';
+-import cloneDeep from 'lodash/cloneDeep';
+ import localforage from 'localforage';
+ 
+ export interface IFlowchartNodeData extends Record<string, unknown> {
+@@ -46,24 +52,51 @@ export class FlowchartManager {
+   private snapshots = new Map<string, ISaveData>();
+   private pendingUnlockCurrentScene = false;
+   private waitingUnlockSceneKey = '';
++  private snapshotSequence = 0;
++  private latestSnapshot = new Map<string, number>();
++  private persistTask: Promise<void> = Promise.resolve();
++  private scopeVersion = 0;
++
++  private captureStorageScope() {
++    if (!isSaveStorageEnabled() || !this.gameKey || this.gameKey !== WebGAL.gameKey) {
++      throw new Error('玩家备份或作品存储尚未就绪，没有读写流程图进度。');
++    }
++    return { gameKey: this.gameKey, version: this.scopeVersion, storageEpoch: getSaveStorageEpoch() };
++  }
++
++  private isStorageScopeCurrent(scope: { gameKey: string; version: number; storageEpoch: number }) {
++    return (
++      isSaveStorageEnabled() &&
++      scope.gameKey === this.gameKey &&
++      scope.gameKey === WebGAL.gameKey &&
++      scope.version === this.scopeVersion &&
++      scope.storageEpoch === getSaveStorageEpoch()
++    );
++  }
+ 
+   public constructor(private readonly sceneManager: SceneManager) {}
+ 
+   public async init(gameKey: string, enabled: boolean) {
++    this.scopeVersion += 1;
+     this.gameKey = gameKey;
+     this.enabled = enabled;
+     this.data = { flowcharts: [] };
+     this.unlocked.clear();
+     this.snapshots.clear();
+-    if (!enabled || !gameKey) return;
++    this.latestSnapshot.clear();
++    if (!enabled || !gameKey || !isSaveStorageEnabled()) return;
++    const scope = this.captureStorageScope();
+     try {
+       const res = await axios.get('./game/flowchart.json');
+-      this.data = normalizeFlowchartData(res.data);
+-      const unlocked = await localforage.getItem<string[]>(this.progressKey());
++      if (!this.isStorageScopeCurrent(scope)) return;
++      const data = normalizeFlowchartData(res.data);
++      const unlocked = await localforage.getItem<string[]>(`${scope.gameKey}-flowchart`);
++      if (!this.isStorageScopeCurrent(scope)) return;
++      this.data = data;
+       this.unlocked = new Set(Array.isArray(unlocked) ? unlocked : []);
+       this.unlockPendingCurrentScene();
+     } catch {
+-      this.data = { flowcharts: [] };
++      if (this.isStorageScopeCurrent(scope)) this.data = { flowcharts: [] };
+     }
+   }
+ 
+@@ -109,23 +142,42 @@ export class FlowchartManager {
+   }
+ 
+   public async loadSnapshot(flowchartId: string, nodeId: string) {
+-    const key = this.nodeKey(flowchartId, nodeId);
+-    if (!this.unlocked.has(key)) return null;
+-    const cached = this.snapshots.get(key);
+-    if (cached) return cached;
+-    return await localforage.getItem<ISaveData>(this.snapshotKey(flowchartId, nodeId));
++    try {
++      const scope = this.captureStorageScope();
++      const key = this.nodeKey(flowchartId, nodeId);
++      if (!this.unlocked.has(key)) return null;
++      const cached = this.snapshots.get(key);
++      if (cached) return cached;
++      const snapshot = await localforage.getItem<ISaveData>(`${scope.gameKey}-flowchart-${key}`);
++      return this.isStorageScopeCurrent(scope) ? snapshot : null;
++    } catch (error) {
++      reportSaveError(error);
++      return null;
++    }
+   }
+ 
+   public async clearProgress() {
+-    const keys = [...this.unlocked];
+-    this.unlocked.clear();
+-    this.snapshots.clear();
+-    await Promise.all(keys.map((key) => localforage.removeItem(this.snapshotKeyByNodeKey(key))));
+-    await localforage.removeItem(this.progressKey());
+-    window.dispatchEvent(new Event(FLOWCHART_UPDATED_EVENT));
++    try {
++      const scope = this.captureStorageScope();
++      this.latestSnapshot.clear();
++      await this.persistTask.catch(() => {});
++      if (!this.isStorageScopeCurrent(scope)) throw new Error('流程图所属作品已切换，没有继续清理。');
++      for (const key of this.unlocked) {
++        await localforage.removeItem(`${scope.gameKey}-flowchart-${key}`);
++        if (!this.isStorageScopeCurrent(scope)) throw new Error('流程图所属作品已切换，没有继续清理。');
++      }
++      await localforage.removeItem(`${scope.gameKey}-flowchart`);
++      if (!this.isStorageScopeCurrent(scope)) throw new Error('流程图所属作品已切换，没有公布清理结果。');
++      this.unlocked.clear();
++      this.snapshots.clear();
++      window.dispatchEvent(new Event(FLOWCHART_UPDATED_EVENT));
++    } catch (error) {
++      reportSaveError(error);
++      throw error;
++    }
+   }
+ 
+-  public unlockCurrentScene(refreshSnapshot = false) {
++  public async unlockCurrentScene(refreshSnapshot = false) {
+     if (!this.hasFlowchart()) return;
+     const sceneNames = new Set([
+       normalizeSceneName(this.sceneManager.sceneData.currentScene.sceneName),
+@@ -137,39 +189,54 @@ export class FlowchartManager {
+         .map((node) => ({ flowchart, node })),
+     );
+     if (matched.length === 0) return;
+-    const snapshot = this.createSnapshot();
+-    let changed = false;
+-    matched.forEach(({ flowchart, node }) => {
+-      const key = this.nodeKey(flowchart.id, node.id);
+-      const isUnlocked = this.unlocked.has(key);
+-      if (isUnlocked && !refreshSnapshot) return;
+-      if (!isUnlocked) {
+-        changed = true;
+-        this.unlocked.add(key);
++    if (this.sceneManager.lockSceneWrite) return;
++    const epoch = this.sceneManager.getSessionEpoch();
++    const sequence = ++this.snapshotSequence;
++    for (const { flowchart, node } of matched) this.latestSnapshot.set(this.nodeKey(flowchart.id, node.id), sequence);
++    let snapshot: ISaveData;
++    let scope: { gameKey: string; version: number; storageEpoch: number };
++    try {
++      scope = this.captureStorageScope();
++      snapshot = this.createSnapshot();
++      await validateForSave();
++    } catch (error) {
++      reportSaveError(error);
++      return;
++    }
++    if (!this.sceneManager.isSessionCurrent(epoch) || !this.isStorageScopeCurrent(scope)) return;
++    const persist = async () => {
++      if (!this.sceneManager.isSessionCurrent(epoch) || !this.isStorageScopeCurrent(scope)) return;
++      const targets = matched.filter(({ flowchart, node }) => {
++        const key = this.nodeKey(flowchart.id, node.id);
++        return this.latestSnapshot.get(key) === sequence && (!this.unlocked.has(key) || refreshSnapshot);
++      });
++      if (targets.length === 0) return;
++      const nextUnlocked = new Set(this.unlocked);
++      for (const { flowchart, node } of targets) {
++        await localforage.setItem(`${scope.gameKey}-flowchart-${this.nodeKey(flowchart.id, node.id)}`, snapshot);
++        if (!this.isStorageScopeCurrent(scope)) return;
++        nextUnlocked.add(this.nodeKey(flowchart.id, node.id));
+       }
+-      this.snapshots.set(key, snapshot);
+-      localforage.setItem(this.snapshotKey(flowchart.id, node.id), snapshot);
+-    });
+-    if (changed) {
+-      localforage.setItem(this.progressKey(), [...this.unlocked]);
+-      window.dispatchEvent(new Event(FLOWCHART_UPDATED_EVENT));
++      const changed = nextUnlocked.size !== this.unlocked.size;
++      if (changed) await localforage.setItem(`${scope.gameKey}-flowchart`, [...nextUnlocked]);
++      if (!this.isStorageScopeCurrent(scope)) return;
++      // Publish only after all writes have succeeded; orphan snapshots remain exportable on failure.
++      this.unlocked = nextUnlocked;
++      for (const { flowchart, node } of targets) this.snapshots.set(this.nodeKey(flowchart.id, node.id), snapshot);
++      if (changed) window.dispatchEvent(new Event(FLOWCHART_UPDATED_EVENT));
++    };
++    this.persistTask = this.persistTask.catch(() => {}).then(persist);
++    try {
++      await this.persistTask;
++    } catch (error) {
++      reportSaveError(error);
+     }
+   }
+ 
+   private createSnapshot(): ISaveData {
+-    return {
+-      nowStageState: cloneDeep(stageStateManager.getViewStageState()),
+-      backlog: [],
+-      index: -1,
+-      saveTime: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString('chinese', { hour12: false }),
+-      sceneData: {
+-        currentSentenceId: this.sceneManager.sceneData.currentSentenceId,
+-        sceneStack: cloneDeep(this.sceneManager.sceneData.sceneStack),
+-        sceneName: this.sceneManager.sceneData.currentScene.sceneName,
+-        sceneUrl: this.sceneManager.sceneData.currentScene.sceneUrl,
+-      },
+-      previewImage: '',
+-    };
++    const snapshot = generateCurrentStageData(-1, false);
++    snapshot.backlog = [];
++    return snapshot;
+   }
+ 
+   private progressKey() {
+diff --git a/packages/webgal/src/Core/Modules/perform/performController.ts b/packages/webgal/src/Core/Modules/perform/performController.ts
+index 7306d94dfcd00ed712855d82df3c35c8da171208..a6b784f048f4e4146622ac7ff08fb3759e7a6f94 100644
+--- a/packages/webgal/src/Core/Modules/perform/performController.ts
++++ b/packages/webgal/src/Core/Modules/perform/performController.ts
+@@ -22,6 +22,7 @@ export class PerformController {
+   public performList: Array<IPerform> = [];
+   private pendingPerformList: Array<IPendingPerform> = [];
+   private isCollectingPerforms = false;
++  private generation = 0;
+   private stopTimeoutMap = new WeakMap<IPerform, ReturnType<typeof setTimeout>>();
+ 
+   /**
+@@ -295,6 +296,7 @@ export class PerformController {
+   }
+ 
+   public removeAllPerform() {
++    this.generation += 1;
+     this.pendingPerformList = [];
+     for (const e of this.performList) {
+       this.clearPerformTimeout(e);
+@@ -323,7 +325,8 @@ export class PerformController {
+    * goNextWhenOver 不等于无条件跳下一句；它仍然必须等待所有 blockingNext 演出结束。
+    * 等待完成后使用 continueSentence，避免触发 userInteractNext，也避免把自然结束误当成用户点击。
+    */
+-  private goNextWhenOver = () => {
++  private goNextWhenOver = (generation = this.generation) => {
++    if (generation !== this.generation) return;
+     let isBlockingNext = false;
+     this.performList?.forEach((e) => {
+       if (e.blockingNext())
+@@ -333,7 +336,7 @@ export class PerformController {
+     if (isBlockingNext) {
+       // 有阻塞，提前结束
+       // 其他演出仍阻塞推进，间隔重试以等待其结束，避免同步递归占住主线程。
+-      setTimeout(this.goNextWhenOver, 100);
++      setTimeout(() => this.goNextWhenOver(generation), 100);
+     } else {
+       continueSentence();
+     }
+diff --git a/packages/webgal/src/Core/Modules/scene.ts b/packages/webgal/src/Core/Modules/scene.ts
+index cc217b23c9e8feb4123f8bbc34d2432ce79402ac..9f8ca005fef5cbeeba3aab14b16f8f739d08147d 100644
+--- a/packages/webgal/src/Core/Modules/scene.ts
++++ b/packages/webgal/src/Core/Modules/scene.ts
+@@ -38,8 +38,49 @@ export class SceneManager {
+   public sceneData: ISceneData = cloneDeep(initSceneData);
+   public lockSceneWrite = false;
+   public sceneWritePromise: Promise<void> | null = null;
++  private sessionEpoch = 0;
++  private operation: 'scene' | 'restore' | null = null;
++
++  /** Invalidate callbacks belonging to an earlier title/start/preview/restore session. */
++  public invalidateSession() {
++    this.sessionEpoch += 1;
++    this.operation = null;
++    this.lockSceneWrite = false;
++    this.sceneWritePromise = null;
++    return this.sessionEpoch;
++  }
++
++  public getSessionEpoch() {
++    return this.sessionEpoch;
++  }
++
++  public isSessionCurrent(epoch: number) {
++    return epoch === this.sessionEpoch;
++  }
++
++  public beginRestoreRequest() {
++    if (this.operation === 'scene') throw new Error('场景正在切换，请稍后再读档。');
++    const epoch = this.invalidateSession();
++    this.operation = 'restore';
++    this.lockSceneWrite = true;
++    return epoch;
++  }
++
++  public beginSceneWrite() {
++    this.operation = 'scene';
++    this.lockSceneWrite = true;
++    return this.sessionEpoch;
++  }
++
++  public finishSessionOperation(epoch: number, expectedOperation: 'scene' | 'restore' = 'restore') {
++    if (!this.isSessionCurrent(epoch) || this.operation !== expectedOperation) return;
++    this.operation = null;
++    this.lockSceneWrite = false;
++    this.sceneWritePromise = null;
++  }
+ 
+   public resetScene() {
++    this.invalidateSession();
+     this.sceneData.currentSentenceId = 0;
+     this.sceneData.sceneStack = [];
+     this.sceneData.currentScene = cloneDeep(initSceneData.currentScene);
+@@ -55,11 +96,11 @@ export class SceneManager {
+    * @param locals 被调用场景的局部变量
+    * @param writeReturnTo 返回值写回当前帧的哪个变量
+    */
+-  public pushFrame(locals: IGameVar, writeReturnTo?: string) {
++  public pushFrame(locals: IGameVar, writeReturnTo?: string, continueLine = this.sceneData.currentSentenceId) {
+     this.sceneData.sceneStack.push({
+       sceneName: this.sceneData.currentScene.sceneName,
+       sceneUrl: this.sceneData.currentScene.sceneUrl,
+-      continueLine: this.sceneData.currentSentenceId,
++      continueLine,
+       locals: this.sceneData.currentLocals,
+       writeReturnTo,
+     });
+diff --git a/packages/webgal/src/Core/controller/gamePlay/backToTitle.ts b/packages/webgal/src/Core/controller/gamePlay/backToTitle.ts
+index 80927591f99862ab79c1f45c31ea7b4570394b11..8b4937c4582dd44a0d9b09793bd39e0ad619c2fd 100644
+--- a/packages/webgal/src/Core/controller/gamePlay/backToTitle.ts
++++ b/packages/webgal/src/Core/controller/gamePlay/backToTitle.ts
+@@ -1,3 +1,4 @@
++import { WebGAL } from '@/Core/WebGAL';
+ import { webgalStore } from '@/store/store';
+ import { setVisibility } from '@/store/GUIReducer';
+ import { stopAllPerform } from '@/Core/controller/gamePlay/stopAllPerform';
+@@ -9,7 +10,9 @@ import { fastSaveGame } from '../storage/fastSaveLoad';
+ 
+ export const backToTitle = () => {
+   if (webgalStore.getState().GUI.showTitle) return;
+-  fastSaveGame();
++  const wasChangingScene = WebGAL.sceneManager.lockSceneWrite;
++  WebGAL.sceneManager.invalidateSession();
++  if (!wasChangingScene) void fastSaveGame();
+   const dispatch = webgalStore.dispatch;
+   stopAllPerform();
+   stopAuto();
+diff --git a/packages/webgal/src/Core/controller/gamePlay/startContinueGame.ts b/packages/webgal/src/Core/controller/gamePlay/startContinueGame.ts
+index 75c6d340c2d1d3312acd0c862f6acd65cad51fe4..2a285b54e738ca3aded9521eae082cb8ed5e03df 100644
+--- a/packages/webgal/src/Core/controller/gamePlay/startContinueGame.ts
++++ b/packages/webgal/src/Core/controller/gamePlay/startContinueGame.ts
+@@ -1,3 +1,4 @@
++import { reportSaveError, waitForRuntimeReady } from '@/Core/controller/storage/makenovelCompatibility';
+ import { assetSetter, fileType } from '../../util/gameAssetsAccess/assetSetter';
+ import { sceneFetcher } from '../scene/sceneFetcher';
+ import { sceneParser } from '../../parser/sceneParser';
+@@ -5,39 +6,37 @@ import { resetStage } from '@/Core/controller/stage/resetStage';
+ import { webgalStore } from '@/store/store';
+ import { setVisibility } from '@/store/GUIReducer';
+ import { continueSentence } from '@/Core/controller/gamePlay/nextSentence';
+-import { setEbg } from '@/Core/gameScripts/changeBg/setEbg';
+-import { restorePerform } from '@/Core/controller/storage/jumpFromBacklog';
+ 
+-import { hasFastSaveRecord, loadFastSaveGame } from '@/Core/controller/storage/fastSaveLoad';
++import { loadFastSaveGame } from '@/Core/controller/storage/fastSaveLoad';
+ import { WebGAL } from '@/Core/WebGAL';
+-import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
+ 
+ /**
+  * 从头开始游戏
+  */
+-export const startGame = () => {
+-  resetStage(true);
+-
+-  // 重新获取初始场景
+-  const sceneUrl: string = assetSetter('start.txt', fileType.scene);
+-  // 场景写入到运行时
+-  sceneFetcher(sceneUrl).then((rawScene) => {
+-    WebGAL.sceneManager.sceneData.currentScene = sceneParser(rawScene, 'start.txt', sceneUrl);
++export const startGame = async () => {
++  const manager = WebGAL.sceneManager;
++  const epoch = manager.invalidateSession();
++  manager.beginSceneWrite();
++  try {
++    await waitForRuntimeReady();
++    if (!manager.isSessionCurrent(epoch)) return;
++    // Fetch before reset, so a missing initial scene does not erase a current game.
++    const sceneUrl = assetSetter('start.txt', fileType.scene);
++    const rawScene = await sceneFetcher(sceneUrl);
++    if (!manager.isSessionCurrent(epoch)) return;
++    const parsedScene = sceneParser(rawScene, 'start.txt', sceneUrl);
++    resetStage(true);
++    manager.sceneData.currentScene = parsedScene;
+     WebGAL.flowchartManager.waitForCurrentSceneDialog();
+-    // 开始第一条语句
++    webgalStore.dispatch(setVisibility({ component: 'showTitle', visibility: false }));
+     continueSentence();
+-  });
+-  webgalStore.dispatch(setVisibility({ component: 'showTitle', visibility: false }));
++  } catch (error) {
++    if (manager.isSessionCurrent(epoch)) reportSaveError(error);
++  } finally {
++    manager.finishSessionOperation(epoch, 'scene');
++  }
+ };
+ 
+ export async function continueGame() {
+-  /**
+-   * 重设模糊背景
+-   */
+-  setEbg(stageStateManager.getViewStageState().bgName);
+-  if (await hasFastSaveRecord()) {
+-    webgalStore.dispatch(setVisibility({ component: 'showTitle', visibility: false }));
+-    // 恢复记录
+-    await loadFastSaveGame();
+-  }
++  return loadFastSaveGame();
+ }
+diff --git a/packages/webgal/src/Core/controller/scene/callScene.ts b/packages/webgal/src/Core/controller/scene/callScene.ts
+index 26045c25a6e8d60b29cc51ab8751bb1796ea564c..7bcefc982a2d15138ba1a4d9b65db0d30e6661e0 100644
+--- a/packages/webgal/src/Core/controller/scene/callScene.ts
++++ b/packages/webgal/src/Core/controller/scene/callScene.ts
+@@ -23,15 +23,18 @@ export const callScene = (sceneUrl: string, sceneName: string, locals: IGameVar
+     logger.error(`场景调用层数超过 ${MAX_SCENE_STACK_DEPTH}，可能存在 callScene 无限递归`, sceneUrl);
+     return;
+   }
+-  WebGAL.sceneManager.lockSceneWrite = true;
++  const epoch = WebGAL.sceneManager.beginSceneWrite();
+   const isFastPreviewSceneWrite = WebGAL.gameplay.isFastPreview;
+   let shouldAutoNext = false;
+-  // 先将本场景压入场景栈
+-  WebGAL.sceneManager.pushFrame(locals, writeReturnTo);
++  // 记录调用点；场景成功解析后才压栈，避免失败留下混合状态。
++  const callerLine = WebGAL.sceneManager.sceneData.currentSentenceId;
+   // 场景写入到运行时
+   const sceneWritePromise = sceneFetcher(sceneUrl)
+     .then((rawScene) => {
+-      WebGAL.sceneManager.sceneData.currentScene = sceneParser(rawScene, sceneName, sceneUrl);
++      if (!WebGAL.sceneManager.isSessionCurrent(epoch)) return;
++      const nextScene = sceneParser(rawScene, sceneName, sceneUrl);
++      WebGAL.sceneManager.pushFrame(locals, writeReturnTo, callerLine);
++      WebGAL.sceneManager.sceneData.currentScene = nextScene;
+       WebGAL.sceneManager.sceneData.currentSentenceId = 0;
+       clearPrefetchLinks();
+       WebGAL.sceneManager.settledScenes.add(sceneUrl); // 放入已加载场景列表，避免递归加载相同场景
+@@ -40,12 +43,13 @@ export const callScene = (sceneUrl: string, sceneName: string, locals: IGameVar
+       shouldAutoNext = !isFastPreviewSceneWrite;
+     })
+     .catch((e) => {
+-      // 场景没写进来，之前压入的帧要弹回去，否则调用方会带着被调用方的局部变量继续跑
+-      WebGAL.sceneManager.popFrame();
++      if (!WebGAL.sceneManager.isSessionCurrent(epoch)) return;
++      // 未加载成功时没有压栈或替换局部变量。
+       logger.error('场景调用错误', e);
+     })
+     .finally(() => {
+-      WebGAL.sceneManager.lockSceneWrite = false;
++      if (!WebGAL.sceneManager.isSessionCurrent(epoch)) return;
++      WebGAL.sceneManager.finishSessionOperation(epoch, 'scene');
+       if (WebGAL.sceneManager.sceneWritePromise === sceneWritePromise) {
+         WebGAL.sceneManager.sceneWritePromise = null;
+       }
+diff --git a/packages/webgal/src/Core/controller/scene/changeScene.ts b/packages/webgal/src/Core/controller/scene/changeScene.ts
+index bef8d1e37cb06bc5e6d1bd14ba732da811760e58..3f2f744586359a2d336f2a09a06b96f366fd8340 100644
+--- a/packages/webgal/src/Core/controller/scene/changeScene.ts
++++ b/packages/webgal/src/Core/controller/scene/changeScene.ts
+@@ -15,12 +15,13 @@ export const changeScene = (sceneUrl: string, sceneName: string) => {
+   if (WebGAL.sceneManager.lockSceneWrite) {
+     return;
+   }
+-  WebGAL.sceneManager.lockSceneWrite = true;
++  const epoch = WebGAL.sceneManager.beginSceneWrite();
+   const isFastPreviewSceneWrite = WebGAL.gameplay.isFastPreview;
+   let shouldAutoNext = false;
+   // 场景写入到运行时
+   const sceneWritePromise = sceneFetcher(sceneUrl)
+     .then((rawScene) => {
++      if (!WebGAL.sceneManager.isSessionCurrent(epoch)) return;
+       WebGAL.sceneManager.sceneData.currentScene = sceneParser(rawScene, sceneName, sceneUrl);
+       WebGAL.sceneManager.sceneData.currentSentenceId = 0;
+       clearPrefetchLinks();
+@@ -30,10 +31,12 @@ export const changeScene = (sceneUrl: string, sceneName: string) => {
+       shouldAutoNext = !isFastPreviewSceneWrite;
+     })
+     .catch((e) => {
++      if (!WebGAL.sceneManager.isSessionCurrent(epoch)) return;
+       logger.error('场景调用错误', e);
+     })
+     .finally(() => {
+-      WebGAL.sceneManager.lockSceneWrite = false;
++      if (!WebGAL.sceneManager.isSessionCurrent(epoch)) return;
++      WebGAL.sceneManager.finishSessionOperation(epoch, 'scene');
+       if (WebGAL.sceneManager.sceneWritePromise === sceneWritePromise) {
+         WebGAL.sceneManager.sceneWritePromise = null;
+       }
+diff --git a/packages/webgal/src/Core/controller/scene/restoreScene.ts b/packages/webgal/src/Core/controller/scene/restoreScene.ts
+index a418540330ef48e4825df193e35800d8357659c6..0b996287624c20960e97cfd3fc349b27d4c2068f 100644
+--- a/packages/webgal/src/Core/controller/scene/restoreScene.ts
++++ b/packages/webgal/src/Core/controller/scene/restoreScene.ts
+@@ -10,26 +10,31 @@ import { WebGAL } from '@/Core/WebGAL';
+  * 恢复场景
+  * @param entry 场景入口
+  */
+-export const restoreScene = (entry: ISceneEntry) => {
++export const restoreScene = (entry: ISceneEntry, beforeCommit: () => void = () => {}) => {
+   if (WebGAL.sceneManager.lockSceneWrite) {
+     return;
+   }
+-  WebGAL.sceneManager.lockSceneWrite = true;
++  const epoch = WebGAL.sceneManager.beginSceneWrite();
+   const isFastPreviewSceneWrite = WebGAL.gameplay.isFastPreview;
+   let shouldAutoNext = false;
+   // 场景写入到运行时
+   const sceneWritePromise = sceneFetcher(entry.sceneUrl)
+     .then((rawScene) => {
+-      WebGAL.sceneManager.sceneData.currentScene = sceneParser(rawScene, entry.sceneName, entry.sceneUrl);
++      if (!WebGAL.sceneManager.isSessionCurrent(epoch)) return;
++      const nextScene = sceneParser(rawScene, entry.sceneName, entry.sceneUrl);
++      beforeCommit();
++      WebGAL.sceneManager.sceneData.currentScene = nextScene;
+       WebGAL.sceneManager.sceneData.currentSentenceId = entry.continueLine + 1; // 重设场景
+       logger.debug('现在恢复场景，恢复后场景：', WebGAL.sceneManager.sceneData.currentScene);
+       shouldAutoNext = !isFastPreviewSceneWrite;
+     })
+     .catch((e) => {
++      if (!WebGAL.sceneManager.isSessionCurrent(epoch)) return;
+       logger.error('场景调用错误', e);
+     })
+     .finally(() => {
+-      WebGAL.sceneManager.lockSceneWrite = false;
++      if (!WebGAL.sceneManager.isSessionCurrent(epoch)) return;
++      WebGAL.sceneManager.finishSessionOperation(epoch, 'scene');
+       if (WebGAL.sceneManager.sceneWritePromise === sceneWritePromise) {
+         WebGAL.sceneManager.sceneWritePromise = null;
+       }
+diff --git a/packages/webgal/src/Core/controller/scene/returnFromScene.ts b/packages/webgal/src/Core/controller/scene/returnFromScene.ts
+index bcf00b7e6f8d0c6e5ddcd3bd3c9530a5e4e16a47..6ac57caa9a5c7fdcfe4beeea61f7b8943508f943 100644
+--- a/packages/webgal/src/Core/controller/scene/returnFromScene.ts
++++ b/packages/webgal/src/Core/controller/scene/returnFromScene.ts
+@@ -13,12 +13,13 @@ export const returnFromScene = (returnValue: string | boolean | number = '') =>
+   if (WebGAL.sceneManager.lockSceneWrite) {
+     return;
+   }
+-  const entry = WebGAL.sceneManager.popFrame();
++  const stack = WebGAL.sceneManager.sceneData.sceneStack;
++  const entry = stack[stack.length - 1];
+   if (!entry) {
+     return;
+   }
+-  if (entry.writeReturnTo) {
+-    setGameVar({ key: entry.writeReturnTo, value: returnValue });
+-  }
+-  restoreScene(entry);
++  restoreScene(entry, () => {
++    WebGAL.sceneManager.popFrame();
++    if (entry.writeReturnTo) setGameVar({ key: entry.writeReturnTo, value: returnValue });
++  });
+ };
+diff --git a/packages/webgal/src/Core/controller/storage/fastSaveLoad.ts b/packages/webgal/src/Core/controller/storage/fastSaveLoad.ts
+index e8538299f3615e249828480a0f2d3489cfb59e52..b84a1dbd779529ac678c7570a03664fbf12fcb7b 100644
+--- a/packages/webgal/src/Core/controller/storage/fastSaveLoad.ts
++++ b/packages/webgal/src/Core/controller/storage/fastSaveLoad.ts
+@@ -1,18 +1,14 @@
++import { captureSaveCompatibility, validateForSave, reportSaveError } from './makenovelCompatibility';
+ import { webgalStore } from '@/store/store';
+-import { getStorageAsync } from '@/Core/controller/storage/storageController';
+-import { ISaveData } from '@/store/userDataInterface';
+ import { loadGameFromStageData } from '@/Core/controller/storage/loadGame';
+ import { generateCurrentStageData } from '@/Core/controller/storage/saveGame';
+-import cloneDeep from 'lodash/cloneDeep';
+ import throttle from 'lodash/throttle';
+ import { WebGAL } from '@/Core/WebGAL';
+-import { saveActions } from '@/store/savesReducer';
+-import { dumpFastSaveToStorage, getFastSaveFromStorage } from '@/Core/controller/storage/savesController';
++import { writeFastSave, getFastSaveFromStorage } from '@/Core/controller/storage/savesController';
+ 
+ export let fastSaveGameKey = '';
+ export let isFastSaveKey = '';
+ let lock = true;
+-let dumpFastSaveTask = Promise.resolve();
+ 
+ export function initKey() {
+   lock = false;
+@@ -20,58 +16,67 @@ export function initKey() {
+   isFastSaveKey = `FastSaveActive-${WebGAL.gameName}-${WebGAL.gameKey}`;
+ }
+ 
+-function dumpFastSaveToStorageSerial() {
+-  dumpFastSaveTask = dumpFastSaveTask.catch(() => {}).then(dumpFastSaveToStorage);
+-  return dumpFastSaveTask;
+-}
+-
+ /**
+  * 用于紧急回避时的数据存储 & 快速保存
+  */
+-export async function fastSaveGame() {
++let latestFastSave = 0;
++
++export async function fastSaveGame(silent = false): Promise<boolean> {
++  const manager = WebGAL.sceneManager;
+   const showTitle = webgalStore.getState().GUI.showTitle;
+-  if (showTitle || WebGAL.sceneManager.sceneData.currentSentenceId === 0 || WebGAL.sceneManager.lockSceneWrite) {
+-    // 如果在标题界面、游戏未开始或场景正在写入（此时状态是撕裂的），不进行快速保存
+-    return;
++  if (showTitle || manager.sceneData.currentSentenceId === 0 || manager.lockSceneWrite) return false;
++  const sequence = ++latestFastSave;
++  const epoch = manager.getSessionEpoch();
++  try {
++    const snapshot = generateCurrentStageData(-1, false);
++    await validateForSave();
++    if (!manager.isSessionCurrent(epoch) || sequence !== latestFastSave) return false;
++    await writeFastSave(snapshot);
++    return true;
++  } catch (error) {
++    if (!silent) reportSaveError(error);
++    return false;
+   }
+-  const saveData: ISaveData = generateCurrentStageData(-1, false);
+-  const newSaveData = cloneDeep(saveData);
+-  webgalStore.dispatch(saveActions.setFastSave(newSaveData));
+-  await dumpFastSaveToStorageSerial();
+ }
+ 
+ export const autoFastSaveGame = throttle(() => {
+-  void fastSaveGame();
++  void fastSaveGame(true);
+ }, 1000);
+ 
+-/**
+- * 判断是否有无存储紧急回避时的数据
+- */
+ export async function hasFastSaveRecord() {
+-  // return await localforage.getItem(isFastSaveKey);
+-  await getStorageAsync();
+-  return webgalStore.getState().saveData.quickSaveData !== null;
++  if (!captureSaveCompatibility()) return false;
++  try {
++    return (await getFastSaveFromStorage()) !== null;
++  } catch (error) {
++    reportSaveError(error);
++    return false;
++  }
+ }
+ 
+-/**
+- * 加载紧急回避时的数据
+- */
+-export async function loadFastSaveGame() {
+-  // 获得存档文件
+-  // const loadFile: ISaveData | null = await localforage.getItem(fastSaveGameKey);
+-  await getFastSaveFromStorage();
+-  const loadFile: ISaveData | null = webgalStore.getState().saveData.quickSaveData;
+-  if (!loadFile) {
+-    return;
++/** The request begins before the asynchronous slot read, so first-click late reads cannot win. */
++export async function loadFastSaveGame(): Promise<boolean> {
++  const manager = WebGAL.sceneManager;
++  let epoch: number | undefined;
++  try {
++    if (!captureSaveCompatibility()) throw new Error('作品版本或玩家备份尚未就绪，暂不能继续游戏。');
++    epoch = manager.beginRestoreRequest();
++    const snapshot = await getFastSaveFromStorage();
++    if (!manager.isSessionCurrent(epoch)) return false;
++    if (!snapshot) throw new Error('没有可继续的快速存档。');
++    return await loadGameFromStageData(snapshot, epoch);
++  } catch (error) {
++    if (epoch === undefined || manager.isSessionCurrent(epoch)) reportSaveError(error);
++    return false;
++  } finally {
++    if (epoch !== undefined) manager.finishSessionOperation(epoch);
+   }
+-  loadGameFromStageData(loadFile);
+ }
+ 
+ /**
+  * 移除紧急回避的数据
+  */
+ export async function removeFastSaveGameRecord() {
++  latestFastSave += 1;
+   autoFastSaveGame.cancel();
+-  webgalStore.dispatch(saveActions.resetFastSave());
+-  await dumpFastSaveToStorageSerial();
++  await writeFastSave(null);
+ }
+diff --git a/packages/webgal/src/Core/controller/storage/jumpFromBacklog.ts b/packages/webgal/src/Core/controller/storage/jumpFromBacklog.ts
+index a1a72a5c84fb74e7b45ef7ebc4998abaded88abb..7833cc74e49bf6f5f49ea259735d07c808c3d13c 100644
+--- a/packages/webgal/src/Core/controller/storage/jumpFromBacklog.ts
++++ b/packages/webgal/src/Core/controller/storage/jumpFromBacklog.ts
+@@ -1,11 +1,5 @@
+-import { logger } from '../../util/logger';
+-import { sceneFetcher } from '../scene/sceneFetcher';
+-import { sceneParser } from '../../parser/sceneParser';
+-import { IStageState } from '@/Core/Modules/stage/stageInterface';
+-import { webgalStore } from '@/store/store';
+-import { setVisibility } from '@/store/GUIReducer';
++import { loadGameFromStageData } from './loadGame';
+ import { runScript } from '@/Core/controller/gamePlay/runScript';
+-import { stopAllPerform } from '@/Core/controller/gamePlay/stopAllPerform';
+ import cloneDeep from 'lodash/cloneDeep';
+ 
+ import { WebGAL } from '@/Core/WebGAL';
+@@ -48,53 +42,23 @@ export const restorePerform = (skipAnimation = false) => {
+  * @param index
+  * @param refetchScene
+  */
+-export const jumpFromBacklog = (index: number, refetchScene = true) => {
+-  const dispatch = webgalStore.dispatch;
+-  // 获得存档文件
+-  const backlogFile = WebGAL.backlogManager.getBacklog()[index];
+-  logger.debug('读取的backlog数据', backlogFile);
+-  // 重新获取并同步场景状态
+-  if (refetchScene)
+-    sceneFetcher(backlogFile.saveScene.sceneUrl).then((rawScene) => {
+-      WebGAL.sceneManager.sceneData.currentScene = sceneParser(
+-        rawScene,
+-        backlogFile.saveScene.sceneName,
+-        backlogFile.saveScene.sceneUrl,
+-      );
+-      WebGAL.sceneManager.settledScenes.add(WebGAL.sceneManager.sceneData.currentScene.sceneUrl); // 放入已加载场景列表，避免递归加载相同场景
+-    });
+-  WebGAL.sceneManager.sceneData.currentSentenceId = backlogFile.saveScene.currentSentenceId;
+-  WebGAL.sceneManager.sceneData.sceneStack = cloneDeep(backlogFile.saveScene.sceneStack);
+-  WebGAL.sceneManager.sceneData.currentLocals = cloneDeep(backlogFile.saveScene.currentLocals ?? {}); // 旧存档没有此字段
+-
+-  // 强制停止所有演出
+-  stopAllPerform();
+-
+-  // 弹出backlog项目到指定状态
+-  for (let i = WebGAL.backlogManager.getBacklog().length - 1; i > index; i--) {
+-    WebGAL.backlogManager.getBacklog().pop();
+-  }
+-
+-  // 要记录本句 Backlog
+-  WebGAL.backlogManager.isSaveBacklogNext = true;
+-
+-  // 恢复舞台状态
+-  const newStageState: IStageState = cloneDeep(backlogFile.currentStageState);
+-
+-  // 确保原先未读的文本在使用 backlog 时能正确显示为已读文本
+-  newStageState.isRead = true;
+-
+-  stageStateManager.replaceCalculationStageState(newStageState);
+-
+-  // 恢复演出
+-  restorePerform();
+-
+-  // 关闭backlog界面
+-  dispatch(setVisibility({ component: 'showBacklog', visibility: false }));
+-
+-  // 重新显示 TextBox
+-  dispatch(setVisibility({ component: 'showTextBox', visibility: true }));
+-
+-  // 重新渲染
+-  WebGAL.gameplay.pixiStage?.requestRender();
++export const jumpFromBacklog = (index: number, _refetchScene = true) => {
++  const entries = WebGAL.backlogManager.getBacklog();
++  const entry = entries[index];
++  if (!entry) return Promise.resolve(false);
++  // Backlog is the same native payload and must pass the same manifest gate as a slot.
++  // Even the old refetchScene=false entry must not bypass version validation.
++  return loadGameFromStageData(
++    {
++      makenovel: cloneDeep(entry.makenovel),
++      nowStageState: cloneDeep(entry.currentStageState),
++      sceneData: cloneDeep(entry.saveScene),
++      backlog: cloneDeep(entries.slice(0, index + 1)),
++      index: -1,
++      saveTime: '',
++      previewImage: '',
++    },
++    undefined,
++    true,
++  );
+ };
+diff --git a/packages/webgal/src/Core/controller/storage/loadGame.ts b/packages/webgal/src/Core/controller/storage/loadGame.ts
+index d3aaf80c9f9b50fc0ac4e1d9331a87848b69f0c2..0832901257a3cb64a0c7e9b7fea1f7dbcf61f710 100644
+--- a/packages/webgal/src/Core/controller/storage/loadGame.ts
++++ b/packages/webgal/src/Core/controller/storage/loadGame.ts
+@@ -1,73 +1,147 @@
+ import { ISaveData } from '@/store/userDataInterface';
+ import { logger } from '../../util/logger';
+-import { sceneFetcher } from '../scene/sceneFetcher';
+-import { sceneParser } from '../../parser/sceneParser';
++import { ADD_NEXT_ARG_LIST, SCRIPT_CONFIG, scriptRegistry } from '../../parser/sceneParser';
++import SceneParser from 'webgal-parser';
++import { assetSetter } from '@/Core/util/gameAssetsAccess/assetSetter';
+ import { webgalStore } from '@/store/store';
+ import { setVisibility } from '@/store/GUIReducer';
+ import { restorePerform } from './jumpFromBacklog';
+ import { stopAllPerform } from '@/Core/controller/gamePlay/stopAllPerform';
++import { stopAll } from '@/Core/controller/gamePlay/fastSkip';
+ import cloneDeep from 'lodash/cloneDeep';
+ import { setEbg } from '@/Core/gameScripts/changeBg/setEbg';
+-
+ import { WebGAL } from '@/Core/WebGAL';
+ import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
++import { assertCompatibleSnapshot, reportSaveError } from './makenovelCompatibility';
++import { commandType } from '@/Core/controller/scene/sceneInterface';
+ 
+-/**
+- * 读取游戏存档
+- * @param index 要读取的存档的档位
+- */
+-export const loadGame = (index: number) => {
+-  const userDataState = webgalStore.getState().saveData;
+-  // 获得存档文件
+-  const loadFile: ISaveData = userDataState.saveData[index];
+-  logger.debug('读取的存档数据', loadFile);
+-  // 加载存档
+-  loadGameFromStageData(loadFile);
+-};
+-
+-export function loadGameFromStageData(stageData: ISaveData) {
+-  if (!stageData) {
+-    logger.info('暂无存档');
+-    return;
+-  }
+-  const loadFile = stageData;
+-  // 重新获取并同步场景状态
+-  sceneFetcher(loadFile.sceneData.sceneUrl).then((rawScene) => {
+-    WebGAL.sceneManager.sceneData.currentScene = sceneParser(
+-      rawScene,
+-      loadFile.sceneData.sceneName,
+-      loadFile.sceneData.sceneUrl,
+-    );
+-    WebGAL.sceneManager.settledScenes.add(WebGAL.sceneManager.sceneData.currentScene.sceneUrl); // 放入已加载场景列表，避免递归加载相同场景
+-  });
+-  WebGAL.sceneManager.sceneData.currentSentenceId = loadFile.sceneData.currentSentenceId;
+-  WebGAL.sceneManager.sceneData.sceneStack = cloneDeep(loadFile.sceneData.sceneStack);
+-  WebGAL.sceneManager.sceneData.currentLocals = cloneDeep(loadFile.sceneData.currentLocals ?? {}); // 旧存档没有此字段
++// Only native commands which produce a persistent perform belong in this list.
++// Control flow, variable writes, unlocks and Steam calls must never be replayed as performs.
++const restorableCommands = new Set([
++  commandType.say,
++  commandType.changeBg,
++  commandType.changeFigure,
++  commandType.changeFigureDiff,
++  commandType.video,
++  commandType.pixi,
++  commandType.intro,
++  commandType.choose,
++  commandType.setComplexAnimation,
++  commandType.setAnimation,
++  commandType.playEffect,
++  commandType.setTempAnimation,
++  commandType.setTransform,
++  commandType.getUserInput,
++  commandType.wait,
++  commandType.showVars,
++]);
+ 
+-  // 强制停止所有演出
+-  stopAllPerform();
++export const loadGame = (index: number) => loadGameFromStageData(webgalStore.getState().saveData.saveData[index]);
+ 
+-  // 恢复backlog
+-  const newBacklog = loadFile.backlog;
+-  WebGAL.backlogManager.getBacklog().splice(0, WebGAL.backlogManager.getBacklog().length); // 清空原backlog
+-  for (const e of newBacklog) {
+-    WebGAL.backlogManager.getBacklog().push(e);
++/** Preflight completes before touching the scene, stage, backlog or running performs. */
++export async function loadGameFromStageData(
++  stageData: ISaveData,
++  requestEpoch?: number,
++  fromBacklog = false,
++): Promise<boolean> {
++  const manager = WebGAL.sceneManager;
++  let epoch = requestEpoch;
++  try {
++    if (epoch === undefined) epoch = manager.beginRestoreRequest();
++    if (!manager.isSessionCurrent(epoch)) return false;
++    if (!stageData) throw new Error('这个位置没有可读取的存档。');
++    const loadFile = cloneDeep(stageData);
++    const { rawScene, sceneSources } = await assertCompatibleSnapshot(loadFile);
++    if (!manager.isSessionCurrent(epoch)) return false;
++    // Construct lazily: the native registry imports game scripts which also import storage.
++    // Asset collection stays enabled, but preflight cannot enqueue preloads or mutate global state.
++    const restoreParser = new SceneParser(() => {}, assetSetter, ADD_NEXT_ARG_LIST, SCRIPT_CONFIG);
++    const parsedScenes = new Map<string, ReturnType<typeof restoreParser.parse>>();
++    const getParsed = (url: string, name: string) => {
++      const cached = parsedScenes.get(url);
++      if (cached) return cached;
++      const source = url === loadFile.sceneData.sceneUrl ? rawScene : sceneSources.get(url);
++      if (source === undefined) throw new Error('存档引用的场景没有完成版本预检。');
++      const parsed = restoreParser.parse(source, name, url);
++      parsedScenes.set(url, parsed);
++      return parsed;
++    };
++    const saveScenes = [loadFile.sceneData, ...loadFile.backlog.map((entry) => entry.saveScene)];
++    for (const savedScene of saveScenes) {
++      const scene = getParsed(savedScene.sceneUrl, savedScene.sceneName);
++      if (
++        !Number.isSafeInteger(savedScene.currentSentenceId) ||
++        savedScene.currentSentenceId < 0 ||
++        savedScene.currentSentenceId > scene.sentenceList.length
++      ) {
++        throw new Error('存档语句位置超出了场景范围。');
++      }
++      for (const frame of savedScene.sceneStack) {
++        const parent = getParsed(frame.sceneUrl, frame.sceneName);
++        if (
++          !Number.isSafeInteger(frame.continueLine) ||
++          frame.continueLine < 0 ||
++          frame.continueLine >= parent.sentenceList.length
++        ) {
++          throw new Error('存档父调用位置超出了场景范围。');
++        }
++      }
++    }
++    const parsedScene = getParsed(loadFile.sceneData.sceneUrl, loadFile.sceneData.sceneName);
++    for (const stage of [loadFile.nowStageState, ...loadFile.backlog.map((entry) => entry.currentStageState)]) {
++      for (const perform of stage.PerformList) {
++        if (!restorableCommands.has(perform.script.command) || !scriptRegistry[perform.script.command]?.scriptFunction)
++          throw new Error('存档包含未登记的演出，无法恢复。');
++      }
++    }
++    // No await after this point. All asynchronous failures above preserve the active game.
++    const previousScene = cloneDeep(manager.sceneData);
++    const previousStage = cloneDeep(stageStateManager.getCalculationStageState());
++    const previousBacklog = cloneDeep(WebGAL.backlogManager.getBacklog());
++    const previousBacklogFlag = WebGAL.backlogManager.isSaveBacklogNext;
++    stopAll();
++    WebGAL.gameplay.isFastPreview = false;
++    try {
++      stopAllPerform();
++      manager.sceneData.currentScene = parsedScene;
++      manager.sceneData.currentSentenceId = loadFile.sceneData.currentSentenceId;
++      manager.sceneData.sceneStack = cloneDeep(loadFile.sceneData.sceneStack);
++      manager.sceneData.currentLocals = cloneDeep(loadFile.sceneData.currentLocals ?? {});
++      WebGAL.backlogManager.makeBacklogEmpty();
++      for (const entry of loadFile.backlog) WebGAL.backlogManager.insertBacklogItem(cloneDeep(entry));
++      WebGAL.backlogManager.isSaveBacklogNext = fromBacklog;
++      const nextStage = cloneDeep(loadFile.nowStageState);
++      nextStage.isRead = true;
++      stageStateManager.replaceCalculationStageState(nextStage);
++      restorePerform(!fromBacklog);
++      setEbg(nextStage.bgName, 0);
++      manager.settledScenes.add(parsedScene.sceneUrl);
++    } catch (error) {
++      // Rebuild the prior native state if a synchronous renderer/perform rejects the snapshot.
++      stopAllPerform();
++      manager.sceneData = previousScene;
++      WebGAL.backlogManager.makeBacklogEmpty();
++      for (const entry of previousBacklog) WebGAL.backlogManager.insertBacklogItem(entry);
++      WebGAL.backlogManager.isSaveBacklogNext = previousBacklogFlag;
++      stageStateManager.replaceCalculationStageState(previousStage);
++      restorePerform(true);
++      setEbg(previousStage.bgName, 0);
++      throw error;
++    }
++    const dispatch = webgalStore.dispatch;
++    dispatch(setVisibility({ component: 'showTitle', visibility: false }));
++    dispatch(setVisibility({ component: 'showMenuPanel', visibility: false }));
++    dispatch(setVisibility({ component: 'showBacklog', visibility: false }));
++    dispatch(setVisibility({ component: 'showTextBox', visibility: true }));
++    WebGAL.gameplay.pixiStage?.requestRender();
++    return true;
++  } catch (error) {
++    if (epoch === undefined || manager.isSessionCurrent(epoch)) {
++      logger.warn('存档恢复未完成', error);
++      reportSaveError(error);
++    }
++    return false;
++  } finally {
++    if (epoch !== undefined) manager.finishSessionOperation(epoch);
+   }
+-
+-  // 恢复舞台状态
+-  const newStageState = cloneDeep(loadFile.nowStageState);
+-  // 确保原先未读的文本在 load 时能正确显示为已读文本
+-  newStageState.isRead = true;
+-  const dispatch = webgalStore.dispatch;
+-  stageStateManager.replaceCalculationStageState(newStageState);
+-
+-  // 恢复演出
+-  restorePerform(true);
+-
+-  dispatch(setVisibility({ component: 'showTitle', visibility: false }));
+-  dispatch(setVisibility({ component: 'showMenuPanel', visibility: false }));
+-  /**
+-   * 恢复模糊背景
+-   */
+-  setEbg(newStageState.bgName, 0);
+ }
+diff --git a/packages/webgal/src/Core/controller/storage/makenovelCompatibility.ts b/packages/webgal/src/Core/controller/storage/makenovelCompatibility.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..92c100bf89702e28e25a2cff1a5a188d05a02f99
+--- /dev/null
++++ b/packages/webgal/src/Core/controller/storage/makenovelCompatibility.ts
+@@ -0,0 +1,546 @@
++import type { SaveBackupScope } from './saveBackup';
++
++export const RUNTIME_COMPATIBILITY_ID = 'makenovel-webgal-save-v1:d0318e6c4cdb8b04bb5d891f40368cff3c6efc85';
++export type SaveCompatibility = {
++  schemaVersion: 1;
++  projectId: string;
++  gameKey: string;
++  runtimeCompatibilityId: string;
++  manifestHash: string;
++};
++type Manifest = SaveCompatibility & { files: { path: string; size: number; sha256: string }[] };
++type Status = { ready: boolean; message: string; error: string; scope?: SaveBackupScope };
++const HASH = /^[a-f0-9]{64}$/;
++const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
++let pinned: Manifest | undefined;
++let rootURL = '';
++let storageEnabled = false;
++let storageEpoch = 0;
++let previewLatched = false;
++let verifiedConfigText: string | undefined;
++let bootstrapTexts = new Map<string, string>();
++let initializationGeneration = 0;
++let finishRuntimeReady: (() => void) | undefined;
++const runtimeReady = new Promise<void>((resolve) => {
++  finishRuntimeReady = resolve;
++});
++let status: Status = { ready: false, message: '正在核对作品版本…', error: '' };
++const listeners = new Set<() => void>();
++export const getSaveStatus = () => status;
++export const subscribeSaveStatus = (listener: () => void) => {
++  listeners.add(listener);
++  return () => {
++    listeners.delete(listener);
++  };
++};
++function publish(next: Partial<Status>) {
++  status = { ...status, ...next };
++  listeners.forEach((listener) => listener());
++}
++export function reportSaveError(error: unknown) {
++  publish({ error: error instanceof Error ? error.message : '存档操作失败，请保留当前进度并导出备份。' });
++}
++export function clearSaveError() {
++  publish({ error: '' });
++}
++export function setSaveStorageEnabled(value: boolean) {
++  storageEpoch += 1;
++  storageEnabled = value && !previewLatched;
++}
++export const getSaveStorageEpoch = () => storageEpoch;
++export const isSaveStorageEnabled = () => storageEnabled && !previewLatched;
++export const getVerifiedConfigText = (): string | undefined => verifiedConfigText;
++/** Canonical game-relative path; only animation JSON and template JSON/SCSS are retained. */
++export const getVerifiedBootstrapText = (path: string): string | undefined => bootstrapTexts.get(path);
++/** Playback may start after bootstrap even if the author has not sealed a version. */
++export const waitForRuntimeReady = (): Promise<void> => runtimeReady;
++export function finishRuntimeInitialization(): void {
++  finishRuntimeReady?.();
++  finishRuntimeReady = undefined;
++}
++/** A page that has accepted author preview input never writes player progress. */
++export function markPreviewSession(): void {
++  previewLatched = true;
++  storageEnabled = false;
++  storageEpoch += 1;
++  pinned = undefined;
++  verifiedConfigText = undefined;
++  bootstrapTexts.clear();
++  publish({ ready: false, error: '', message: '作者预览模式，不读取或写入玩家进度。' });
++}
++const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
++const exact = (v: unknown, keys: string[]) =>
++  object(v) && Object.keys(v).length === keys.length && keys.every((k) => Object.hasOwn(v, k));
++export async function sha256(bytes: Uint8Array): Promise<string> {
++  const digest = await crypto.subtle.digest('SHA-256', bytes as BufferSource);
++  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
++}
++const encodedPath = (path: string) => path.split('/').map(encodeURIComponent).join('/');
++function safePath(path: unknown): path is string {
++  return (
++    typeof path === 'string' &&
++    path.startsWith('game/') &&
++    path.toLowerCase() !== 'game/makenovel-manifest.json' &&
++    path
++      .split('/')
++      .every(
++        (part) =>
++          part &&
++          part !== '.' &&
++          part !== '..' &&
++          !/[<>:"/\\|?*\u0000-\u001f\u007f]/u.test(part) &&
++          !/[. ]$/u.test(part) &&
++          !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu.test(part),
++      )
++  );
++}
++export async function validateManifest(value: unknown): Promise<Manifest> {
++  if (!exact(value, ['schemaVersion', 'projectId', 'gameKey', 'runtimeCompatibilityId', 'files', 'manifestHash']))
++    throw new Error('作品版本清单格式不完整。');
++  const v = value as Manifest;
++  if (
++    v.schemaVersion !== 1 ||
++    typeof v.projectId !== 'string' ||
++    !UUID.test(v.projectId) ||
++    typeof v.gameKey !== 'string' ||
++    !v.gameKey ||
++    v.gameKey.trim() !== v.gameKey ||
++    /[\u0000-\u001f\u007f]/u.test(v.gameKey) ||
++    /^makenovel-(?:v1|unverified-v1|backup-v1):/.test(v.gameKey) ||
++    v.runtimeCompatibilityId !== RUNTIME_COMPATIBILITY_ID ||
++    !HASH.test(v.manifestHash) ||
++    !Array.isArray(v.files) ||
++    !v.files.length
++  )
++    throw new Error('作品版本清单或引擎版本不兼容。');
++  const seen = new Set<string>();
++  let previous = '';
++  for (const file of v.files) {
++    if (
++      !exact(file, ['path', 'size', 'sha256']) ||
++      !safePath(file.path) ||
++      !Number.isSafeInteger(file.size) ||
++      file.size < 0 ||
++      typeof file.sha256 !== 'string' ||
++      !HASH.test(file.sha256) ||
++      file.path <= previous ||
++      seen.has(file.path.toLowerCase())
++    )
++      throw new Error('作品文件清单无效。');
++    previous = file.path;
++    seen.add(file.path.toLowerCase());
++  }
++  if (!seen.has('game/config.txt') || !v.files.some((f) => f.path === 'game/config.txt'))
++    throw new Error('作品清单缺少配置。');
++  const payload = JSON.stringify({
++    schemaVersion: v.schemaVersion,
++    projectId: v.projectId,
++    gameKey: v.gameKey,
++    runtimeCompatibilityId: v.runtimeCompatibilityId,
++    files: v.files.map(({ path, size, sha256 }) => ({ path, size, sha256 })),
++  });
++  if ((await sha256(new TextEncoder().encode(payload))) !== v.manifestHash) throw new Error('作品版本清单校验失败。');
++  return v;
++}
++async function readBytes(path: string) {
++  const response = await fetch(new URL(encodedPath(path), rootURL), { cache: 'no-store' });
++  if (path === 'game/makenovel-manifest.json' && response.status === 404) {
++    throw new Error('作者尚未登记作品版本，请先登记后重开游戏。');
++  }
++  if (!response.ok) throw new Error(`无法读取作品文件：${path}`);
++  return new Uint8Array(await response.arrayBuffer());
++}
++async function readManifest() {
++  return validateManifest(
++    JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await readBytes('game/makenovel-manifest.json'))),
++  );
++}
++async function verifyFiles(manifest: Manifest): Promise<{
++  scenes: Map<string, Uint8Array>;
++  config: Uint8Array;
++  bootstrap: Map<string, Uint8Array>;
++}> {
++  const scenes = new Map<string, Uint8Array>();
++  const bootstrap = new Map<string, Uint8Array>();
++  let config: Uint8Array | undefined;
++  let index = 0;
++  await Promise.all(
++    Array.from({ length: Math.min(4, manifest.files.length) }, async () => {
++      while (index < manifest.files.length) {
++        const file = manifest.files[index++];
++        const bytes = await readBytes(file.path);
++        if (bytes.length !== file.size || (await sha256(bytes)) !== file.sha256)
++          throw new Error(`作品内容已变化，暂不能存读档。请作者重新登记版本后重开游戏：${file.path}`);
++        if (file.path.startsWith('game/scene/')) scenes.set(file.path, bytes);
++        if (file.path === 'game/config.txt') config = bytes;
++        if (/^game\/(?:animation\/.+\.json|template\/.+\.(?:json|scss))$/u.test(file.path))
++          bootstrap.set(file.path, bytes);
++      }
++    }),
++  );
++  if (!config) throw new Error('作品版本清单缺少已验证的配置。');
++  return { scenes, config, bootstrap };
++}
++/** Call before any native storage normalization. Unknown versions never reuse legacy keys. */
++export async function initializeSaveCompatibility(configURL: string, gameKey: string): Promise<string> {
++  const generation = ++initializationGeneration;
++  pinned = undefined;
++  verifiedConfigText = undefined;
++  bootstrapTexts.clear();
++  storageEnabled = false;
++  storageEpoch += 1;
++  rootURL = new URL('../', new URL(configURL, document.baseURI)).href;
++  if (previewLatched) publish({ scope: { legacyGameKey: gameKey } });
++  else publish({ ready: false, error: '', scope: { legacyGameKey: gameKey }, message: '正在核对作品版本…' });
++  const isolated = `makenovel-unverified-v1:${await sha256(new TextEncoder().encode(gameKey))}`;
++  if (generation !== initializationGeneration) return isolated;
++  try {
++    const manifest = await readManifest();
++    if (generation !== initializationGeneration) return isolated;
++    if (manifest.gameKey !== gameKey) throw new Error('作品身份与配置不一致。');
++    // A valid identity permits exporting its earlier versions even if its current bytes changed.
++    publish({ scope: { legacyGameKey: gameKey, projectId: manifest.projectId } });
++    const { config, bootstrap } = await verifyFiles(manifest);
++    if ((await readManifest()).manifestHash !== manifest.manifestHash)
++      throw new Error('启动校验期间作品版本改变，请重开游戏。');
++    if (generation !== initializationGeneration) return isolated;
++    // The caller must parse exactly the bytes checked above, not an earlier
++    // axios response that could belong to the preceding build with the same key.
++    verifiedConfigText = new TextDecoder('utf-8', { fatal: true }).decode(config);
++    bootstrapTexts = new Map(
++      Array.from(bootstrap, ([path, bytes]) => [path, new TextDecoder('utf-8', { fatal: true }).decode(bytes)]),
++    );
++    if (!previewLatched) {
++      pinned = manifest;
++      publish({ ready: true, message: '作品版本已核对；存档只在此版本使用。' });
++    }
++    return `makenovel-v1:${manifest.projectId}:${manifest.manifestHash}`;
++  } catch (error) {
++    if (generation === initializationGeneration) {
++      verifiedConfigText = undefined;
++      bootstrapTexts.clear();
++      if (!previewLatched) {
++        publish({ ready: false, message: '作品版本未通过核对，暂不能存读档。旧数据保留，可在系统设置导出。' });
++        reportSaveError(error);
++      }
++    }
++    return isolated;
++  }
++}
++export function captureSaveCompatibility(): SaveCompatibility | undefined {
++  if (!pinned || !isSaveStorageEnabled()) return undefined;
++  const { schemaVersion, projectId, gameKey, runtimeCompatibilityId, manifestHash } = pinned;
++  return { schemaVersion, projectId, gameKey, runtimeCompatibilityId, manifestHash };
++}
++async function validateCurrent() {
++  const epoch = storageEpoch;
++  const meta = captureSaveCompatibility();
++  if (!meta || !pinned) throw new Error('存读档尚不可用，请在系统设置查看版本状态并导出旧数据。');
++  const live = await readManifest();
++  if (live.manifestHash !== meta.manifestHash || live.projectId !== meta.projectId)
++    throw new Error('作品版本已更换，请重开游戏；当前进度不会套入新剧情。');
++  const { scenes } = await verifyFiles(live);
++  // Re-read to catch a reseal during file verification.
++  if ((await readManifest()).manifestHash !== meta.manifestHash) throw new Error('校验期间作品版本改变，请重开游戏。');
++  if (epoch !== storageEpoch || !isSaveStorageEnabled() || pinned?.manifestHash !== meta.manifestHash)
++    throw new Error('存档会话已改变，请重新操作。');
++  return { meta, scenes };
++}
++export async function validateForSave(): Promise<SaveCompatibility> {
++  return (await validateCurrent()).meta;
++}
++function assertMetadata(value: unknown, meta: SaveCompatibility) {
++  if (
++    !exact(value, Object.keys(meta)) ||
++    Object.entries(meta).some(([key, v]) => (value as Record<string, unknown>)[key] !== v)
++  )
++    throw new Error('存档来自旧版本、其他作品或未知来源，已保留原数据，不能直接读取。');
++}
++function scenePath(url: unknown): string {
++  if (typeof url !== 'string' || !url || /\\/.test(url)) throw new Error('存档场景路径无效。');
++  const parsed = new URL(url, rootURL);
++  const base = new URL(rootURL);
++  if (
++    parsed.origin !== base.origin ||
++    parsed.protocol !== base.protocol ||
++    parsed.host !== base.host ||
++    parsed.search ||
++    parsed.hash ||
++    !parsed.pathname.startsWith(base.pathname)
++  )
++    throw new Error('存档引用了作品外的场景。');
++  const path = decodeURIComponent(parsed.pathname.slice(base.pathname.length));
++  if (!safePath(path) || !path.startsWith('game/scene/')) throw new Error('存档场景路径无效。');
++  return path;
++}
++const unsafeKeys = new Set(['__proto__', 'prototype', 'constructor']);
++const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
++const scalar = (value: unknown) => typeof value === 'string' || typeof value === 'boolean' || finite(value);
++const record = (value: unknown): value is Record<string, unknown> =>
++  object(value) && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
++function requireData(condition: unknown, message = '存档舞台数据不完整。'): asserts condition {
++  if (!condition) throw new Error(message);
++}
++/** Stored snapshots contain data, never getters, class instances or cyclic graphs.
++ * Optional native fields may be undefined. Shared acyclic object references are legal. */
++function assertSafeData(value: unknown, ancestors = new Set<object>(), depth = 0): void {
++  if (value === undefined || value === null || scalar(value)) return;
++  requireData(typeof value === 'object' && (Array.isArray(value) || record(value)), '存档包含不支持的数据类型。');
++  requireData(depth <= 256 && !ancestors.has(value), '存档数据循环引用或嵌套过深。');
++  ancestors.add(value);
++  for (const key of Reflect.ownKeys(value)) {
++    requireData(typeof key === 'string' && !unsafeKeys.has(key), '存档包含不安全的对象键。');
++    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
++    requireData(Object.hasOwn(descriptor, 'value'), '存档不能包含访问器。');
++    assertSafeData(descriptor.value, ancestors, depth + 1);
++  }
++  ancestors.delete(value);
++}
++function assertGameVars(value: unknown): void {
++  requireData(record(value), '存档变量表无效。');
++  for (const [key, item] of Object.entries(value)) {
++    requireData(!unsafeKeys.has(key), '存档包含不安全的变量名。');
++    // Array.from includes sparse holes as undefined; Array.every alone would skip them.
++    requireData(
++      scalar(item) || (Array.isArray(item) && Array.from(item).every(scalar)),
++      '存档变量必须是有限数值、文字、布尔值或它们的一层数组。',
++    );
++  }
++}
++function strings(value: Record<string, any>, keys: string[]): boolean {
++  return keys.every((key) => typeof value[key] === 'string');
++}
++function optional(value: Record<string, any>, key: string, predicate: (item: unknown) => boolean): boolean {
++  return value[key] === undefined || predicate(value[key]);
++}
++function assertTransform(value: unknown): void {
++  requireData(record(value));
++  for (const [key, item] of Object.entries(value)) {
++    if (item === undefined) continue;
++    if (key === 'position' || key === 'scale') {
++      requireData(record(item) && optional(item, 'x', finite) && optional(item, 'y', finite));
++    } else {
++      requireData(finite(item));
++    }
++  }
++}
++function assertStage(stage: unknown) {
++  requireData(object(stage));
++  requireData(
++    strings(stage, [
++      'oldBgName',
++      'bgName',
++      'figName',
++      'figNameLeft',
++      'figNameRight',
++      'figNameLeft13',
++      'figNameRight13',
++      'figNameLeft14',
++      'figNameRight14',
++      'showText',
++      'showName',
++      'command',
++      'vocal',
++      'playVocal',
++      'uiSe',
++      'miniAvatar',
++      'bgTransform',
++      'bgFilter',
++      'currentDialogKey',
++      'currentConcatDialogPrev',
++      'enableFilm',
++    ]),
++  );
++  requireData(
++    typeof stage.isRead === 'boolean' &&
++      typeof stage.isDisableTextbox === 'boolean' &&
++      finite(stage.showTextSize) &&
++      finite(stage.vocalVolume),
++  );
++  requireData(
++    object(stage.bgm) && typeof stage.bgm.src === 'string' && finite(stage.bgm.enter) && finite(stage.bgm.volume),
++  );
++  requireData(
++    optional(stage, 'isDialogNotend', (value) => typeof value === 'boolean') &&
++      optional(
++        stage,
++        'currentDialogSegments',
++        (value) => Array.isArray(value) && Array.from(value).every((part) => typeof part === 'string'),
++      ),
++  );
++  assertGameVars(stage.GameVar);
++  requireData(
++    record(stage.replacedUIlable) && Object.values(stage.replacedUIlable).every((value) => typeof value === 'string'),
++  );
++  requireData(record(stage.figureMetaData));
++  for (const item of Object.values(stage.figureMetaData)) {
++    requireData(
++      record(item) &&
++        optional(item, 'zIndex', finite) &&
++        optional(item, 'blendMode', (value) => typeof value === 'string'),
++    );
++  }
++  for (const key of [
++    'freeFigure',
++    'figureAssociatedAnimation',
++    'choose',
++    'effects',
++    'animationSettings',
++    'PerformList',
++    'live2dMotion',
++    'live2dExpression',
++    'live2dBlink',
++    'live2dFocus',
++  ])
++    requireData(Array.isArray(stage[key]));
++  for (const item of stage.freeFigure) requireData(object(item) && strings(item, ['basePosition', 'name', 'key']));
++  for (const item of stage.figureAssociatedAnimation) {
++    requireData(
++      object(item) &&
++        strings(item, ['targetId', 'animationFlag']) &&
++        object(item.mouthAnimation) &&
++        strings(item.mouthAnimation, ['open', 'close', 'halfOpen']) &&
++        object(item.blinkAnimation) &&
++        strings(item.blinkAnimation, ['open', 'close']),
++    );
++  }
++  for (const item of stage.choose)
++    requireData(object(item) && strings(item, ['key', 'targetScene']) && typeof item.isSubScene === 'boolean');
++  for (const item of stage.effects) {
++    requireData(object(item) && typeof item.target === 'string');
++    if (item.transform !== undefined) assertTransform(item.transform);
++  }
++  for (const item of stage.animationSettings) {
++    requireData(
++      object(item) &&
++        typeof item.target === 'string' &&
++        ['enterAnimationName', 'exitAnimationName'].every((key) =>
++          optional(item, key, (value) => typeof value === 'string'),
++        ) &&
++        ['enterDuration', 'exitDuration'].every((key) => optional(item, key, finite)) &&
++        optional(item, 'enterAnimationIgnoreDefault', (value) => typeof value === 'boolean') &&
++        optional(item, 'exitAnimationIgnoreDefault', (value) => typeof value === 'boolean'),
++    );
++  }
++  for (const item of stage.live2dMotion) {
++    requireData(
++      object(item) &&
++        strings(item, ['target', 'motion']) &&
++        optional(item, 'skin', (value) => typeof value === 'string') &&
++        optional(
++          item,
++          'overrideBounds',
++          (value) => Array.isArray(value) && value.length === 4 && Array.from(value).every(finite),
++        ),
++    );
++  }
++  for (const item of stage.live2dExpression) requireData(object(item) && strings(item, ['target', 'expression']));
++  for (const item of stage.live2dBlink) {
++    requireData(
++      object(item) &&
++        typeof item.target === 'string' &&
++        object(item.blink) &&
++        ['blinkInterval', 'blinkIntervalRandom', 'closingDuration', 'closedDuration', 'openingDuration'].every((key) =>
++          finite(item.blink[key]),
++        ),
++    );
++  }
++  for (const item of stage.live2dFocus) {
++    requireData(
++      object(item) &&
++        typeof item.target === 'string' &&
++        object(item.focus) &&
++        finite(item.focus.x) &&
++        finite(item.focus.y) &&
++        typeof item.focus.instant === 'boolean',
++    );
++  }
++  for (const perform of stage.PerformList) {
++    requireData(
++      object(perform) &&
++        typeof perform.id === 'string' &&
++        typeof perform.isHoldOn === 'boolean' &&
++        object(perform.script) &&
++        Number.isSafeInteger(perform.script.command) &&
++        perform.script.command >= 0 &&
++        strings(perform.script, ['commandRaw', 'content', 'inlineComment']) &&
++        typeof perform.script.isLineBreakHolder === 'boolean' &&
++        Array.isArray(perform.script.args) &&
++        Array.isArray(perform.script.sentenceAssets) &&
++        Array.isArray(perform.script.subScene),
++      '存档演出数据无效。',
++    );
++    for (const arg of perform.script.args)
++      requireData(object(arg) && typeof arg.key === 'string' && scalar(arg.value), '存档演出参数无效。');
++    for (const asset of perform.script.sentenceAssets) {
++      requireData(
++        object(asset) &&
++          strings(asset, ['name', 'url']) &&
++          Number.isSafeInteger(asset.type) &&
++          asset.type >= 0 &&
++          Number.isSafeInteger(asset.lineNumber) &&
++          asset.lineNumber >= 0,
++        '存档演出资源无效。',
++      );
++    }
++    requireData(
++      Array.from(perform.script.subScene).every((value) => typeof value === 'string'),
++      '存档演出场景引用无效。',
++    );
++  }
++}
++export async function assertCompatibleSnapshot(
++  snapshot: unknown,
++): Promise<{ rawScene: string; sceneSources: Map<string, string> }> {
++  const meta = captureSaveCompatibility();
++  if (!meta) throw new Error('当前作品不能读取存档。');
++  assertSafeData(snapshot);
++  if (!object(snapshot) || !Array.isArray(snapshot.backlog)) throw new Error('存档数据不完整。');
++  assertMetadata(snapshot.makenovel, meta);
++  assertStage(snapshot.nowStageState);
++  const references: { url: string; path: string }[] = [];
++  function assertScene(scene: unknown) {
++    if (
++      !object(scene) ||
++      typeof scene.sceneName !== 'string' ||
++      !Number.isSafeInteger(scene.currentSentenceId) ||
++      scene.currentSentenceId < 0 ||
++      !Array.isArray(scene.sceneStack) ||
++      scene.sceneStack.length > 64
++    )
++      throw new Error('存档场景指针无效。');
++    if (scene.currentLocals !== undefined) assertGameVars(scene.currentLocals);
++    references.push({ url: scene.sceneUrl, path: scenePath(scene.sceneUrl) });
++    for (const frame of scene.sceneStack) {
++      if (
++        !object(frame) ||
++        typeof frame.sceneName !== 'string' ||
++        !Number.isSafeInteger(frame.continueLine) ||
++        frame.continueLine < 0
++      )
++        throw new Error('存档调用栈无效。');
++      if (frame.locals !== undefined) assertGameVars(frame.locals);
++      if (
++        frame.writeReturnTo !== undefined &&
++        (typeof frame.writeReturnTo !== 'string' || unsafeKeys.has(frame.writeReturnTo.trim()))
++      )
++        throw new Error('存档返回值变量名无效。');
++      references.push({ url: frame.sceneUrl, path: scenePath(frame.sceneUrl) });
++    }
++  }
++  assertScene(snapshot.sceneData);
++  for (const item of snapshot.backlog) {
++    if (!object(item)) throw new Error('历史记录无效。');
++    assertMetadata(item.makenovel, meta);
++    assertStage(item.currentStageState);
++    assertScene(item.saveScene);
++  }
++  const { scenes } = await validateCurrent();
++  const sceneSources = new Map<string, string>();
++  for (const reference of references) {
++    const bytes = scenes.get(reference.path);
++    if (!bytes) throw new Error('存档场景不在本作品版本清单中。');
++    sceneSources.set(reference.url, new TextDecoder('utf-8', { fatal: true }).decode(bytes));
++  }
++  return { rawScene: sceneSources.get(snapshot.sceneData.sceneUrl)!, sceneSources };
++}
+diff --git a/packages/webgal/src/Core/controller/storage/saveBackup.ts b/packages/webgal/src/Core/controller/storage/saveBackup.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e6df7218c036589432da15bf93ad54116eba0d68
+--- /dev/null
++++ b/packages/webgal/src/Core/controller/storage/saveBackup.ts
+@@ -0,0 +1,480 @@
++/**
++ * Lossless, scoped copies of the persisted player data. This module never removes
++ * or updates a player key and deliberately has no restore-to-active-store API.
++ */
++export interface SaveBackupStorage {
++  keys(): Promise<string[]>;
++  getItem<T = unknown>(key: string): Promise<T | null>;
++  setItem<T>(key: string, value: T): Promise<T>;
++}
++
++export interface SaveBackupScope {
++  projectId?: string;
++  legacyGameKey: string;
++  legacyGameName?: string;
++}
++
++// Tagged values preserve undefined, sparse arrays, negative zero and binary data.
++// Object fields are pairs rather than dynamically assigned properties: even a
++// stored __proto__ field is inert data. Unsupported values fail the entire copy.
++export type BackupValue =
++  | { type: 'null' | 'undefined' }
++  | { type: 'boolean'; value: boolean }
++  | { type: 'string' | 'number' | 'bigint' | 'date'; value: string }
++  | { type: 'array'; length: number; entries: Array<[number, BackupValue]> }
++  | { type: 'object'; entries: Array<[string, BackupValue]> }
++  | { type: 'map'; entries: Array<[BackupValue, BackupValue]> }
++  | { type: 'set'; values: BackupValue[] }
++  | { type: 'binary'; kind: string; base64: string; mime?: string };
++
++export interface SaveBackupPayload {
++  format: 'makenovel-player-backup';
++  schemaVersion: 1;
++  createdAt: string;
++  reason: 'before-initialization' | 'manual-export';
++  scope: SaveBackupScope;
++  records: Array<{ key: string; value: BackupValue }>;
++  // Preserved copies never contain further copies (no exponential nesting).
++  preserved: Array<{ key: string; archive: SaveBackupArchive }>;
++}
++
++export interface SaveBackupArchive {
++  payload: SaveBackupPayload;
++  checksum: { algorithm: 'SHA-256'; value: string };
++}
++
++const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
++const HASH = /^[0-9a-f]{64}$/;
++const MAX_ARCHIVE_CHARS = 256 * 1024 * 1024;
++const MAX_RECORDS = 10000;
++const BINARY_KINDS = new Set([
++  'ArrayBuffer',
++  'Int8Array',
++  'Uint8Array',
++  'Uint8ClampedArray',
++  'Int16Array',
++  'Uint16Array',
++  'Int32Array',
++  'Uint32Array',
++  'Float32Array',
++  'Float64Array',
++  'BigInt64Array',
++  'BigUint64Array',
++  'DataView',
++  'Blob',
++]);
++
++function assertScope(scope: SaveBackupScope) {
++  if (
++    !scope ||
++    (scope.projectId !== undefined && !UUID.test(scope.projectId)) ||
++    typeof scope.legacyGameKey !== 'string' ||
++    scope.legacyGameKey.length === 0 ||
++    /^makenovel-(?:v1|unverified-v1|backup-v1):/.test(scope.legacyGameKey) ||
++    (scope.legacyGameName !== undefined && typeof scope.legacyGameName !== 'string')
++  ) {
++    throw new Error('备份作品身份无效；没有读取或修改玩家数据。');
++  }
++}
++
++function normalizedScope(scope: SaveBackupScope): SaveBackupScope {
++  return {
++    legacyGameKey: scope.legacyGameKey,
++    ...(scope.projectId === undefined ? {} : { projectId: scope.projectId }),
++    ...(scope.legacyGameName === undefined ? {} : { legacyGameName: scope.legacyGameName }),
++  };
++}
++
++function backupPrefix(scope: SaveBackupScope) {
++  return scope.projectId === undefined
++    ? `makenovel-backup-v1:legacy:${encodeURIComponent(scope.legacyGameKey)}:`
++    : `makenovel-backup-v1:${scope.projectId}:`;
++}
++
++function isPreservedKey(key: string, scope: SaveBackupScope) {
++  return (
++    key.startsWith(backupPrefix(scope)) ||
++    (scope.projectId !== undefined && key.startsWith(backupPrefix({ legacyGameKey: scope.legacyGameKey })))
++  );
++}
++
++function preservedScope(key: string, archive: unknown, scope: SaveBackupScope): SaveBackupScope {
++  if (!recordObject(archive) || !recordObject(archive.payload) || !recordObject(archive.payload.scope)) {
++    throw new Error('备份副本身份无效。');
++  }
++  const retainedScope = archive.payload.scope as unknown as SaveBackupScope;
++  assertScope(retainedScope);
++  const ownsProject = scope.projectId !== undefined && retainedScope.projectId === scope.projectId;
++  const ownsLegacy = retainedScope.projectId === undefined && retainedScope.legacyGameKey === scope.legacyGameKey;
++  if (
++    (!ownsProject && !ownsLegacy) ||
++    !key.startsWith(backupPrefix(retainedScope)) ||
++    !UUID.test(key.slice(backupPrefix(retainedScope).length))
++  )
++    throw new Error('备份副本身份无效。');
++  return retainedScope;
++}
++
++function ownsNamespaceKey(key: string, namespace: string) {
++  if (key === namespace || key === `${namespace}-saves-fast` || key === `${namespace}-flowchart`) return true;
++  const suffix = key.slice(namespace.length);
++  return key.startsWith(namespace) && (/^-saves\d+$/.test(suffix) || /^-flowchart-.+$/s.test(suffix));
++}
++
++/** Strict current-format parsing; legacy keys have no authenticated project ID. */
++export function ownsSaveBackupKey(key: string, scope: SaveBackupScope): boolean {
++  assertScope(scope);
++  if (ownsNamespaceKey(key, scope.legacyGameKey)) return true;
++  if (
++    scope.legacyGameName !== undefined &&
++    (key === `FastSaveKey-${scope.legacyGameName}-${scope.legacyGameKey}` ||
++      key === `FastSaveActive-${scope.legacyGameName}-${scope.legacyGameKey}`)
++  )
++    return true;
++  if (scope.projectId === undefined) return false;
++  const prefix = `makenovel-v1:${scope.projectId}:`;
++  if (!key.startsWith(prefix)) return false;
++  const manifestHash = key.slice(prefix.length, prefix.length + 64);
++  return HASH.test(manifestHash) && ownsNamespaceKey(key, `${prefix}${manifestHash}`);
++}
++
++function canonical(value: unknown): string {
++  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
++  if (value !== null && typeof value === 'object') {
++    return `{${Object.keys(value)
++      .sort()
++      .map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`)
++      .join(',')}}`;
++  }
++  return JSON.stringify(value);
++}
++
++async function digest(value: unknown) {
++  const text = canonical(value);
++  if (text.length > MAX_ARCHIVE_CHARS) throw new Error('备份超过本版 256 MiB 字符上限；原数据未修改。');
++  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
++  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('');
++}
++
++// Derive this key from the legacy identity, never from an imported namespace.
++// Only settings live here; unverified slots/flowchart keys are not accepted.
++async function isolatedSettingsKey(scope: SaveBackupScope): Promise<string> {
++  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(scope.legacyGameKey));
++  return `makenovel-unverified-v1:${Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
++}
++
++function base64(bytes: Uint8Array) {
++  let result = '';
++  for (let i = 0; i < bytes.length; i += 8192) result += String.fromCharCode(...bytes.subarray(i, i + 8192));
++  return btoa(result);
++}
++
++async function encode(value: unknown, ancestors = new Set<object>(), depth = 0): Promise<BackupValue> {
++  if (depth > 100) throw new Error('玩家数据嵌套过深，无法安全备份；原数据未修改。');
++  if (value === null) return { type: 'null' };
++  if (value === undefined) return { type: 'undefined' };
++  if (typeof value === 'string') return { type: 'string', value };
++  if (typeof value === 'boolean') return { type: 'boolean', value };
++  if (typeof value === 'number') return { type: 'number', value: Object.is(value, -0) ? '-0' : String(value) };
++  if (typeof value === 'bigint') return { type: 'bigint', value: String(value) };
++  if (typeof value !== 'object') throw new Error('玩家数据包含不支持的值，备份已中止；原数据未修改。');
++  if (ancestors.has(value)) throw new Error('玩家数据存在循环引用，备份已中止；原数据未修改。');
++  const next = new Set(ancestors).add(value);
++  const child = (item: unknown) => encode(item, next, depth + 1);
++  if (value instanceof Date)
++    return { type: 'date', value: Number.isNaN(value.getTime()) ? 'Invalid Date' : value.toISOString() };
++  if (value instanceof ArrayBuffer)
++    return { type: 'binary', kind: 'ArrayBuffer', base64: base64(new Uint8Array(value)) };
++  if (ArrayBuffer.isView(value)) {
++    return {
++      type: 'binary',
++      kind: value.constructor.name,
++      base64: base64(new Uint8Array(value.buffer, value.byteOffset, value.byteLength)),
++    };
++  }
++  if (typeof Blob !== 'undefined' && value instanceof Blob) {
++    if (typeof File !== 'undefined' && value instanceof File)
++      throw new Error('玩家数据包含文件对象，备份已中止；原数据未修改。');
++    return {
++      type: 'binary',
++      kind: 'Blob',
++      mime: value.type,
++      base64: base64(new Uint8Array(await value.arrayBuffer())),
++    };
++  }
++  if (value instanceof Map) {
++    const entries: Array<[BackupValue, BackupValue]> = [];
++    for (const [key, item] of value) entries.push([await child(key), await child(item)]);
++    return { type: 'map', entries };
++  }
++  if (value instanceof Set) {
++    const values: BackupValue[] = [];
++    for (const item of value) values.push(await child(item));
++    return { type: 'set', values };
++  }
++  if (Array.isArray(value)) {
++    const entries: Array<[number, BackupValue]> = [];
++    for (let index = 0; index < value.length; index++) {
++      if (Object.prototype.hasOwnProperty.call(value, index)) entries.push([index, await child(value[index])]);
++    }
++    // IndexedDB arrays do not retain custom non-index properties consistently.
++    if (Object.keys(value).some((key) => !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length)) {
++      throw new Error('玩家数组包含自定义字段，备份已中止；原数据未修改。');
++    }
++    return { type: 'array', length: value.length, entries };
++  }
++  if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
++    throw new Error('玩家数据包含不支持的对象，备份已中止；原数据未修改。');
++  }
++  if (Object.getOwnPropertySymbols(value).length !== 0)
++    throw new Error('玩家数据包含符号字段，备份已中止；原数据未修改。');
++  const entries: Array<[string, BackupValue]> = [];
++  for (const key of Object.keys(value).sort())
++    entries.push([key, await child((value as Record<string, unknown>)[key])]);
++  return { type: 'object', entries };
++}
++
++function recordObject(value: unknown): value is Record<string, unknown> {
++  return value !== null && typeof value === 'object' && !Array.isArray(value);
++}
++
++function exactKeys(value: Record<string, unknown>, keys: string[]) {
++  return Object.keys(value).sort().join('|') === keys.slice().sort().join('|');
++}
++
++function validateValue(value: unknown, depth = 0): void {
++  const invalid = () => {
++    throw new Error('备份含有无效或不支持的数据值。');
++  };
++  if (depth > 100 || !recordObject(value) || typeof value.type !== 'string') return invalid();
++  const next = (item: unknown) => validateValue(item, depth + 1);
++  switch (value.type) {
++    case 'null':
++    case 'undefined':
++      if (!exactKeys(value, ['type'])) invalid();
++      return;
++    case 'boolean':
++      if (!exactKeys(value, ['type', 'value']) || typeof value.value !== 'boolean') invalid();
++      return;
++    case 'string':
++    case 'number':
++    case 'bigint':
++    case 'date': {
++      if (!exactKeys(value, ['type', 'value']) || typeof value.value !== 'string') return invalid();
++      if (
++        value.type === 'number' &&
++        !['NaN', 'Infinity', '-Infinity', '-0'].includes(value.value) &&
++        (value.value === '' || String(Number(value.value)) !== value.value)
++      )
++        invalid();
++      if (value.type === 'bigint' && !/^(0|-?[1-9]\d*)$/.test(value.value)) invalid();
++      if (
++        value.type === 'date' &&
++        value.value !== 'Invalid Date' &&
++        (!Number.isFinite(Date.parse(value.value)) || new Date(value.value).toISOString() !== value.value)
++      )
++        invalid();
++      return;
++    }
++    case 'array':
++    case 'object': {
++      if (
++        !exactKeys(value, value.type === 'array' ? ['type', 'length', 'entries'] : ['type', 'entries']) ||
++        !Array.isArray(value.entries)
++      )
++        return invalid();
++      if (
++        value.type === 'array' &&
++        (!Number.isSafeInteger(value.length) || (value.length as number) < 0 || (value.length as number) > 4294967295)
++      )
++        invalid();
++      const seen = new Set<unknown>();
++      for (const pair of value.entries) {
++        if (!Array.isArray(pair) || pair.length !== 2 || seen.has(pair[0])) return invalid();
++        seen.add(pair[0]);
++        if (
++          value.type === 'array'
++            ? !Number.isSafeInteger(pair[0]) || pair[0] < 0 || pair[0] >= (value.length as number)
++            : typeof pair[0] !== 'string'
++        )
++          invalid();
++        next(pair[1]);
++      }
++      return;
++    }
++    case 'map':
++      if (!exactKeys(value, ['type', 'entries']) || !Array.isArray(value.entries)) return invalid();
++      for (const pair of value.entries) {
++        if (!Array.isArray(pair) || pair.length !== 2) return invalid();
++        next(pair[0]);
++        next(pair[1]);
++      }
++      return;
++    case 'set':
++      if (!exactKeys(value, ['type', 'values']) || !Array.isArray(value.values)) return invalid();
++      value.values.forEach(next);
++      return;
++    case 'binary':
++      if (
++        !exactKeys(value, value.kind === 'Blob' ? ['type', 'kind', 'base64', 'mime'] : ['type', 'kind', 'base64']) ||
++        typeof value.kind !== 'string' ||
++        !BINARY_KINDS.has(value.kind) ||
++        typeof value.base64 !== 'string' ||
++        !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.base64) ||
++        (value.kind === 'Blob' && typeof value.mime !== 'string')
++      )
++        invalid();
++      return;
++    default:
++      invalid();
++  }
++}
++
++/** Offline validation only: a checksum detects damage, not an authenticated author. */
++export async function verifySaveBackup(
++  input: unknown,
++  scope: SaveBackupScope,
++  preservedCopy = false,
++): Promise<SaveBackupArchive> {
++  assertScope(scope);
++  const settingsKey = await isolatedSettingsKey(scope);
++  if (
++    !recordObject(input) ||
++    !exactKeys(input, ['payload', 'checksum']) ||
++    !recordObject(input.payload) ||
++    !recordObject(input.checksum) ||
++    !exactKeys(input.checksum, ['algorithm', 'value']) ||
++    input.checksum.algorithm !== 'SHA-256' ||
++    typeof input.checksum.value !== 'string' ||
++    !HASH.test(input.checksum.value)
++  ) {
++    throw new Error('不是受支持的完整玩家备份。');
++  }
++  const payload = input.payload;
++  if (
++    !exactKeys(payload, ['format', 'schemaVersion', 'createdAt', 'reason', 'scope', 'records', 'preserved']) ||
++    payload.format !== 'makenovel-player-backup' ||
++    payload.schemaVersion !== 1 ||
++    typeof payload.createdAt !== 'string' ||
++    !Number.isFinite(Date.parse(payload.createdAt)) ||
++    !['before-initialization', 'manual-export'].includes(payload.reason as string) ||
++    !recordObject(payload.scope) ||
++    canonical(payload.scope) !== canonical(normalizedScope(scope)) ||
++    !Array.isArray(payload.records) ||
++    payload.records.length > MAX_RECORDS ||
++    !Array.isArray(payload.preserved) ||
++    payload.preserved.length > MAX_RECORDS ||
++    (preservedCopy && payload.preserved.length !== 0)
++  ) {
++    throw new Error('备份格式或作品身份不匹配。');
++  }
++  const seen = new Set<string>();
++  for (const record of payload.records) {
++    if (
++      !recordObject(record) ||
++      !exactKeys(record, ['key', 'value']) ||
++      typeof record.key !== 'string' ||
++      (!ownsSaveBackupKey(record.key, scope) && record.key !== settingsKey) ||
++      seen.has(record.key)
++    )
++      throw new Error('备份包含重复键或其他作品的数据。');
++    seen.add(record.key);
++    validateValue(record.value);
++  }
++  for (const preserved of payload.preserved) {
++    if (
++      !recordObject(preserved) ||
++      !exactKeys(preserved, ['key', 'archive']) ||
++      typeof preserved.key !== 'string' ||
++      !isPreservedKey(preserved.key, scope) ||
++      seen.has(preserved.key)
++    )
++      throw new Error('备份副本身份无效。');
++    seen.add(preserved.key);
++    await verifySaveBackup(preserved.archive, preservedScope(preserved.key, preserved.archive, scope), true);
++  }
++  if ((await digest(payload)) !== input.checksum.value) throw new Error('备份摘要不匹配，文件可能损坏或被修改。');
++  return input as unknown as SaveBackupArchive;
++}
++
++/**
++ * Two reads detect concurrent writes. This is not a cross-tab database transaction;
++ * startup must await this function before starting any local player-data writers.
++ */
++export async function captureSaveBackup(
++  storage: SaveBackupStorage,
++  scope: SaveBackupScope,
++  reason: SaveBackupPayload['reason'] = 'manual-export',
++): Promise<SaveBackupArchive> {
++  assertScope(scope);
++  const settingsKey = await isolatedSettingsKey(scope);
++  const select = (keys: string[]) =>
++    keys
++      .filter(
++        (key) =>
++          ownsSaveBackupKey(key, scope) ||
++          key === settingsKey ||
++          (reason === 'manual-export' && isPreservedKey(key, scope)),
++      )
++      .sort();
++  const keys = select(await storage.keys());
++  if (keys.length > MAX_RECORDS) throw new Error('玩家备份条目过多；原数据未修改。');
++  const values = new Map<string, string>();
++  const records: SaveBackupPayload['records'] = [];
++  const preserved: SaveBackupPayload['preserved'] = [];
++  for (const key of keys) {
++    const value = await storage.getItem(key);
++    if (isPreservedKey(key, scope)) {
++      const archive = await verifySaveBackup(value, preservedScope(key, value, scope), true);
++      preserved.push({ key, archive });
++      values.set(key, canonical(archive));
++    } else {
++      const encoded = await encode(value);
++      records.push({ key, value: encoded });
++      values.set(key, canonical(encoded));
++    }
++  }
++  if (canonical(keys) !== canonical(select(await storage.keys())))
++    throw new Error('玩家数据正在变化，请暂停其他窗口后重试备份。');
++  for (const key of keys) {
++    const value = await storage.getItem(key);
++    const current = isPreservedKey(key, scope) ? canonical(value) : canonical(await encode(value));
++    if (current !== values.get(key)) throw new Error('玩家数据正在变化，请暂停其他窗口后重试备份。');
++  }
++  const payload: SaveBackupPayload = {
++    format: 'makenovel-player-backup',
++    schemaVersion: 1,
++    createdAt: new Date().toISOString(),
++    reason,
++    scope: normalizedScope(scope),
++    records,
++    preserved,
++  };
++  return { payload, checksum: { algorithm: 'SHA-256', value: await digest(payload) } };
++}
++
++/** Append a verified, immutable pre-write copy. No empty copies or automatic expiry. */
++export async function preserveBeforeInitialization(
++  storage: SaveBackupStorage,
++  scope: SaveBackupScope,
++): Promise<string | null> {
++  const archive = await captureSaveBackup(storage, scope, 'before-initialization');
++  if (archive.payload.records.length === 0) return null;
++  // Reopening an unchanged game must not fill the quota with identical copies.
++  // Invalid older copies remain untouched; a new verified copy may still be made.
++  for (const existingKey of (await storage.keys()).filter((key) => isPreservedKey(key, scope))) {
++    const previous = await storage.getItem(existingKey);
++    try {
++      const verified = await verifySaveBackup(previous, preservedScope(existingKey, previous, scope), true);
++      if (canonical(verified.payload.records) === canonical(archive.payload.records)) return existingKey;
++    } catch {
++      // Do not repair, replace or remove a previously retained copy.
++    }
++  }
++  const key = `${backupPrefix(scope)}${crypto.randomUUID()}`;
++  if ((await storage.keys()).includes(key)) throw new Error('备份副本键已存在；未覆盖任何内容。');
++  await storage.setItem(key, archive);
++  const persisted = await verifySaveBackup(await storage.getItem(key), scope, true);
++  if (persisted.checksum.value !== archive.checksum.value) throw new Error('备份写入后校验失败；初始化已中止。');
++  return key;
++}
+diff --git a/packages/webgal/src/Core/controller/storage/saveGame.ts b/packages/webgal/src/Core/controller/storage/saveGame.ts
+index 9d67b4589fe121cc6fef3ed7b02514f5d6385790..a52454fc35f70ef9492e23a75cc032e709c55201 100644
+--- a/packages/webgal/src/Core/controller/storage/saveGame.ts
++++ b/packages/webgal/src/Core/controller/storage/saveGame.ts
+@@ -1,28 +1,33 @@
+-import { logger } from '../../util/logger';
++import { captureSaveCompatibility, validateForSave, reportSaveError } from './makenovelCompatibility';
+ import { ISaveData } from '@/store/userDataInterface';
+-import { dumpToStorageFast } from './storageController';
+-import { webgalStore } from '@/store/store';
+-import { setUserData } from '@/store/userDataReducer';
+ import cloneDeep from 'lodash/cloneDeep';
+ 
+ import { WebGAL } from '@/Core/WebGAL';
+-import { saveActions } from '@/store/savesReducer';
+-import { dumpSavesToStorage } from '@/Core/controller/storage/savesController';
++import { writeSaveSlot } from '@/Core/controller/storage/savesController';
+ import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
+ 
+ /**
+  * 保存游戏
+  * @param index 游戏的档位
+  */
+-export const saveGame = (index: number) => {
+-  if (WebGAL.sceneManager.lockSceneWrite) {
+-    // 场景写入期间状态是撕裂的：场景栈已变更，但当前场景与语句ID尚未切换
+-    logger.warn('场景切换中，忽略本次存档');
+-    return;
++const latestSaveBySlot = new Map<number, number>();
++let saveSequence = 0;
++
++export const saveGame = async (index: number): Promise<boolean> => {
++  try {
++    if (WebGAL.sceneManager.lockSceneWrite) throw new Error('场景切换或读档中，请稍后保存。');
++    const epoch = WebGAL.sceneManager.getSessionEpoch();
++    const sequence = ++saveSequence;
++    latestSaveBySlot.set(index, sequence);
++    const saveData = generateCurrentStageData(index);
++    await validateForSave();
++    if (!WebGAL.sceneManager.isSessionCurrent(epoch) || latestSaveBySlot.get(index) !== sequence) return false;
++    await writeSaveSlot(index, saveData);
++    return true;
++  } catch (error) {
++    reportSaveError(error);
++    return false;
+   }
+-  const saveData: ISaveData = generateCurrentStageData(index);
+-  webgalStore.dispatch(saveActions.saveGame({ index, saveData }));
+-  dumpSavesToStorage(index, index);
+ };
+ 
+ /**
+@@ -30,6 +35,9 @@ export const saveGame = (index: number) => {
+  * @param index 游戏的档位
+  */
+ export function generateCurrentStageData(index: number, isSavePreviewImage = true) {
++  const compatibility = captureSaveCompatibility();
++  if (!compatibility) throw new Error('作品版本尚未验证，无法生成存档。');
++  if (WebGAL.sceneManager.lockSceneWrite) throw new Error('场景切换或读档中，无法生成存档。');
+   const stageState = stageStateManager.getCalculationStageState();
+   const saveBacklog = cloneDeep(WebGAL.backlogManager.getBacklog());
+ 
+@@ -49,6 +57,7 @@ export function generateCurrentStageData(index: number, isSavePreviewImage = tru
+     canvas2.remove();
+   }
+   const saveData: ISaveData = {
++    makenovel: compatibility,
+     nowStageState: cloneDeep(stageState),
+     backlog: saveBacklog, // 舞台数据
+     index: index, // 存档的序号
+diff --git a/packages/webgal/src/Core/controller/storage/savesController.ts b/packages/webgal/src/Core/controller/storage/savesController.ts
+index 3a01b4046d8a549ccbe213ff4136fe294df758c4..2be83b77dd3110ec09bb57bc3842cf4ca35ec4c6 100644
+--- a/packages/webgal/src/Core/controller/storage/savesController.ts
++++ b/packages/webgal/src/Core/controller/storage/savesController.ts
+@@ -1,36 +1,132 @@
+ import localforage from 'localforage';
+ import { WebGAL } from '@/Core/WebGAL';
+-import { logger } from '@/Core/util/logger';
+ import { webgalStore } from '@/store/store';
+ import { saveActions } from '@/store/savesReducer';
+ import { ISaveData } from '@/store/userDataInterface';
++import cloneDeep from 'lodash/cloneDeep';
++import { isSaveStorageEnabled, getSaveStorageEpoch, reportSaveError } from './makenovelCompatibility';
+ 
+-export function dumpSavesToStorage(startIndex: number, endIndex: number) {
+-  for (let i = startIndex; i <= endIndex; i++) {
+-    const save = webgalStore.getState().saveData.saveData[i];
+-    localforage.setItem(`${WebGAL.gameKey}-saves${i}`, save).then(() => {
+-      logger.info(`存档${i}写入本地存储`);
+-    });
++const writes = new Map<string, Promise<void>>();
++const reads = new Map<string, number>();
++const ACTIVE_NAMESPACE = /^makenovel-(?:v1:[a-f0-9-]{36}:[a-f0-9]{64}|unverified-v1:[a-f0-9]{64})$/;
++type StorageContext = { namespace: string; epoch: number };
++function assertContext(context: StorageContext) {
++  if (
++    !isSaveStorageEnabled() ||
++    context.epoch !== getSaveStorageEpoch() ||
++    context.namespace !== WebGAL.gameKey ||
++    !ACTIVE_NAMESPACE.test(context.namespace)
++  ) {
++    throw new Error('玩家存储尚未初始化、备份失败或作品已切换；没有继续读写。');
+   }
+ }
+-
+-export function getSavesFromStorage(startIndex: number, endIndex: number) {
+-  for (let i = startIndex; i <= endIndex; i++) {
+-    localforage.getItem(`${WebGAL.gameKey}-saves${i}`).then((save) => {
+-      webgalStore.dispatch(saveActions.saveGame({ index: i, saveData: save as ISaveData }));
+-      logger.info(`存档${i}读取自本地存储`);
++function captureContext(): StorageContext {
++  const context = { namespace: WebGAL.gameKey, epoch: getSaveStorageEpoch() };
++  assertContext(context);
++  return context;
++}
++function assertIndex(index: number) {
++  if (!Number.isSafeInteger(index) || index < 0 || index > 200) throw new Error('存档位置无效。');
++}
++function assertRange(startIndex: number, endIndex: number) {
++  assertIndex(startIndex);
++  assertIndex(endIndex);
++  if (endIndex < startIndex) throw new Error('存档范围无效。');
++}
++// Returning this handled promise keeps old fire-and-forget callers safe while
++// callers that await it still receive storage and initialization failures.
++function observed<T>(operation: () => Promise<T>): Promise<T> {
++  const promise = operation();
++  void promise.catch(reportSaveError);
++  return promise;
++}
++function enqueue(context: StorageContext, key: string, value: ISaveData | null, commit: () => void): Promise<void> {
++  assertContext(context);
++  reads.set(key, (reads.get(key) ?? 0) + 1);
++  const write = (writes.get(key) ?? Promise.resolve())
++    .catch(() => {})
++    .then(async () => {
++      assertContext(context);
++      await localforage.setItem(key, value);
++      assertContext(context);
++      commit();
+     });
+-  }
++  writes.set(key, write);
++  void write
++    .finally(() => {
++      if (writes.get(key) === write) writes.delete(key);
++    })
++    .catch(() => {});
++  return write;
+ }
+-
+-export async function dumpFastSaveToStorage() {
+-  const save = webgalStore.getState().saveData.quickSaveData;
+-  await localforage.setItem(`${WebGAL.gameKey}-saves-fast`, save);
+-  logger.info(`快速存档写入本地存储`);
++export function writeSaveSlot(index: number, save: ISaveData | null): Promise<void> {
++  return observed(async () => {
++    assertIndex(index);
++    const context = captureContext();
++    const snapshot = cloneDeep(save);
++    await enqueue(context, `${context.namespace}-saves${index}`, snapshot, () => {
++      webgalStore.dispatch(saveActions.saveGame({ index, saveData: snapshot as ISaveData }));
++    });
++  });
+ }
+-
+-export async function getFastSaveFromStorage() {
+-  const save = await localforage.getItem(`${WebGAL.gameKey}-saves-fast`);
+-  webgalStore.dispatch(saveActions.setFastSave(save as ISaveData));
+-  logger.info(`快速存档读取自本地存储`);
++export function writeFastSave(save: ISaveData | null): Promise<void> {
++  return observed(async () => {
++    const context = captureContext();
++    const snapshot = cloneDeep(save);
++    await enqueue(context, `${context.namespace}-saves-fast`, snapshot, () => {
++      webgalStore.dispatch(saveActions.setFastSave(snapshot as ISaveData));
++    });
++  });
++}
++export function dumpSavesToStorage(startIndex: number, endIndex: number): Promise<void> {
++  return observed(async () => {
++    assertRange(startIndex, endIndex);
++    captureContext();
++    await Promise.all(
++      Array.from({ length: endIndex - startIndex + 1 }, (_, offset) => {
++        const index = startIndex + offset;
++        return writeSaveSlot(index, webgalStore.getState().saveData.saveData[index] ?? null);
++      }),
++    );
++  });
++}
++export function getSavesFromStorage(startIndex: number, endIndex: number): Promise<void> {
++  return observed(async () => {
++    assertRange(startIndex, endIndex);
++    const context = captureContext();
++    await Promise.all(
++      Array.from({ length: endIndex - startIndex + 1 }, async (_, offset) => {
++        const index = startIndex + offset;
++        const key = `${context.namespace}-saves${index}`;
++        const sequence = (reads.get(key) ?? 0) + 1;
++        reads.set(key, sequence);
++        await writes.get(key);
++        assertContext(context);
++        if (reads.get(key) !== sequence) return;
++        const save = await localforage.getItem<ISaveData>(key);
++        assertContext(context);
++        if (reads.get(key) === sequence)
++          webgalStore.dispatch(saveActions.saveGame({ index, saveData: save as ISaveData }));
++      }),
++    );
++  });
++}
++export function dumpFastSaveToStorage(): Promise<void> {
++  return writeFastSave(webgalStore.getState().saveData.quickSaveData ?? null);
++}
++export function getFastSaveFromStorage(): Promise<ISaveData | null> {
++  return observed(async () => {
++    const context = captureContext();
++    const key = `${context.namespace}-saves-fast`;
++    const sequence = (reads.get(key) ?? 0) + 1;
++    reads.set(key, sequence);
++    await writes.get(key);
++    assertContext(context);
++    if (reads.get(key) !== sequence) throw new Error('快速存档已被更新，请重试读取。');
++    const save = await localforage.getItem<ISaveData>(key);
++    assertContext(context);
++    if (reads.get(key) !== sequence) throw new Error('快速存档已被更新，请重试读取。');
++    webgalStore.dispatch(saveActions.setFastSave(save as ISaveData));
++    return save;
++  });
+ }
+diff --git a/packages/webgal/src/Core/controller/storage/storageController.ts b/packages/webgal/src/Core/controller/storage/storageController.ts
+index e35d593ce4676781dd28b201c1fcfb90ea096196..3219f8ea3ef5dc7eb1afa8e3501cac947efb192b 100644
+--- a/packages/webgal/src/Core/controller/storage/storageController.ts
++++ b/packages/webgal/src/Core/controller/storage/storageController.ts
+@@ -4,74 +4,82 @@ import { logger } from '../../util/logger';
+ import { webgalStore } from '@/store/store';
+ import { initState, resetUserData } from '@/store/userDataReducer';
+ import cloneDeep from 'lodash/cloneDeep';
+-
+ import { WebGAL } from '@/Core/WebGAL';
++import { isSaveStorageEnabled, getSaveStorageEpoch, reportSaveError } from './makenovelCompatibility';
+ 
+-/**
+- * 写入本地存储
+- */
+-export const setStorage = debounce(() => {
+-  const userDataState = webgalStore.getState().userData;
+-  localforage.setItem(WebGAL.gameKey, userDataState).then(() => {
+-    logger.info('写入本地存储');
+-  });
+-}, 100);
++const writes = new Map<string, Promise<void>>();
++const versions = new Map<string, number>();
++const reads = new Map<string, number>();
++const ACTIVE_NAMESPACE = /^makenovel-(?:v1:[a-f0-9-]{36}:[a-f0-9]{64}|unverified-v1:[a-f0-9]{64})$/;
+ 
+-/**
+- * 从本地存储获取数据
+- */
+-export const getStorage = debounce(() => {
+-  localforage.getItem(WebGAL.gameKey).then((newUserData) => {
+-    // 如果没有数据，重新初始化
+-    if (!newUserData) {
+-      logger.warn('现在重置数据');
+-      setStorage();
+-      return;
+-    }
+-    const shouldMigrate = !checkUserDataProperty(newUserData);
+-    const normalizedUserData = normalizeUserData(newUserData as Partial<IUserData>);
+-    webgalStore.dispatch(resetUserData(normalizedUserData));
+-    if (shouldMigrate) {
+-      logger.warn('检测到旧版本用户数据，已补齐默认字段');
+-      setStorage();
+-    }
+-  });
+-}, 100);
+-
+-/**
+- * 防抖函数
+- * @param func 要执行的函数
+- * @param wait 防抖等待时间
+- */
+-function debounce<T, K>(func: (...args: T[]) => K, wait: number) {
+-  let timeout: ReturnType<typeof setTimeout>;
+-
+-  function context(...args: T[]): K {
+-    clearTimeout(timeout);
+-    let ret!: K;
+-    // 等连续调用停止 wait 毫秒后只执行最后一次，合并频繁的存储写入。
+-    timeout = setTimeout(() => {
+-      ret = func.apply(context, args);
+-    }, wait);
+-    return ret;
++type StorageContext = { namespace: string; epoch: number };
++function assertContext(context: StorageContext) {
++  if (
++    !isSaveStorageEnabled() ||
++    context.epoch !== getSaveStorageEpoch() ||
++    context.namespace !== WebGAL.gameKey ||
++    !ACTIVE_NAMESPACE.test(context.namespace)
++  ) {
++    throw new Error('玩家存储尚未初始化、备份失败或作品已切换；没有继续读写。');
+   }
+-
++}
++function captureContext(): StorageContext {
++  const context = { namespace: WebGAL.gameKey, epoch: getSaveStorageEpoch() };
++  assertContext(context);
+   return context;
+ }
++// Attach a rejection handler to the returned promise itself. Awaiting callers
++// still receive failures; historical fire-and-forget UI callers do not leak them.
++function observed<T>(operation: () => Promise<T>): Promise<T> {
++  const promise = operation();
++  void promise.catch(reportSaveError);
++  return promise;
++}
++function enqueueUserData(context: StorageContext, value: IUserData, commit?: () => void): Promise<void> {
++  assertContext(context);
++  const key = context.namespace;
++  const version = (versions.get(key) ?? 0) + 1;
++  versions.set(key, version);
++  reads.set(key, (reads.get(key) ?? 0) + 1);
++  const pending = (writes.get(key) ?? Promise.resolve())
++    .catch(() => {})
++    .then(async () => {
++      assertContext(context);
++      await localforage.setItem(key, value);
++      assertContext(context);
++      if (versions.get(key) === version) commit?.();
++      logger.info('写入本地存储');
++    });
++  writes.set(key, pending);
++  void pending
++    .finally(() => {
++      if (writes.get(key) === pending) writes.delete(key);
++    })
++    .catch(() => {});
++  return pending;
++}
++function debouncedStorage(operation: () => Promise<unknown>) {
++  let timeout: ReturnType<typeof setTimeout> | undefined;
++  return () => {
++    clearTimeout(timeout);
++    if (!isSaveStorageEnabled()) return;
++    const namespace = WebGAL.gameKey;
++    const epoch = getSaveStorageEpoch();
++    timeout = setTimeout(() => {
++      if (!isSaveStorageEnabled() || namespace !== WebGAL.gameKey || epoch !== getSaveStorageEpoch()) return;
++      void operation(); // Public operations attach their own UI error handler.
++    }, 100);
++  };
++}
++
++/** Debounced UI persistence skips the pre-backup initialization barrier. */
++export const setStorage = debouncedStorage(setStorageAsync);
++export const getStorage = debouncedStorage(getStorageAsync);
+ 
++/** Persist the current user snapshot without reading an older copy over newer UI state. */
+ export const dumpToStorageFast = () => {
+-  const userDataState = webgalStore.getState().userData;
+-  localforage.setItem(WebGAL.gameKey, userDataState).then(() => {
+-    localforage.getItem(WebGAL.gameKey).then((newUserData) => {
+-      // 如果没有数据，初始化
+-      if (!newUserData) {
+-        setStorage();
+-        return;
+-      }
+-      webgalStore.dispatch(resetUserData(normalizeUserData(newUserData as Partial<IUserData>)));
+-    });
+-    logger.info('同步本地存储');
+-  });
++  if (!isSaveStorageEnabled()) return;
++  void setStorageAsync();
+ };
+ 
+ /**
+@@ -98,7 +106,8 @@ function checkStateProperty(currentData: any, templateData: object) {
+   return true;
+ }
+ 
+-function normalizeUserData(userData: Partial<IUserData>): IUserData {
++function normalizeUserData(raw: unknown): IUserData {
++  const userData: Partial<IUserData> = isObject(raw) ? raw : {};
+   const defaultUserData = cloneDeep(initState);
+   const optionData: Record<string, any> = isObject(userData.optionData) ? userData.optionData : {};
+   const appreciationData: Record<string, any> = isObject(userData.appreciationData) ? userData.appreciationData : {};
+@@ -127,24 +136,45 @@ function isObject(value: unknown): value is Record<string, any> {
+   return typeof value === 'object' && value !== null && !Array.isArray(value);
+ }
+ 
+-export async function setStorageAsync() {
+-  const userDataState = webgalStore.getState().userData;
+-  return await localforage.setItem(WebGAL.gameKey, userDataState);
++export function setStorageAsync(): Promise<void> {
++  return observed(async () => {
++    const context = captureContext();
++    await enqueueUserData(context, cloneDeep(webgalStore.getState().userData));
++  });
+ }
+ 
+-export async function getStorageAsync() {
+-  const newUserData = await localforage.getItem(WebGAL.gameKey);
+-  if (!newUserData) {
+-    const userDataState = webgalStore.getState().userData;
+-    logger.warn('现在重置数据');
+-    return await localforage.setItem(WebGAL.gameKey, userDataState);
+-  }
+-  const shouldMigrate = !checkUserDataProperty(newUserData);
+-  const normalizedUserData = normalizeUserData(newUserData as Partial<IUserData>);
+-  webgalStore.dispatch(resetUserData(normalizedUserData));
+-  if (shouldMigrate) {
+-    logger.warn('检测到旧版本用户数据，已补齐默认字段');
+-    return await localforage.setItem(WebGAL.gameKey, normalizedUserData);
+-  }
+-  return;
++export function getStorageAsync(): Promise<void> {
++  return observed(async () => {
++    const context = captureContext();
++    const key = context.namespace;
++    const sequence = (reads.get(key) ?? 0) + 1;
++    reads.set(key, sequence);
++    const version = versions.get(key) ?? 0;
++    // A read requested after a queued write must observe that write's outcome.
++    await writes.get(key);
++    assertContext(context);
++    if (reads.get(key) !== sequence || (versions.get(key) ?? 0) !== version) return;
++    const previousState = webgalStore.getState().userData;
++    const value = await localforage.getItem(key);
++    assertContext(context);
++    if (
++      reads.get(key) !== sequence ||
++      (versions.get(key) ?? 0) !== version ||
++      webgalStore.getState().userData !== previousState
++    )
++      return;
++    if (value === null || value === undefined) {
++      await enqueueUserData(context, cloneDeep(previousState));
++      return;
++    }
++    const normalized = normalizeUserData(value);
++    if (!checkUserDataProperty(value)) {
++      // Normalization is committed only after durable storage acknowledges it.
++      await enqueueUserData(context, normalized, () => {
++        if (webgalStore.getState().userData === previousState) webgalStore.dispatch(resetUserData(normalized));
++      });
++      return;
++    }
++    webgalStore.dispatch(resetUserData(normalized));
++  });
+ }
+diff --git a/packages/webgal/src/Core/gameScripts/bgm.ts b/packages/webgal/src/Core/gameScripts/bgm.ts
+index c6339b0e4075d98800094c86fb490931d9161ff3..1b677d86d980cfd13c2fe801f4bf00816b6ed1b2 100644
+--- a/packages/webgal/src/Core/gameScripts/bgm.ts
++++ b/packages/webgal/src/Core/gameScripts/bgm.ts
+@@ -4,8 +4,7 @@ import { playBgm } from '@/Core/controller/stage/playBgm';
+ import { getNumberArgByKey, getStringArgByKey } from '@/Core/util/getSentenceArg';
+ import { webgalStore } from '@/store/store';
+ import { unlockBgmInUserData } from '@/store/userDataReducer';
+-import localforage from 'localforage';
+-import { WebGAL } from '../WebGAL';
++import { dumpToStorageFast } from '@/Core/controller/storage/storageController';
+ import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
+ import { WEBGAL_NONE } from '@/Core/constants';
+ 
+@@ -24,8 +23,7 @@ export const bgm = (sentence: ISentence): IPerform => {
+ 
+   if (name !== '') {
+     webgalStore.dispatch(unlockBgmInUserData({ name, url, series }));
+-    const userDataState = webgalStore.getState().userData;
+-    localforage.setItem(WebGAL.gameKey, userDataState).then(() => {});
++    dumpToStorageFast();
+   }
+ 
+   if (url === '' && enter === 0) {
+diff --git a/packages/webgal/src/Core/gameScripts/changeBg/index.ts b/packages/webgal/src/Core/gameScripts/changeBg/index.ts
+index 2a6d30976cb48a67e68b5b9a1514faf74bc48310..5e5c7045da9e923ee44dea4bf69a0bee133863ac 100644
+--- a/packages/webgal/src/Core/gameScripts/changeBg/index.ts
++++ b/packages/webgal/src/Core/gameScripts/changeBg/index.ts
+@@ -14,7 +14,7 @@ import cloneDeep from 'lodash/cloneDeep';
+ import { applyAnimationEndState, getAnimateDuration } from '@/Core/Modules/animationFunctions';
+ import { WebGAL } from '@/Core/WebGAL';
+ import { DEFAULT_BG_OUT_DURATION } from '@/Core/constants';
+-import localforage from 'localforage';
++import { dumpToStorageFast } from '@/Core/controller/storage/storageController';
+ import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
+ import { parseTransformFrame } from '../parseTransformFrame';
+ 
+@@ -39,8 +39,7 @@ export const changeBg = (sentence: ISentence): IPerform => {
+   const dispatch = webgalStore.dispatch;
+   if (unlockName !== '') {
+     dispatch(unlockCgInUserData({ name: unlockName, url, series, order }));
+-    const userDataState = webgalStore.getState().userData;
+-    localforage.setItem(WebGAL.gameKey, userDataState).then(() => {});
++    dumpToStorageFast();
+   }
+ 
+   /**
+diff --git a/packages/webgal/src/Core/gameScripts/end.ts b/packages/webgal/src/Core/gameScripts/end.ts
+index eab20f9fbff40e390a527ccb5c1607615b3488e2..1c24c7b15aa99563085ac8e07c302a2e34561e92 100644
+--- a/packages/webgal/src/Core/gameScripts/end.ts
++++ b/packages/webgal/src/Core/gameScripts/end.ts
+@@ -1,3 +1,4 @@
++import { reportSaveError } from '@/Core/controller/storage/makenovelCompatibility';
+ import { ISentence } from '@/Core/controller/scene/sceneInterface';
+ import { createNonePerform, IPerform } from '@/Core/Modules/perform/performInterface';
+ import { assetSetter, fileType } from '@/Core/util/gameAssetsAccess/assetSetter';
+@@ -17,20 +18,26 @@ import { removeFastSaveGameRecord } from '../controller/storage/fastSaveLoad';
+  */
+ export const end = (sentence: ISentence): IPerform => {
+   resetStage(true);
++  const epoch = WebGAL.sceneManager.getSessionEpoch();
+   const dispatch = webgalStore.dispatch;
+   // 重新获取初始场景
+   const sceneUrl: string = assetSetter('start.txt', fileType.scene);
+   // scriptExecutor 会在命令返回后自增 sentenceId，必须在此之后重置，避免重置后又变为 1。
+   // 移除延时需要先让执行器显式处理结束流程，与 Pixi 是否同步无关。
+   setTimeout(() => {
+-    WebGAL.sceneManager.resetScene();
++    if (WebGAL.sceneManager.isSessionCurrent(epoch)) WebGAL.sceneManager.sceneData.currentSentenceId = 0;
+   }, 5);
+-  removeFastSaveGameRecord();
++  void removeFastSaveGameRecord().catch(reportSaveError);
+   dumpToStorageFast();
+-  sceneFetcher(sceneUrl).then((rawScene) => {
+-    // 场景写入到运行时
+-    WebGAL.sceneManager.sceneData.currentScene = sceneParser(rawScene, 'start.txt', sceneUrl);
+-  });
++  sceneFetcher(sceneUrl)
++    .then((rawScene) => {
++      if (!WebGAL.sceneManager.isSessionCurrent(epoch)) return;
++      // 场景写入到运行时
++      WebGAL.sceneManager.sceneData.currentScene = sceneParser(rawScene, 'start.txt', sceneUrl);
++    })
++    .catch((error) => {
++      if (WebGAL.sceneManager.isSessionCurrent(epoch)) reportSaveError(error);
++    });
+   dispatch(setVisibility({ component: 'showTitle', visibility: true }));
+   playBgm(webgalStore.getState().GUI.titleBgm);
+   return createNonePerform();
+diff --git a/packages/webgal/src/Core/gameScripts/unlockBgm.ts b/packages/webgal/src/Core/gameScripts/unlockBgm.ts
+index ce2326a230330604ce98ab1b08114948f257223c..5680ffde8651232c4b3123e618ac063de7170c9c 100644
+--- a/packages/webgal/src/Core/gameScripts/unlockBgm.ts
++++ b/packages/webgal/src/Core/gameScripts/unlockBgm.ts
+@@ -2,10 +2,9 @@ import { ISentence } from '@/Core/controller/scene/sceneInterface';
+ import { createNonePerform, IPerform } from '@/Core/Modules/perform/performInterface';
+ import { webgalStore } from '@/store/store';
+ import { unlockBgmInUserData } from '@/store/userDataReducer';
+-import localforage from 'localforage';
++import { dumpToStorageFast } from '@/Core/controller/storage/storageController';
+ import { logger } from '@/Core/util/logger';
+ 
+-import { WebGAL } from '@/Core/WebGAL';
+ import { getStringArgByKey } from '../util/getSentenceArg';
+ 
+ /**
+@@ -18,7 +17,6 @@ export const unlockBgm = (sentence: ISentence): IPerform => {
+   const series = getStringArgByKey(sentence, 'series') ?? 'default';
+   logger.info(`解锁BGM：${name}，路径：${url}，所属系列：${series}`);
+   webgalStore.dispatch(unlockBgmInUserData({ name, url, series }));
+-  const userDataState = webgalStore.getState().userData;
+-  localforage.setItem(WebGAL.gameKey, userDataState).then(() => {});
++  dumpToStorageFast();
+   return createNonePerform();
+ };
+diff --git a/packages/webgal/src/Core/gameScripts/unlockCg.ts b/packages/webgal/src/Core/gameScripts/unlockCg.ts
+index 9dcf694be51dd87d941b7f0cbf9cfdab15ccdafa..1ea7ff27937d65038ed104cbdb8d6d074c8a68b3 100644
+--- a/packages/webgal/src/Core/gameScripts/unlockCg.ts
++++ b/packages/webgal/src/Core/gameScripts/unlockCg.ts
+@@ -3,9 +3,8 @@ import { createNonePerform, IPerform } from '@/Core/Modules/perform/performInter
+ import { webgalStore } from '@/store/store';
+ import { unlockCgInUserData } from '@/store/userDataReducer';
+ import { logger } from '@/Core/util/logger';
+-import localforage from 'localforage';
++import { dumpToStorageFast } from '@/Core/controller/storage/storageController';
+ 
+-import { WebGAL } from '@/Core/WebGAL';
+ import { getStringArgByKey, getNumberArgByKey } from '../util/getSentenceArg';
+ 
+ /**
+@@ -19,7 +18,6 @@ export const unlockCg = (sentence: ISentence): IPerform => {
+   const order = getNumberArgByKey(sentence, 'order') ?? 0;
+   logger.info(`解锁CG：${name}，路径：${url}，所属系列：${series}，排序：${order}`);
+   webgalStore.dispatch(unlockCgInUserData({ name, url, series, order }));
+-  const userDataState = webgalStore.getState().userData;
+-  localforage.setItem(WebGAL.gameKey, userDataState).then(() => {});
++  dumpToStorageFast();
+   return createNonePerform();
+ };
+diff --git a/packages/webgal/src/Core/initializeScript.ts b/packages/webgal/src/Core/initializeScript.ts
+index 80af20d4654e0b8e59f6a6d049acafd4f904a964..f94848b48bbfa8515a243b3f4d8dfd40e01e7ec2 100644
+--- a/packages/webgal/src/Core/initializeScript.ts
++++ b/packages/webgal/src/Core/initializeScript.ts
+@@ -1,3 +1,9 @@
++import {
++  finishRuntimeInitialization,
++  getVerifiedBootstrapText,
++  reportSaveError,
++  setSaveStorageEnabled,
++} from './controller/storage/makenovelCompatibility';
+ /**
+  * @file 引擎初始化时会执行的脚本，包括获取游戏信息，初始化运行时变量，初始化用户数据存储
+  */
+@@ -27,7 +33,6 @@ export const initializeScript = (): void => {
+   logger.info(`WebGAL v${__INFO.version}`);
+   logger.info('Github: https://github.com/OpenWebGAL/WebGAL ');
+   logger.info('Made with ❤ by OpenWebGAL');
+-  loadTemplate();
+   // 激活强制缩放
+   // 在调整窗口大小时重新计算宽高，设计稿按照 1600*900。
+   if (isIOS && window.innerWidth <= window.innerHeight) {
+@@ -41,20 +46,6 @@ export const initializeScript = (): void => {
+     );
+   }
+ 
+-  // 获得 userAnimation
+-  loadStyle('./game/userStyleSheet.css');
+-  // 获得 user Animation
+-  getUserAnimation();
+-  // 获取start场景
+-  const sceneUrl: string = assetSetter('start.txt', fileType.scene);
+-  // 场景写入到运行时
+-  const initialSceneReady = sceneFetcher(sceneUrl).then((rawScene) => {
+-    WebGAL.sceneManager.sceneData.currentScene = sceneParser(rawScene, 'start.txt', sceneUrl);
+-    WebGAL.sceneManager.settledScenes.add(sceneUrl); // 放入已加载场景列表，避免递归加载相同场景
+-    WebGAL.flowchartManager.waitForCurrentSceneDialog();
+-  });
+-  // 获取游戏信息
+-  infoFetcher('./game/config.txt');
+   /**
+    * 启动Pixi
+    */
+@@ -80,8 +71,31 @@ export const initializeScript = (): void => {
+   /**
+    * 绑定工具函数
+    */
+-  bindExtraFunc();
+-  startPreviewSyncRuntime();
++  // Finish version binding before any playable scene or animation is loaded.
++  void (async () => {
++    try {
++      await infoFetcher('./game/config.txt');
++      loadStyle('./game/userStyleSheet.css');
++      const sceneUrl = assetSetter('start.txt', fileType.scene);
++      const initialEpoch = WebGAL.sceneManager.getSessionEpoch();
++      const initialScene = sceneFetcher(sceneUrl).then((rawScene) => {
++        if (!WebGAL.sceneManager.isSessionCurrent(initialEpoch)) return;
++        WebGAL.sceneManager.sceneData.currentScene = sceneParser(rawScene, 'start.txt', sceneUrl);
++        WebGAL.sceneManager.settledScenes.add(sceneUrl);
++        WebGAL.flowchartManager.waitForCurrentSceneDialog();
++      });
++      await Promise.all([loadTemplate(), getUserAnimation(), initialScene]);
++      bindExtraFunc();
++      startPreviewSyncRuntime();
++    } catch (error) {
++      setSaveStorageEnabled(false);
++      reportSaveError(error);
++      // @ts-expect-error renderPromiseResolve is supplied by the host page
++      window.renderPromiseResolve?.();
++    } finally {
++      finishRuntimeInitialization();
++    }
++  })();
+ };
+ 
+ function loadStyle(url: string) {
+@@ -93,19 +107,16 @@ function loadStyle(url: string) {
+   head.appendChild(link);
+ }
+ 
+-function getUserAnimation() {
+-  axios.get('./game/animation/animationTable.json').then((res) => {
+-    const animations: Array<string> = res.data;
+-    for (const animationName of animations) {
+-      axios.get(`./game/animation/${animationName}.json`).then((res) => {
+-        if (res.data) {
+-          const userAnimation = {
+-            name: animationName,
+-            effects: res.data,
+-          };
+-          WebGAL.animationManager.addAnimation(userAnimation);
+-        }
+-      });
+-    }
+-  });
++async function getUserAnimation() {
++  const table = getVerifiedBootstrapText('game/animation/animationTable.json');
++  const animations: string[] =
++    table === undefined ? (await axios.get('./game/animation/animationTable.json')).data : JSON.parse(table);
++  await Promise.all(
++    animations.map(async (animationName) => {
++      const path = `game/animation/${animationName}.json`;
++      const cached = getVerifiedBootstrapText(path);
++      const effects = cached === undefined ? (await axios.get(`./${path}`)).data : JSON.parse(cached);
++      if (effects) WebGAL.animationManager.addAnimation({ name: animationName, effects });
++    }),
++  );
+ }
+diff --git a/packages/webgal/src/Core/util/coreInitialFunction/bindExtraFunc.ts b/packages/webgal/src/Core/util/coreInitialFunction/bindExtraFunc.ts
+index 84cf7a8c2d1b20016d234aa1c07055862d52d957..ff00db104617b6c733dbba200c0df25608df62a3 100644
+--- a/packages/webgal/src/Core/util/coreInitialFunction/bindExtraFunc.ts
++++ b/packages/webgal/src/Core/util/coreInitialFunction/bindExtraFunc.ts
+@@ -1,5 +1,9 @@
+ import { runFastPreview } from '@/Core/util/syncWithEditor/runtime/previewSyncSceneCommand';
++import { markPreviewSession } from '@/Core/controller/storage/makenovelCompatibility';
+ 
+ export const bindExtraFunc = () => {
+-  (window as any).JMP = runFastPreview;
++  (window as any).JMP = (...args: Parameters<typeof runFastPreview>) => {
++    markPreviewSession();
++    return runFastPreview(...args);
++  };
+ };
+diff --git a/packages/webgal/src/Core/util/coreInitialFunction/infoFetcher.ts b/packages/webgal/src/Core/util/coreInitialFunction/infoFetcher.ts
+index 299e34218a3b084ae539e6e7721a74899905aaae..a10a7936af3f0f276c5b7bd20b5794ea18ca7c1a 100644
+--- a/packages/webgal/src/Core/util/coreInitialFunction/infoFetcher.ts
++++ b/packages/webgal/src/Core/util/coreInitialFunction/infoFetcher.ts
+@@ -9,6 +9,15 @@ import { getFastSaveFromStorage, getSavesFromStorage } from '@/Core/controller/s
+ import { logger } from '@/Core/util/logger';
+ import axios from 'axios';
+ import { IGameVar } from '@/Core/Modules/stage/stageInterface';
++import localforage from 'localforage';
++import {
++  initializeSaveCompatibility,
++  getVerifiedConfigText,
++  getSaveStatus,
++  reportSaveError,
++  setSaveStorageEnabled,
++} from '@/Core/controller/storage/makenovelCompatibility';
++import { preserveBeforeInitialization } from '@/Core/controller/storage/saveBackup';
+ 
+ /**
+  * 获取游戏信息
+@@ -22,11 +31,24 @@ export const infoFetcher = (url: string): Promise<IGameVar> => {
+     logger.info('获取到游戏信息', gameConfig);
+     // 先把 key 找到并设置了
+     const keyItem = gameConfig.find((e) => e.command === 'Game_key');
+-    WebGAL.gameKey = (keyItem?.args?.[0] as string) ?? '';
+-    initKey();
+-    await getStorageAsync();
+-    getFastSaveFromStorage();
+-    getSavesFromStorage(0, 0);
++    WebGAL.gameKey = await initializeSaveCompatibility(url, (keyItem?.args?.[0] as string) ?? '');
++    const verifiedConfig = getVerifiedConfigText();
++    if (verifiedConfig !== undefined) gameConfig = WebgalParser.parseConfig(verifiedConfig);
++    let storageReady = false;
++    try {
++      await preserveBeforeInitialization(localforage, getSaveStatus().scope!);
++      setSaveStorageEnabled(true);
++      initKey();
++      await getStorageAsync();
++      await getFastSaveFromStorage();
++      await getSavesFromStorage(0, 0);
++      storageReady = true;
++    } catch (error) {
++      setSaveStorageEnabled(false);
++      reportSaveError(
++        new Error(`玩家数据未能安全备份或读取，已暂停写入：${error instanceof Error ? error.message : String(error)}`),
++      );
++    }
+     // 存储 config.txt 中的配置，用于清除所有数据时还原配置
+     const gameConfigInit: IGameVar = {};
+     // 按照游戏的配置开始设置对应的状态
+@@ -72,7 +94,7 @@ export const infoFetcher = (url: string): Promise<IGameVar> => {
+     });
+ 
+     dispatch(setUserData({ key: 'gameConfigInit', value: gameConfigInit }));
+-    await WebGAL.flowchartManager.init(WebGAL.gameKey, gameConfigInit.Enable_flowchart === true);
++    if (storageReady) await WebGAL.flowchartManager.init(WebGAL.gameKey, gameConfigInit.Enable_flowchart === true);
+     // @ts-expect-error renderPromiseResolve is a global variable
+     window.renderPromiseResolve();
+     setStorage();
+diff --git a/packages/webgal/src/Core/util/coreInitialFunction/templateLoader.ts b/packages/webgal/src/Core/util/coreInitialFunction/templateLoader.ts
+index 3e43745bf21bb058ee8e7e356295e57840b56766..fa5be008b0dfb88a82a1be299528aa8ffbc44e6c 100644
+--- a/packages/webgal/src/Core/util/coreInitialFunction/templateLoader.ts
++++ b/packages/webgal/src/Core/util/coreInitialFunction/templateLoader.ts
+@@ -1,3 +1,4 @@
++import { getVerifiedBootstrapText } from '@/Core/controller/storage/makenovelCompatibility';
+ import axios from 'axios';
+ import { logger } from '@/Core/util/logger';
+ import { WebGAL } from '@/Core/WebGAL';
+@@ -14,7 +15,9 @@ const TEMPLATE_FONT_STYLE_SELECTOR = 'style[data-webgal-template-fonts]';
+ 
+ export async function loadTemplate(): Promise<WebgalTemplate | null> {
+   try {
+-    const { data } = await axios.get<WebgalTemplate>(TEMPLATE_PATH);
++    const verified = getVerifiedBootstrapText('game/template/template.json');
++    const data: WebgalTemplate =
++      verified === undefined ? (await axios.get<WebgalTemplate>(TEMPLATE_PATH)).data : JSON.parse(verified);
+     WebGAL.template = data;
+     const fonts = data.fonts ?? [];
+     injectTemplateFonts(fonts);
+@@ -93,8 +96,9 @@ async function loadStyleFiles() {
+     TEMPLATES.map(async (templatePath) => {
+       try {
+         logger.info(`加载模板样式文件: ${templatePath.path}`);
+-        const resp = await axios.get(`game/template/${templatePath.path}`);
+-        const scssStr = resp.data;
++        const path = `game/template/${templatePath.path}`;
++        const verified = getVerifiedBootstrapText(path);
++        const scssStr = verified === undefined ? (await axios.get(path)).data : verified;
+         const styleObject = scss2cssinjsParser(scssStr);
+         WebGAL.styleObjects.set(templatePath.ui, styleObject);
+         injectGlobal(styleObject.others);
+diff --git a/packages/webgal/src/Core/util/syncWithEditor/previewSyncRuntime.ts b/packages/webgal/src/Core/util/syncWithEditor/previewSyncRuntime.ts
+index 2f0864333c1fc5bc2ee42169368cf4e3a5d8ad66..c37167194f25896e8371fdf6dfd098630eb8d331 100644
+--- a/packages/webgal/src/Core/util/syncWithEditor/previewSyncRuntime.ts
++++ b/packages/webgal/src/Core/util/syncWithEditor/previewSyncRuntime.ts
+@@ -30,6 +30,7 @@ import type {
+ import { webgalStore } from '@/store/store';
+ import { setFontOptimization, setVisibility } from '@/store/GUIReducer';
+ import { WebGAL } from '@/Core/WebGAL';
++import { getSaveStatus, markPreviewSession } from '@/Core/controller/storage/makenovelCompatibility';
+ import { sceneParser, WebgalParser } from '@/Core/parser/sceneParser';
+ import { ISentence } from '@/Core/controller/scene/sceneInterface';
+ import { runScript } from '@/Core/controller/gamePlay/runScript';
+@@ -156,6 +157,7 @@ export const startPreviewSyncRuntime = () => {
+   };
+ 
+   const cancelActiveSyncScene = () => {
++    WebGAL.sceneManager.invalidateSession();
+     activeSyncSceneRevision = null;
+     WebGAL.gameplay.isFastPreview = false;
+   };
+@@ -219,7 +221,7 @@ export const startPreviewSyncRuntime = () => {
+ 
+     const registerContext: RegisterPreviewLogContext = {
+       requestId,
+-      gameId: WebGAL.gameKey || undefined,
++      gameId: getSaveStatus().scope?.legacyGameKey || undefined,
+       embeddedLaunchId,
+     };
+     pendingRegisterContext = registerContext;
+@@ -365,8 +367,9 @@ export const startPreviewSyncRuntime = () => {
+     });
+     // 暂留旧版等待：resetStage 不清除进行中的场景写入锁，立即推进可能被 preForward 拦截。
+     // 100ms 不保证解锁；替换前需处理旧加载结果失效和解锁后的推进，避免覆盖新预览。
++    const epoch = WebGAL.sceneManager.getSessionEpoch();
+     setTimeout(() => {
+-      continueSentence();
++      if (WebGAL.sceneManager.isSessionCurrent(epoch)) continueSentence();
+     }, 100);
+   };
+ 
+@@ -479,6 +482,9 @@ export const startPreviewSyncRuntime = () => {
+     type: TType,
+     payload: PreviewCommandPayloadByType[TType],
+   ): PreviewCommandResponsePayloadByType[TType] => {
++    // Font optimization is sent automatically on connection and changes only GUI rendering.
++    // Other author commands can alter saved stage/read state and must disable player writes.
++    if (type !== 'preview.command.set-font-optimization') markPreviewSession();
+     const handler = previewCommandHandlers[type] as (
+       nextPayload: PreviewCommandPayloadByType[TType],
+     ) => PreviewCommandResponsePayloadByType[TType];
+diff --git a/packages/webgal/src/Core/util/syncWithEditor/runtime/previewSyncSceneCommand.ts b/packages/webgal/src/Core/util/syncWithEditor/runtime/previewSyncSceneCommand.ts
+index 48256f5cd129b52196859b2e91fb3d5bcb77476c..f6fe3301feb79921a138bb7b9172883714382ef8 100644
+--- a/packages/webgal/src/Core/util/syncWithEditor/runtime/previewSyncSceneCommand.ts
++++ b/packages/webgal/src/Core/util/syncWithEditor/runtime/previewSyncSceneCommand.ts
+@@ -50,7 +50,8 @@ export function executePreviewSyncSceneCommand(
+   { sceneName, sentenceId, debugVariables, settleMode = 'normal' }: SyncScenePayload,
+   callbacks: PreviewSyncSceneCommandCallbacks = {},
+ ): void {
+-  const isLatest = () => callbacks.isLatest?.() ?? true;
++  let epoch = WebGAL.sceneManager.invalidateSession();
++  const isLatest = () => (callbacks.isLatest?.() ?? true) && WebGAL.sceneManager.isSessionCurrent(epoch);
+   logger.warn('正在跳转到' + sceneName + ':' + sentenceId);
+   WebGAL.gameplay.isFastPreview = false;
+ 
+@@ -74,12 +75,13 @@ export function executePreviewSyncSceneCommand(
+       }
+ 
+       resetStage(true, true, { commitStageState: false });
++      epoch = WebGAL.sceneManager.getSessionEpoch();
+       applyPreviewDebugVariables(debugVariables);
+       WebGAL.sceneManager.sceneData.currentScene = sceneParser(rawScene, sceneName, sceneUrl);
+       const currentSceneName = WebGAL.sceneManager.sceneData.currentScene.sceneName;
+       void runFastPreview(sentenceId, currentSceneName, callbacks.onFastPreviewTimeout, settleMode, {
+         onBeforeTargetScriptExecute: callbacks.onBeforeTargetScriptExecute,
+-        isLatest: callbacks.isLatest,
++        isLatest,
+       })
+         .then((result) => {
+           if (!isLatest()) {
+diff --git a/packages/webgal/src/UI/BottomControlPanel/BottomControlPanel.tsx b/packages/webgal/src/UI/BottomControlPanel/BottomControlPanel.tsx
+index 6ab5b2be419468d89c84a3c7b952d5223995104b..3d4581228ef1b0e6b2260affd06c0c66bf8325bc 100644
+--- a/packages/webgal/src/UI/BottomControlPanel/BottomControlPanel.tsx
++++ b/packages/webgal/src/UI/BottomControlPanel/BottomControlPanel.tsx
+@@ -4,7 +4,7 @@ import { switchFast } from '@/Core/controller/gamePlay/fastSkip';
+ import { loadGame } from '@/Core/controller/storage/loadGame';
+ import { saveGame } from '@/Core/controller/storage/saveGame';
+ import { showGlogalDialog, switchControls } from '@/UI/GlobalDialog/GlobalDialog';
+-import { easyCompile } from '@/UI/Menu/SaveAndLoad/Save/Save';
++import { canPreviewSave, easyCompile } from '@/UI/Menu/SaveAndLoad/Save/Save';
+ import useFullScreen from '@/hooks/useFullScreen';
+ import useSoundEffect from '@/hooks/useSoundEffect';
+ import useTrans from '@/hooks/useTrans';
+@@ -66,7 +66,7 @@ export const BottomControlPanel = () => {
+       <div style={{ fontSize: '125%' }}>{t('noSaving')}</div>
+     </div>
+   );
+-  if (saveData[0]) {
++  if (saveData[0] && canPreviewSave(saveData[0])) {
+     const data = saveData[0];
+     fastSlPreview = (
+       <div className={styles.slPreviewMain}>
+@@ -79,6 +79,8 @@ export const BottomControlPanel = () => {
+         </div>
+       </div>
+     );
++  } else if (saveData[0]) {
++    fastSlPreview = <div>存档数据无法预览</div>;
+   }
+ 
+   return (
+@@ -224,9 +226,8 @@ export const BottomControlPanel = () => {
+           <span
+             className={styles.singleButton + ' ' + styles.fastsave}
+             style={{ fontSize }}
+-            onClick={() => {
+-              saveGame(0);
+-              playSeClick();
++            onClick={async () => {
++              if (await saveGame(0)) playSeClick();
+             }}
+             onMouseEnter={playSeEnter}
+           >
+@@ -243,9 +244,8 @@ export const BottomControlPanel = () => {
+           <span
+             className={styles.singleButton + ' ' + styles.fastload}
+             style={{ fontSize }}
+-            onClick={() => {
+-              loadGame(0);
+-              playSeClick();
++            onClick={async () => {
++              if (await loadGame(0)) playSeClick();
+             }}
+             onMouseEnter={playSeEnter}
+           >
+diff --git a/packages/webgal/src/UI/Flowchart/Flowchart.tsx b/packages/webgal/src/UI/Flowchart/Flowchart.tsx
+index 4e8867459c04b267660294d83846a4eb45b0cba1..b4b07772d1a458b536f781a1674a26c341532879 100644
+--- a/packages/webgal/src/UI/Flowchart/Flowchart.tsx
++++ b/packages/webgal/src/UI/Flowchart/Flowchart.tsx
+@@ -1,3 +1,4 @@
++import { reportSaveError } from '@/Core/controller/storage/makenovelCompatibility';
+ import { loadGameFromStageData } from '@/Core/controller/storage/loadGame';
+ import { IFlowchart, IFlowchartEdge, IFlowchartNode } from '@/Core/Modules/flowchart';
+ import { WebGAL } from '@/Core/WebGAL';
+@@ -68,19 +69,25 @@ export const Flowchart = () => {
+     if (!currentFlowchartId && flowcharts[0]) setCurrentFlowchartId(flowcharts[0].id);
+   }, [flowcharts[0]?.id, currentFlowchartId]);
+ 
+-  const jumpToNode = (node: IFlowchartNode) => {
++  const jumpToNode = async (node: IFlowchartNode) => {
+     if (blockClickRef.current) {
+       blockClickRef.current = false;
+       return;
+     }
+     if (!currentFlowchart || !WebGAL.flowchartManager.isUnlocked(currentFlowchart.id, node.id)) return;
+     playSeClick();
+-    WebGAL.flowchartManager.loadSnapshot(currentFlowchart.id, node.id).then((snapshot) => {
+-      if (!snapshot) return;
+-      loadGameFromStageData(snapshot);
+-      dispatch(setVisibility({ component: 'showMenuPanel', visibility: false }));
+-      dispatch(setVisibility({ component: 'showTextBox', visibility: true }));
+-    });
++    let epoch: number | undefined;
++    try {
++      epoch = WebGAL.sceneManager.beginRestoreRequest();
++      const snapshot = await WebGAL.flowchartManager.loadSnapshot(currentFlowchart.id, node.id);
++      if (!WebGAL.sceneManager.isSessionCurrent(epoch)) return;
++      if (!snapshot) throw new Error('这个流程节点没有可读取的快照。');
++      await loadGameFromStageData(snapshot, epoch);
++    } catch (error) {
++      if (epoch === undefined || WebGAL.sceneManager.isSessionCurrent(epoch)) reportSaveError(error);
++    } finally {
++      if (epoch !== undefined) WebGAL.sceneManager.finishSessionOperation(epoch);
++    }
+   };
+ 
+   const dragFlowchart = (event: ReactMouseEvent<HTMLDivElement>) => {
+diff --git a/packages/webgal/src/UI/Menu/Options/System/System.tsx b/packages/webgal/src/UI/Menu/Options/System/System.tsx
+index c9d047a8cf0289678c6243e2a55acc03c3737215..879c7128d992362c79ce18cfe68b1f780a7e0a28 100644
+--- a/packages/webgal/src/UI/Menu/Options/System/System.tsx
++++ b/packages/webgal/src/UI/Menu/Options/System/System.tsx
+@@ -2,13 +2,12 @@ import styles from '@/UI/Menu/Options/options.module.scss';
+ import { NormalOption } from '@/UI/Menu/Options/NormalOption';
+ import { NormalButton } from '@/UI/Menu/Options/NormalButton';
+ import { resetAllData, resetOptionSet, setOptionData } from '@/store/userDataReducer';
+-import { IUserData, playSpeed } from '@/store/userDataInterface';
+-import { getStorage, setStorage, dumpToStorageFast } from '@/Core/controller/storage/storageController';
++
++import { setStorage, dumpToStorageFast } from '@/Core/controller/storage/storageController';
+ import { useDispatch, useSelector } from 'react-redux';
+-import { RootState, webgalStore } from '@/store/store';
++import { RootState } from '@/store/store';
+ import { showGlogalDialog } from '@/UI/GlobalDialog/GlobalDialog';
+-import localforage from 'localforage';
+-import { logger } from '@/Core/util/logger';
++
+ import useTrans from '@/hooks/useTrans';
+ import useLanguage from '@/hooks/useLanguage';
+ import languages, { language } from '@/config/language';
+@@ -16,84 +15,20 @@ import { useState } from 'react';
+ import About from '@/UI/Menu/Options/System/About';
+ import { WebGAL } from '@/Core/WebGAL';
+ import useSoundEffect from '@/hooks/useSoundEffect';
+-import savesReducer, { ISavesData, saveActions } from '@/store/savesReducer';
++import { saveActions } from '@/store/savesReducer';
+ import { dumpFastSaveToStorage, dumpSavesToStorage } from '@/Core/controller/storage/savesController';
+ import { OptionSlider } from '@/UI/Menu/Options/OptionSlider';
+ import { Info } from '@icon-park/react';
+-
+-interface IExportGameData {
+-  userData: IUserData;
+-  saves: ISavesData;
+-}
++import { SaveDataTools } from '@/UI/SaveDataTools/SaveDataTools';
++import { reportSaveError } from '@/Core/controller/storage/makenovelCompatibility';
+ 
+ export function System() {
+   const userDataState = useSelector((state: RootState) => state.userData);
+-  const userSavesState = useSelector((state: RootState) => state.saveData);
+   const dispatch = useDispatch();
+   const setLanguage = useLanguage();
+   const t = useTrans('menu.options.pages.system.options.');
+   const { playSeDialogOpen, playSeEnter, playSeSwitch } = useSoundEffect();
+ 
+-  function exportSaves() {
+-    const gameData: IExportGameData = {
+-      userData: userDataState,
+-      saves: userSavesState,
+-    };
+-
+-    const saves = JSON.stringify(gameData);
+-    if (saves !== null) {
+-      // @ts-ignore
+-      const blob = new Blob([saves], { type: 'application/json' });
+-      const blobUrl = URL.createObjectURL(blob);
+-      const a = document.createElement('a');
+-      a.href = blobUrl;
+-      a.download = 'saves.json';
+-      a.click();
+-      a.remove();
+-    }
+-  }
+-
+-  function importSavesEventHandler(ev: any) {
+-    // const t = useTrans('menu.options.pages.system.options.');
+-
+-    const file = ev.target.files[0];
+-    const reader = new FileReader();
+-    reader.onload = (evR) => {
+-      const saves = evR!.target!.result as string;
+-      try {
+-        const saveAsObj: IExportGameData = JSON.parse(saves);
+-        playSeDialogOpen();
+-        showGlogalDialog({
+-          title: t('gameSave.dialogs.import.title'),
+-          leftText: t('$common.yes'),
+-          rightText: t('$common.no'),
+-          leftFunc: async () => {
+-            await localforage.setItem(WebGAL.gameKey, saveAsObj.userData).then(() => {
+-              logger.info(t('gameSave.dialogs.import.tip'));
+-            });
+-            getStorage();
+-            webgalStore.dispatch(saveActions.replaceSaveGame(saveAsObj.saves.saveData));
+-            webgalStore.dispatch(saveActions.setFastSave(saveAsObj.saves.quickSaveData));
+-            dumpFastSaveToStorage();
+-            dumpSavesToStorage(0, 200);
+-          },
+-          rightFunc: () => {},
+-        });
+-      } catch (e) {
+-        logger.error(t('gameSave.dialogs.import.error'), e);
+-      }
+-      // window.location.reload(); // dirty: 强制刷新 UI
+-    };
+-    reader.readAsText(file, 'UTF-8');
+-  }
+-
+-  function importSaves() {
+-    const inputElement = document.createElement('input');
+-    inputElement.type = 'file';
+-    inputElement.onchange = importSavesEventHandler;
+-    inputElement.click();
+-  }
+-
+   const [showAbout, setShowAbout] = useState(false);
+   const [showLanguageSelect, setShowLanguageSelect] = useState(false);
+ 
+@@ -199,8 +134,8 @@ export function System() {
+                     rightText: t('$common.no'),
+                     leftFunc: () => {
+                       dispatch(saveActions.resetSaves());
+-                      dumpSavesToStorage(0, 200);
+-                      dumpFastSaveToStorage();
++                      void dumpSavesToStorage(0, 200).catch(reportSaveError);
++                      void dumpFastSaveToStorage().catch(reportSaveError);
+                     },
+                     rightFunc: () => {},
+                   });
+@@ -226,11 +161,11 @@ export function System() {
+                     rightText: t('$common.no'),
+                     leftFunc: () => {
+                       dispatch(resetAllData());
+-                      WebGAL.flowchartManager.clearProgress();
++                      void WebGAL.flowchartManager.clearProgress().catch(reportSaveError);
+                       dumpToStorageFast();
+                       dispatch(saveActions.resetSaves());
+-                      dumpSavesToStorage(0, 200);
+-                      dumpFastSaveToStorage();
++                      void dumpSavesToStorage(0, 200).catch(reportSaveError);
++                      void dumpFastSaveToStorage().catch(reportSaveError);
+                     },
+                     rightFunc: () => {},
+                   });
+@@ -239,13 +174,7 @@ export function System() {
+               currentChecked={3}
+             />
+           </NormalOption>
+-          <NormalOption key="option3" title={t('gameSave.title')}>
+-            <NormalButton
+-              textList={t('gameSave.options.export', 'gameSave.options.import')}
+-              functionList={[exportSaves, importSaves]}
+-              currentChecked={2}
+-            />
+-          </NormalOption>
++          <SaveDataTools />
+           <div className={styles.About_title_text} onClick={toggleAbout}>
+             <Info theme="outline" size="32" fill="#227D515F" />
+           </div>
+diff --git a/packages/webgal/src/UI/Menu/SaveAndLoad/Load/Load.tsx b/packages/webgal/src/UI/Menu/SaveAndLoad/Load/Load.tsx
+index 96fc6efcd5b09187f7f3ed3f7861f346a6bc7d01..a3d33cb05dacaef3a6f5064ae1c49304f14bad90 100644
+--- a/packages/webgal/src/UI/Menu/SaveAndLoad/Load/Load.tsx
++++ b/packages/webgal/src/UI/Menu/SaveAndLoad/Load/Load.tsx
+@@ -1,4 +1,4 @@
+-import { CSSProperties, FC, useEffect } from 'react';
++import { FC, useEffect } from 'react';
+ import { loadGame } from '@/Core/controller/storage/loadGame';
+ import styles from '../SaveAndLoad.module.scss';
+ // import {saveGame} from '@/Core/controller/storage/saveGame';
+@@ -7,10 +7,10 @@ import { useDispatch, useSelector } from 'react-redux';
+ import { RootState } from '@/store/store';
+ import { setSlPage } from '@/store/userDataReducer';
+ import useTrans from '@/hooks/useTrans';
+-import { useTranslation } from 'react-i18next';
+ import useSoundEffect from '@/hooks/useSoundEffect';
+ import { getSavesFromStorage } from '@/Core/controller/storage/savesController';
+-import { easyCompile } from '@/UI/Menu/SaveAndLoad/Save/Save';
++import { canPreviewSave, easyCompile } from '@/UI/Menu/SaveAndLoad/Save/Save';
++import { reportSaveError } from '@/Core/controller/storage/makenovelCompatibility';
+ 
+ export const Load: FC = () => {
+   const { playSeClick, playSeEnter, playSePageChange } = useSoundEffect();
+@@ -46,7 +46,7 @@ export const Load: FC = () => {
+   const end = start + 9;
+ 
+   useEffect(() => {
+-    getSavesFromStorage(start, end);
++    void getSavesFromStorage(start, end).catch(reportSaveError);
+   }, [start, end]);
+ 
+   let animationIndex = 0;
+@@ -54,7 +54,7 @@ export const Load: FC = () => {
+     animationIndex++;
+     const saveData = saveDataState.saveData[i];
+     let saveElementContent = <div />;
+-    if (saveData) {
++    if (saveData && canPreviewSave(saveData)) {
+       const speaker = saveData.nowStageState.showName === '' ? '\u00A0' : `${saveData.nowStageState.showName}`;
+       const speakerView = easyCompile(speaker);
+       saveElementContent = (
+@@ -76,15 +76,16 @@ export const Load: FC = () => {
+           </div>
+         </>
+       );
++    } else if (saveData) {
++      saveElementContent = <div className={styles.Save_Load_content_text}>存档数据无法预览</div>;
+     }
+     // else {
+ 
+     // }
+     const saveElement = (
+       <div
+-        onClick={() => {
+-          loadGame(i);
+-          playSeClick();
++        onClick={async () => {
++          if (await loadGame(i)) playSeClick();
+         }}
+         onMouseEnter={playSeEnter}
+         key={'loadElement_' + i}
+diff --git a/packages/webgal/src/UI/Menu/SaveAndLoad/Save/Save.tsx b/packages/webgal/src/UI/Menu/SaveAndLoad/Save/Save.tsx
+index d084a7c0520e09e46865e4ec9743ffecfa6a1f39..ea1c132178875222fd698c1988028150d9035d74 100644
+--- a/packages/webgal/src/UI/Menu/SaveAndLoad/Save/Save.tsx
++++ b/packages/webgal/src/UI/Menu/SaveAndLoad/Save/Save.tsx
+@@ -11,6 +11,7 @@ import useSoundEffect from '@/hooks/useSoundEffect';
+ import { getSavesFromStorage } from '@/Core/controller/storage/savesController';
+ import { compileSentence } from '@/Stage/TextBox/TextBox';
+ import { mergeStringsAndKeepObjects } from '@/UI/Backlog/Backlog';
++import { reportSaveError } from '@/Core/controller/storage/makenovelCompatibility';
+ 
+ export const Save: FC = () => {
+   const { playSePageChange, playSeEnter, playSeDialogOpen } = useSoundEffect();
+@@ -48,7 +49,7 @@ export const Save: FC = () => {
+   const end = start + 9;
+ 
+   useEffect(() => {
+-    getSavesFromStorage(start, end);
++    void getSavesFromStorage(start, end).catch(reportSaveError);
+   }, [start, end]);
+ 
+   let animationIndex = 0;
+@@ -56,7 +57,7 @@ export const Save: FC = () => {
+     animationIndex++;
+     const saveData = savesDataState.saveData[i];
+     let saveElementContent = <div />;
+-    if (saveData) {
++    if (saveData && canPreviewSave(saveData)) {
+       const speaker = saveData.nowStageState.showName === '' ? '\u00A0' : `${saveData.nowStageState.showName}`;
+       const speakerView = easyCompile(speaker);
+       saveElementContent = (
+@@ -74,28 +75,31 @@ export const Save: FC = () => {
+           </div>
+         </>
+       );
++    } else if (saveData) {
++      saveElementContent = <div className={styles.Save_Load_content_text}>存档数据无法预览</div>;
+     }
+     // else {
+ 
+     // }
+     const saveElement = (
+       <div
+-        onClick={() => {
++        onClick={async () => {
+           if (savesDataState.saveData[i]) {
+             playSeDialogOpen();
+             showGlogalDialog({
+               title: t('saving.isOverwrite'),
+               leftText: tCommon('yes'),
+               rightText: tCommon('no'),
+-              leftFunc: () => {
+-                saveGame(i);
+-                setStorage();
++              leftFunc: async () => {
++                if (await saveGame(i)) {
++                  setStorage();
++                  playSePageChange();
++                }
+               },
+               rightFunc: () => {},
+             });
+           } else {
+-            playSePageChange();
+-            saveGame(i);
++            if (await saveGame(i)) playSePageChange();
+           }
+         }}
+         onMouseEnter={playSeEnter}
+@@ -126,6 +130,22 @@ export const Save: FC = () => {
+   );
+ };
+ 
++/** Rendering a slot preview must not assume the persisted payload has already passed restore validation. */
++export function canPreviewSave(value: unknown): boolean {
++  if (!value || typeof value !== 'object') return false;
++  const save = value as Record<string, unknown>;
++  if (!save.nowStageState || typeof save.nowStageState !== 'object') return false;
++  const stage = save.nowStageState as Record<string, unknown>;
++  return (
++    typeof save.index === 'number' &&
++    Number.isSafeInteger(save.index) &&
++    typeof save.saveTime === 'string' &&
++    typeof save.previewImage === 'string' &&
++    typeof stage.showName === 'string' &&
++    typeof stage.showText === 'string'
++  );
++}
++
+ export function easyCompile(sentence: string) {
+   const compiledNodes = compileSentence(sentence, 3, true);
+   const rnodes = compiledNodes.map((line) => {
+diff --git a/packages/webgal/src/UI/SaveDataTools/SaveDataTools.tsx b/packages/webgal/src/UI/SaveDataTools/SaveDataTools.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..00943362a13dd00fcafcae706d6fff57368f975c
+--- /dev/null
++++ b/packages/webgal/src/UI/SaveDataTools/SaveDataTools.tsx
+@@ -0,0 +1,112 @@
++import { useEffect, useRef, useState } from 'react';
++import localforage from 'localforage';
++import { captureSaveBackup, verifySaveBackup } from '@/Core/controller/storage/saveBackup';
++import {
++  clearSaveError,
++  getSaveStatus,
++  reportSaveError,
++  subscribeSaveStatus,
++} from '@/Core/controller/storage/makenovelCompatibility';
++import './saveDataTools.scss';
++
++function useSaveStatus() {
++  const [status, setStatus] = useState(getSaveStatus);
++  useEffect(() => {
++    const refresh = () => setStatus(getSaveStatus());
++    const unsubscribe = subscribeSaveStatus(refresh);
++    refresh();
++    return unsubscribe;
++  }, []);
++  return status;
++}
++
++export function SaveDataNotice() {
++  const status = useSaveStatus();
++  if (!status.error) return null;
++  return (
++    <aside className="makenovel-save-notice" role="alert" onClick={(event) => event.stopPropagation()}>
++      <span>{status.error}</span>
++      <button type="button" onClick={clearSaveError}>
++        知道了
++      </button>
++    </aside>
++  );
++}
++
++export function SaveDataTools() {
++  const status = useSaveStatus();
++  const [busy, setBusy] = useState(false);
++  const [result, setResult] = useState('');
++  const fileInput = useRef<HTMLInputElement>(null);
++  async function exportBackup() {
++    if (busy || !status.scope) return;
++    setBusy(true);
++    setResult('正在完整读取本作品的玩家数据…');
++    try {
++      const backup = await captureSaveBackup(localforage, status.scope);
++      const url = URL.createObjectURL(new Blob([JSON.stringify(backup)], { type: 'application/json' }));
++      const anchor = document.createElement('a');
++      anchor.href = url;
++      anchor.download = `makenovel-player-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
++      document.body.append(anchor);
++      anchor.click();
++      anchor.remove();
++      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
++      setResult(
++        `备份已生成：${backup.payload.records.length} 项当前数据、${backup.payload.preserved.length} 份保留副本。请保管下载文件。`,
++      );
++    } catch (error) {
++      setResult('备份未完成，原始数据仍保留。');
++      reportSaveError(error);
++    } finally {
++      setBusy(false);
++    }
++  }
++  async function verifyFile(file: File | undefined) {
++    if (!file || !status.scope || busy) return;
++    setBusy(true);
++    setResult('正在核对备份…');
++    try {
++      if (file.size > 256 * 1024 * 1024) throw new Error('备份文件过大，无法在本页校验。');
++      const archive = await verifySaveBackup(JSON.parse(await file.text()), status.scope);
++      setResult(`备份校验通过：${archive.payload.records.length} 项数据。此操作只校验文件；跨版本恢复仍需专门迁移。`);
++    } catch (error) {
++      setResult('备份未通过校验，当前玩家数据未更改。');
++      reportSaveError(error);
++    } finally {
++      setBusy(false);
++      if (fileInput.current) fileInput.current.value = '';
++    }
++  }
++  return (
++    <section className="makenovel-save-tools" aria-label="玩家数据与版本">
++      <h3>玩家数据与版本</h3>
++      <p>{status.message}</p>
++      <p>完整备份包含已保存的全部槽、快档、已读、设置、鉴赏、流程图和旧版本副本。来源不明的旧档暂不直接导入。</p>
++      <div>
++        <button
++          type="button"
++          disabled={busy || !status.scope}
++          onClick={() => {
++            void exportBackup();
++          }}
++        >
++          导出完整备份
++        </button>
++        <button type="button" disabled={busy || !status.scope} onClick={() => fileInput.current?.click()}>
++          校验备份文件
++        </button>
++        <input
++          ref={fileInput}
++          type="file"
++          accept="application/json,.json"
++          hidden
++          onChange={(event) => {
++            void verifyFile(event.target.files?.[0]);
++          }}
++        />
++      </div>
++      <p role="status">{result}</p>
++    </section>
++  );
++}
+diff --git a/packages/webgal/src/UI/SaveDataTools/saveDataTools.scss b/packages/webgal/src/UI/SaveDataTools/saveDataTools.scss
+new file mode 100644
+index 0000000000000000000000000000000000000000..d19b66dcff6c5804365c0256add0a5867ba4b721
+--- /dev/null
++++ b/packages/webgal/src/UI/SaveDataTools/saveDataTools.scss
+@@ -0,0 +1,61 @@
++.makenovel-save-tools {
++  margin: 20px 0;
++  padding: 20px 28px;
++  border: 1px solid #55877655;
++  border-radius: 12px;
++  background: #ffffffb8;
++  color: #244d43;
++  font-size: 22px;
++  line-height: 1.5;
++  h3 {
++    margin: 0 0 10px;
++    font-size: 26px;
++  }
++  p {
++    margin: 8px 0;
++  }
++  button {
++    margin: 8px 16px 0 0;
++  }
++}
++.makenovel-save-tools button,
++.makenovel-save-notice button {
++  font: inherit;
++  border: 1px solid #416e5d;
++  border-radius: 6px;
++  padding: 8px 18px;
++  background: #fff;
++  color: #244d43;
++  cursor: pointer;
++  &:disabled {
++    opacity: 0.5;
++    cursor: wait;
++  }
++  &:focus-visible {
++    outline: 3px solid #3d9977;
++    outline-offset: 3px;
++  }
++}
++.makenovel-save-notice {
++  position: absolute;
++  z-index: 100000;
++  left: 25%;
++  right: 4%;
++  top: 24px;
++  display: flex;
++  gap: 20px;
++  align-items: center;
++  justify-content: space-between;
++  padding: 18px 24px;
++  border: 1px solid #a87931;
++  border-radius: 12px;
++  color: #4e3616;
++  background: #fffbef;
++  box-shadow: 0 6px 24px #0002;
++  font-size: 24px;
++  line-height: 1.4;
++  overflow-wrap: anywhere;
++  button {
++    flex-shrink: 0;
++  }
++}
+diff --git a/packages/webgal/src/UI/Title/Title.tsx b/packages/webgal/src/UI/Title/Title.tsx
+index 28109411440a736db233856c1f7bf5cacc8f512b..671b50bb4d5d0b10a5c6496833efd655118546a4 100644
+--- a/packages/webgal/src/UI/Title/Title.tsx
++++ b/packages/webgal/src/UI/Title/Title.tsx
+@@ -80,11 +80,8 @@ export default function Title() {
+                 className={`${applyStyle('Title_button', styles.Title_button)} ${
+                   !fastSaveData ? applyStyle('Title_button_disabled', styles.Title_button_disabled) : ''
+                 }`}
+-                onClick={() => {
+-                  if (fastSaveData) {
+-                    playSeClick();
+-                    continueGame();
+-                  }
++                onClick={async () => {
++                  if (fastSaveData && (await continueGame())) playSeClick();
+                 }}
+                 onMouseEnter={fastSaveData ? playSeEnter : undefined}
+               >
+diff --git a/packages/webgal/src/hooks/useConfigData.ts b/packages/webgal/src/hooks/useConfigData.ts
+index 8309767940983afba9ead66884d0d64f433bb619..54f875c1b78130deb8a24969457ede8bfb96d5d2 100644
+--- a/packages/webgal/src/hooks/useConfigData.ts
++++ b/packages/webgal/src/hooks/useConfigData.ts
+@@ -1,5 +1,4 @@
+-import { getFastSaveFromStorage, getSavesFromStorage } from '@/Core/controller/storage/savesController';
+-import { getStorage } from '@/Core/controller/storage/storageController';
++import { getSaveStatus, markPreviewSession, reportSaveError } from '@/Core/controller/storage/makenovelCompatibility';
+ import { setEbg } from '@/Core/gameScripts/changeBg/setEbg';
+ import { assetSetter, fileType } from '@/Core/util/gameAssetsAccess/assetSetter';
+ import { WebGAL } from '@/Core/WebGAL';
+@@ -46,10 +45,12 @@ const useConfigData = () => {
+         }
+ 
+         case 'Game_key': {
+-          WebGAL.gameKey = val;
+-          getStorage();
+-          getFastSaveFromStorage();
+-          getSavesFromStorage(0, 0);
++          // Storage identity is assigned only after manifest verification and backup.
++          // Config/UI changes must never replace it with the legacy Game_key.
++          if (getSaveStatus().scope && val !== getSaveStatus().scope!.legacyGameKey) {
++            markPreviewSession();
++            reportSaveError(new Error('作品身份已改变，请重新打开游戏。当前页面暂停写入玩家数据。'));
++          }
+           break;
+         }
+       }
+diff --git a/packages/webgal/src/store/userDataInterface.ts b/packages/webgal/src/store/userDataInterface.ts
+index f5d55bc56d4225435f10d4c037dcc0474af3031d..00e81164e81cd9a548cfc03e7173b7c162df849f 100644
+--- a/packages/webgal/src/store/userDataInterface.ts
++++ b/packages/webgal/src/store/userDataInterface.ts
+@@ -2,6 +2,7 @@ import { IGameVar, IStageState } from '@/Core/Modules/stage/stageInterface';
+ import { language } from '@/config/language';
+ import { IBacklogItem } from '@/Core/Modules/backlog';
+ import { ISceneEntry } from '@/Core/Modules/scene';
++import type { SaveCompatibility } from '@/Core/controller/storage/makenovelCompatibility';
+ 
+ /**
+  * 播放速度的枚举类型
+@@ -65,6 +66,7 @@ export interface ISaveScene {
+  * @interface ISaveData 存档文件接口
+  */
+ export interface ISaveData {
++  makenovel?: SaveCompatibility;
+   nowStageState: IStageState;
+   backlog: Array<IBacklogItem>; // 舞台数据
+   index: number; // 存档的序号

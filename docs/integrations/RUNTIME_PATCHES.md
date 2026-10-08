@@ -1,8 +1,25 @@
 # WebGAL 运行时补丁与模板同步
 
-更新：2026-10-07，MakeNovel `0.0.4`。运行时仍锁定 WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`；依赖版本不变。根仓 [清单](../../patches/webgal/manifest.json) 和 `0001-fixed-player-viewport.patch` 记录 fixed 根画布修复，避免缩放后的存档菜单被 body 滚动带出视口。它不改原生剧情执行或存档协议。
+更新：2026-10-08，MakeNovel `0.0.5`。运行时仍锁定 WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`；依赖版本不变。根仓 [清单](../../patches/webgal/manifest.json) 管理顺序补丁：
+
+- `0001-fixed-player-viewport.patch`：fixed 根画布，修复 body 滚动带走缩放后的存档菜单；此补丁自身不改存档协议。
+- `0002-versioned-player-saves.patch`：第五轮精确作品版本门禁、初始化前玩家备份、等待原生存储确认、异步恢复预检与界面错误/备份入口。保留原生脚本、槽、舞台、调用栈及执行器。
+
+第二个补丁的导出、摘要、当前应用状态与构建验收以清单和 [TESTING.md](../TESTING.md) 的实际结果为准；下文第四轮构建/重放数字只对应当时的单补丁树。
 
 Terre 使用单独的 [补丁链](TERRE_PATCHES.md)。两个 submodule 保持原版 HEAD，已审查修改保留在工作树；不要 reset/clean，也不要把补丁状态误当外部修改。
+
+## 第五轮玩家兼容与备份顺序
+
+作者显式用 [Seal-Game.ps1](../../scripts/Seal-Game.ps1) 为作品生成 `game/makenovel-manifest.json`。协议记录 schemaVersion、随机 projectId、原生 Game_key、运行时兼容常量、game 文件的原字节 hash 及 manifestHash。新作品 `-Action Init`、已有作品改稿后 `-Action Update`、默认只读 verify；不会自动给所有作者作品登记身份。完整命令和字节协议见 [作品封存说明](../../integrations/game-manifest/README.md)。
+
+运行时先核对清单及文件，再选择 `makenovel-v1:<projectId>:<manifestHash>`；无法核对时选择隔离的 `makenovel-unverified-v1:<旧 Game_key 摘要>`，暂不允许存读档，设置可在备份成功后使用隔离空间。原 Game_key 命名空间始终保留，不自动读入或规范化。
+
+打开原生存储门禁之前，先把旧用户数据、普通槽、快档、流程图进度/快照以及同作品旧 manifest 命名空间做完整值副本，追加新 key 后读回校验。相同完整记录集可以复用已核验副本。只有成功后才依次初始化原生用户数据、快档、槽与流程图；配额或读回失败保留旧数据、禁用后续存储并显示错误，渲染入口仍可继续。导出包含保留的初始化前副本；离线文件只校验，不覆盖当前 namespace，不猜旧索引迁移。
+
+新快照绑定 projectId、Game_key、运行时兼容常量与 manifestHash；不同/未知版本拒绝读取。同版恢复也先校验当前场景、父调用栈和历史的源码与索引，随后才在原生执行器中替换状态。普通/快速存档按 key 等待落盘成功后发布，初始化 epoch 与 namespace 检查排除切换后的过时结果。上述是代码与边界接线范围，真实浏览器/Windows 的完整流程须单独记录。
+
+仍有明确边界：HTTP 校验只能读取清单已有路径，不能发现未列入的新增文件；本地 verify 才做文件集增删核对。大作品的全部资源 hash 成本尚未验收，`beforeunload` 不能等待其完成。已提交给 localforage 的写入不能撤销，数据库确认不等于断电耐久性。同步恢复异常只尝试重建原生状态，不能承诺回退任意插件与外部副作用。更多限制见 [KNOWN_ISSUES.md](../KNOWN_ISSUES.md)。
 
 ## 顺序与入口
 
@@ -67,12 +84,12 @@ pwsh -NoLogo -NoProfile -File scripts/Sync-Runtime.ps1 -Action Sync
 
 中断后先停止服务，读取日志和对应 run 目录，确认当前模板、候选与备份的实际内容；不要删除 `previous-template` 或覆盖唯一副本来让检查通过。该备份是模板目录备份，不包含作者作品和玩家数据，也不替代它们的备份。备份会占用磁盘，需要在验证完成后由维护者明确管理。
 
-## 当前证据边界
+## 第四轮历史证据边界
 
 独立 runtime 的原裁切已复现；1280×720、1600×900 和 1280×960 重新打开存档菜单的回归已通过，后者保留正常上下留白。受控 Build 174.1 s；25 个引擎文件已 Sync，模板 game 逐文件 hash 不变。缺失凭据、源码凭据过期、额外产物三类负例均拒绝，临时改动已恢复。
 
 runtime 单补丁已在 `--no-hardlinks --no-checkout`、无 alternates 的独立 clone 通过 18 项：0/1→1/1、幂等、临时 index 逆向回 base、fsck、开发树一致及两个真实 index 字节不变。最终树为 `8561dc40298a2b72704255d25325b0aefd2aa617`，本地报告为 `docs/evidence/local/round4/runtime-independent-replay.json`；此前 shared clone 报告保留作历史。
 
-完整 editor:build 已完成 Check→前端/后端构建→Sync 25 文件，最终前端重编 2m53s 通过；Terre 三补丁独立重放 17 项也通过。仅含 game 的新作品实际 HTTP 请求验证 25 个引擎文件全部匹配凭据，实际游戏菜单 fixed/root (0,0,1280,720)/body 滚动 0。记录见 [第四轮证据](../evidence/2026-10-07-round4.md)。DPI/全屏和新的 Windows EXE 本轮未验收，不能由独立浏览器或模板传播替代。
+完整 editor:build 已完成 Check→前端/后端构建→Sync 25 文件，最终前端重编 2m53s 通过；Terre 三补丁独立重放 17 项也通过。仅含 game 的新作品实际 HTTP 请求验证 25 个引擎文件全部匹配凭据，实际游戏菜单 fixed/root (0,0,1280,720)/body 滚动 0。记录见 [第四轮证据](../evidence/2026-10-07-round4.md)。这些数字属于第四轮；DPI/全屏和新 Windows EXE 未由该轮验收，不能由独立浏览器或模板传播替代，也不能沿用为第五轮新存档协议的结果。
 
-最新状态、命令与限制见 [TESTING.md](../TESTING.md) 和 [PROJECT_STATUS.md](../PROJECT_STATUS.md)；旧档兼容仍仅为 [设计审查](../SAVE_COMPATIBILITY.md)。
+最新状态、命令与限制见 [TESTING.md](../TESTING.md) 和 [PROJECT_STATUS.md](../PROJECT_STATUS.md)。第五轮的精确版本与旧数据保留机制见 [SAVE_COMPATIBILITY.md](../SAVE_COMPATIBILITY.md)；跨版本旧档迁移仍未实现。
