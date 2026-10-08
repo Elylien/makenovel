@@ -1,10 +1,25 @@
 # 测试入口与证据
 
-更新：2026-10-09，MakeNovel `0.0.8`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-09，MakeNovel `0.0.9`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-第八轮完成对白前四类素材命令新增、仅撤掉本次新增行与前文源码来源参考。本轮实际代码回归 **456/456**：作者侧 346、两个导演样片 6、运行时资源/恢复回归 104。runtime 源码与四份补丁未改变，本轮重新受控构建，但没有重新执行完整 339 项运行时套件。Terre 五补丁独立重放 18/18、HTTP 引擎 25/25、服务 22/22、源字节核验 16/16，以及浏览器作者闭环和 Windows 最终包正常退出重启恢复均有独立证据；重放、文件数与 GUI 步骤不加入代码总数。完整 G0/G1/G2、AT 与正式发行仍未整体验收，详见 [第八轮证据](evidence/2026-10-09-round8.md)。
+第九轮完成同场景来源定位、返回与素材草稿保护。代码 **500/500** = 作者387 + 三套样片9 + runtime资源/恢复104；Terre六补丁重放18/18、HTTP25/25、服务22/22分别通过。长场景源行/返回真实焦点、选材双击、Escape优先、草稿拒跳、修改后失效与unknown/diff均现场完成，两场景逐字节保持。完整runtime339和新Windows包本轮未重复执行；旧轮结果保留为历史。完整G1/G2/AT仍未验收，见 [第九轮证据](evidence/2026-10-09-round9.md)。
+
+历史摘要（第八轮）：四类命令新增及前文来源，代码456/456、五补丁重放18/18、HTTP25/25、服务22/22、字节16/16与Windows正常退出重启两种读档为当轮已核实结果。
 
 历史摘要（第七轮）：增加原生导演局部会话、图形控件重同步、静态主图片加载失败保存门禁，以及导演与资源故障样片。最终代码回归 **646/646**：运行时 339、作者侧 304、导演样片 3；SVG 原生错误桥接后十三个运行时入口已完整重跑通过。受控构建、模板传播、HTTP 25/25、服务 22/22、两端独立重放各 18/18，以及有限导演与资源故障浏览器实测均有独立证据。Windows 最终包文件核对 21/21；全程停开发服务后，真实 EXE 的改稿呈现、资源失败拒存/旧槽保留、恢复保存及正常退出重启读档通过本机有限路径。第六轮 301 项、第四至六轮的有限现场验证和第四轮 259 项作者工具回归保留为历史证据；本轮作者入口已重新执行，按本轮数量另计。任何子项通过都不表示 G0、G1、G2 或完整 AT 整体验收通过。
+
+## 第九轮可复查入口
+
+```powershell
+npm.cmd run test:director
+npm.cmd run test:graph-input
+npm.cmd run test:director-navigation-demo
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL_Terre -ExpectedPatchCount 6 -EvidencePath docs/evidence/local/round9/terre-independent-replay.json
+node integrations/terre-launcher/verify-editor.mjs
+node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round9
+```
+
+回归13入口详见 `local/round9/checks-summary.json`；具体计数见当轮证据，不把18项重放、25文件或GUI步骤加入500项。构建日志为 `runtime-build.log` / `editor-build.log`；GUI为 `gui-observations.json`、`gui-source-bytes.json`与截图。0006摘要 `90d536c4550d1860944e121ce1e44dd587ed96bc18b466804331b90457bd2ad4`，完整树 `cae19ae2f2d9619016fbb726b442923a28fdbb4d`。旧1–5补丁不可重写。
 
 ## 安装、补丁与构建
 
@@ -45,6 +60,7 @@ npm.cmd run test:source-input
 npm.cmd run test:graph-input
 npm.cmd run test:director
 npm.cmd run test:director-insertion-demo
+npm.cmd run test:director-navigation-demo
 npm.cmd run test:identity
 npm.cmd run test:manifest
 npm.cmd run test:save-backup

@@ -20,6 +20,10 @@
     {
       "file": "0005-director-insertion-source-context.patch",
       "sha256": "ea937296a3d21d9d0d9a1a1c495b06a4276a83c36bfe792963877f7306415d22"
+    },
+    {
+      "file": "0006-director-source-navigation.patch",
+      "sha256": "90d536c4550d1860944e121ce1e44dd587ed96bc18b466804331b90457bd2ad4"
     }
   ]
 }

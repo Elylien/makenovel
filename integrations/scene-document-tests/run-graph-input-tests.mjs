@@ -19,7 +19,7 @@ const mocks = {
   '@lingui/macro': `export const t=(text,...args)=>text.reduce((s,v,i)=>s+v+(args[i]??''),'');`,
   '@fluentui/react-components': `export const Button='button', Input='input', Dropdown='dropdown',Option='option',Dialog='dialog',DialogActions='dialog-actions',DialogBody='dialog-body',DialogContent='dialog-content',DialogSurface='dialog-surface',DialogTitle='dialog-title';`,
   '@icon-park/react': `export const DeleteFive='icon',Sort='icon',DownOne='icon',RightOne='icon',Play='icon',LinkOne='icon';`,
-  '@tanstack/react-virtual': `export const useVirtualizer=({count})=>({getVirtualItems:()=>Array.from({length:count},(_,index)=>({index,start:0,size:100})),getTotalSize:()=>100,measureElement:()=>{},scrollToIndex:()=>{}});`,
+  '@tanstack/react-virtual': `export const useVirtualizer=options=>globalThis.__graphVirtualizer?.(options)??(({count})=>({getVirtualItems:()=>Array.from({length:count},(_,index)=>({index,start:0,size:100})),getTotalSize:()=>100,measureElement:()=>{},scrollToIndex:()=>{}}))(options);`,
   '@hello-pangea/dnd': `export const DragDropContext='drag-context'; const provided={innerRef:()=>{},draggableProps:{},dragHandleProps:{},droppableProps:{}}; export const Droppable=p=>p.children(provided),Draggable=p=>p.children(provided);`,
   './SentenceEditor': `export const sentenceEditorConfig=[]; export const sentenceEditorDefault={component:'sentence-editor', title:()=>''};`,
   './components/DirectorPanel': `export const DirectorPanel='director-panel';`,
@@ -37,10 +37,10 @@ const mocks = {
   '../../SceneDocument/sceneDocumentRegistry': `export const holdScenePreview=path=>globalThis.__directorHold(path);`,
   '../SceneDocument/useSceneDocument': `export const useSceneDocument=()=>({document:globalThis.__graphDocument,state:globalThis.__graphDocument.getSnapshot()});`,
   '../SceneDocument/DocumentBar': `export const DocumentBar='document-bar';`,
-  '@/runtime/WG_ORIGINE_RUNTIME': `export const editorLineHolder={getSceneLine:()=>1,recordSceneEditingLine:()=>{}};`,
-  '../../../utils/editorPreviewClient': `export const EditorPreviewClient={sendSyncScene:()=>{}};`,
+  '@/runtime/WG_ORIGINE_RUNTIME': `export const editorLineHolder={getSceneLine:()=>1,recordSceneEditingLine:(...args)=>globalThis.__graphRecordLine?.(...args)};`,
+  '../../../utils/editorPreviewClient': `export const EditorPreviewClient={sendSyncScene:(...args)=>globalThis.__graphPreview?.(...args)};`,
   '../../../utils/logger': `export const logger={info:()=>{}};`,
-  '@/utils/eventBus': `export const eventBus={on:()=>{},off:()=>{},emit:()=>{}};`,
+  '@/utils/eventBus': `export const eventBus={on:()=>{},off:()=>{},emit:(...args)=>globalThis.__graphEvent?.(...args)};`,
   './components/AddSentence': `export const AddSentenceButton='button',AddSentenceDialog='dialog',addSentenceType={forward:1};`,
   './components/SentenceArgOption': `export default 'arg-option';`,
   './components/TerrePanel': `export const GlobalTerrePanel=()=>null;`,
@@ -57,6 +57,7 @@ await build({ entryPoints: {
   document: path.join(source,'SceneDocument/sceneDocument.ts'),
   director: path.join(source,'GraphicalEditor/components/DirectorPanel.tsx'),
   directorSession: path.join(source,'SceneDocument/directorSession.ts'),
+  directorNavigation: path.join(source,'SceneDocument/directorNavigation.ts'),
   bgm: path.join(source,'GraphicalEditor/SentenceEditor/Bgm.tsx'),
   figure: path.join(source,'GraphicalEditor/SentenceEditor/ChangeFigure.tsx'),
   figureDiff: path.join(source,'GraphicalEditor/SentenceEditor/ChangeFigureDiff.tsx'),
@@ -67,6 +68,6 @@ plugins:[{name:'graph-event-boundary',setup(api){
   api.onResolve({filter:/.*/},args=>Object.hasOwn(mocks,args.path)?{path:args.path,namespace:'mock'}:args.path.endsWith('.scss')?{path:'styles',namespace:'mock'}:undefined);
   api.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:args.path==='styles'?'export default {};':mocks[args.path],loader:'js'}));
 }}] });
-const run=spawnSync(process.execPath,['--test',fileURLToPath(new URL('./graph-input-boundary.test.mjs',import.meta.url)),fileURLToPath(new URL('./director-panel-boundary.test.mjs',import.meta.url))],{stdio:'inherit',env:{...process.env,GRAPH_INPUT_TEST_BUNDLE:out}});
+const run=spawnSync(process.execPath,['--test',fileURLToPath(new URL('./graph-input-boundary.test.mjs',import.meta.url)),fileURLToPath(new URL('./director-panel-boundary.test.mjs',import.meta.url)),fileURLToPath(new URL('./graph-source-navigation.test.mjs',import.meta.url))],{stdio:'inherit',env:{...process.env,GRAPH_INPUT_TEST_BUNDLE:out}});
 if(run.error)throw run.error;
 process.exitCode=run.status??1;

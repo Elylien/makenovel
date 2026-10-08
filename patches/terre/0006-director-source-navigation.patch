@@ -1,0 +1,414 @@
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
+index 6bf02e027e3c6b9ae0286cc3dc1ea0f4eb58791d..ba217fd2b92533f43f1cf1e2f31580c479b06352 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/GraphicalEditor.tsx
+@@ -24,6 +24,7 @@ import { registerSceneNodes, editGraphicalStatement, confirmSpeakerDialogue, nat
+ import type { DragStart, DraggableProvided, DropResult } from '@hello-pangea/dnd';
+ import { DirectorPanel } from './components/DirectorPanel';
+ import { createDirectorSession, type DirectorSession } from '../SceneDocument/directorSession';
++import { resolveDirectorNavigation, type DirectorSourceNavigation, type DirectorNavigationLocator } from '../SceneDocument/directorNavigation';
+ 
+ interface IGraphicalEditorProps {
+   targetPath: string;
+@@ -84,6 +85,27 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+       queueMicrotask(() => document.setComposing(false));
+     };
+   }, [document]);
++  const liveEditor = useRef({ document, targetPath: props.targetPath, mounted: true, generation: 0 });
++  if (liveEditor.current.document !== document || liveEditor.current.targetPath !== props.targetPath) liveEditor.current.generation++;
++  const editorGeneration = liveEditor.current.generation;
++  liveEditor.current.document = document;
++  liveEditor.current.targetPath = props.targetPath;
++  useLayoutEffect(() => {
++    liveEditor.current.mounted = true;
++    return () => { liveEditor.current.mounted = false; };
++  }, [document]);
++  const [locatedSource, setLocatedSource] = useState<{
++    document: typeof document; targetPath: string; revision: string | null; generation: number;
++    source: string; historyVersion: number; startLine: number;
++    origin?: DirectorNavigationLocator; returned: boolean;
++  } | null>(null);
++  const locatedSourceValid = !!locatedSource && locatedSource.document === document
++    && locatedSource.generation === editorGeneration && locatedSource.targetPath === props.targetPath && locatedSource.revision === state.revision
++    && locatedSource.source === state.text && locatedSource.historyVersion === state.historyVersion
++    && !['loading', 'saving', 'conflict'].includes(state.status);
++  useEffect(() => {
++    if (locatedSource && !locatedSourceValid) setLocatedSource(null);
++  }, [locatedSource, locatedSourceValid]);
+   const [directorSession, setDirectorSession] = useState<{ targetPath: string; session: DirectorSession } | null>(null);
+   useEffect(() => { setDirectorSession(null); }, [document]);
+   const [foldedNodes, setFoldedNodes] = useState<Record<string, boolean>>({});
+@@ -320,6 +342,81 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+   });
+   const virtualRows = rowVirtualizer.getVirtualItems();
+ 
++  const locateSourceLine = (startLine: number, origin?: DirectorNavigationLocator, returned = false) => {
++    const current = document.getSnapshot();
++    const index = sentences.findIndex(sentence => sentence.startLine <= startLine && sentence.endLine >= startLine);
++    if (index < 0) throw new Error('来源语句不在当前图形列表中，请重新打开舞台与声音。');
++    const line = sentences[index].startLine;
++    const id = sentenceDataRef.current[line]?.id;
++    if (id) setFoldedNodes(folded => ({ ...folded, [id]: false }));
++    setLocatedSource({ document, targetPath: props.targetPath, revision: current.revision, generation: editorGeneration,
++      source: current.text, historyVersion: current.historyVersion, startLine: line, origin, returned });
++  };
++  const locateDirectorSource = (navigation: DirectorSourceNavigation): boolean => {
++    try {
++      const live = liveEditor.current;
++      const current = document.getSnapshot();
++      if (!live.mounted || live.generation !== editorGeneration || live.document !== document || live.targetPath !== props.targetPath
++        || !current.revision || current.revision !== state.revision || current.isComposing || ['loading', 'saving', 'conflict'].includes(current.status)) {
++        throw new Error('来源定位已过期或当前正在输入，请重新打开舞台与声音。');
++      }
++      const target = resolveDirectorNavigation(current.text, current.historyVersion, navigation.target);
++      // Validate the return anchor at the same boundary, without registering IDs.
++      resolveDirectorNavigation(current.text, current.historyVersion, navigation.origin);
++      locateSourceLine(target.startLine, navigation.origin);
++      setDirectorSession(null);
++      return true;
++    } catch (error) {
++      document.reportMessage(error instanceof Error ? error.message : '无法定位来源，请重新打开舞台与声音。');
++      return false;
++    }
++  };
++  const returnToDialogue = () => {
++    try {
++      const live = liveEditor.current;
++      const current = document.getSnapshot();
++      if (!locatedSource?.origin || !live.mounted || live.generation !== locatedSource.generation || live.document !== locatedSource.document
++        || live.targetPath !== locatedSource.targetPath || current.revision !== locatedSource.revision
++        || current.isComposing || ['loading', 'saving', 'conflict'].includes(current.status)) {
++        throw new Error('来源定位已过期，请从当前对白重新打开舞台与声音。');
++      }
++      const origin = resolveDirectorNavigation(current.text, current.historyVersion, locatedSource.origin);
++      locateSourceLine(origin.startLine, undefined, true);
++    } catch (error) {
++      setLocatedSource(null);
++      document.reportMessage(error instanceof Error ? error.message : '无法返回原对白。');
++    }
++  };
++
++  useEffect(() => {
++    if (!locatedSource || !locatedSourceValid) return;
++    const index = sentences.findIndex(sentence => sentence.startLine === locatedSource.startLine);
++    if (index < 0) return;
++    let frame = 0;
++    let attempts = 0;
++    let cancelled = false;
++    // Immediate scrolling is deterministic with dynamic virtual row heights and
++    // also respects reduced-motion. Focus waits until the destination mounts.
++    rowVirtualizer.scrollToIndex(index, { align: 'center', behavior: 'auto' });
++    const focusMountedRow = () => {
++      const live = liveEditor.current;
++      const current = document.getSnapshot();
++      if (cancelled || !live.mounted || live.generation !== locatedSource.generation || live.document !== locatedSource.document
++        || live.targetPath !== locatedSource.targetPath || current.text !== locatedSource.source
++        || current.historyVersion !== locatedSource.historyVersion || current.revision !== locatedSource.revision
++        || current.isComposing || ['loading', 'saving', 'conflict'].includes(current.status)) return;
++      const row = scrollElementRef.current?.querySelector<HTMLDivElement>(`[data-source-start-line="${locatedSource.startLine}"]`);
++      if (row) {
++        rowVirtualizer.scrollToIndex(index, { align: 'center', behavior: 'auto' });
++        row.focus({ preventScroll: true });
++      } else if (++attempts < 12) {
++        frame = requestAnimationFrame(focusMountedRow);
++      }
++    };
++    frame = requestAnimationFrame(focusMountedRow);
++    return () => { cancelled = true; cancelAnimationFrame(frame); };
++  }, [locatedSource, locatedSourceValid, rowVirtualizer]);
++
+   // 语句条数变化（打开场景、增删语句）后，把上次编辑的位置滚回视野
+   useEffect(() => {
+     const targetLine = editorLineHolder.getSceneLine(props.targetPath);
+@@ -399,11 +496,16 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+     else if (event.key.toLowerCase() === 'y' || event.shiftKey) document.redo();
+     else document.undo();
+   }}>
+-    {directorSession?.targetPath === props.targetPath && <DirectorPanel key={props.targetPath} initialSession={directorSession.session} document={document} targetPath={props.targetPath} onClose={() => setDirectorSession(null)} />}
++    {directorSession?.targetPath === props.targetPath && <DirectorPanel key={props.targetPath} initialSession={directorSession.session} document={document} targetPath={props.targetPath} onClose={() => setDirectorSession(null)} onLocate={locateDirectorSource} />}
+     <DocumentBar document={document} state={state} onRegisterNodes={registerNodes} onLocate={(line) => {
+       const index = sentences.findIndex(sentence => sentence.startLine <= line - 1 && sentence.endLine >= line - 1);
+       if (index >= 0) rowVirtualizer.scrollToIndex(index, { align: 'center' });
+     }} />
++    {locatedSourceValid && locatedSource && <div className={styles.sourceLocation}>
++      <span role="status" aria-live="polite">{locatedSource.returned ? '已返回原对白' : '已定位来源'} · 第 {locatedSource.startLine + 1} 行</span>
++      {locatedSource.origin && <button type="button" onClick={returnToDialogue} disabled={state.isComposing}>返回原对白</button>}
++      <button type="button" onClick={() => setLocatedSource(null)} aria-label="关闭来源定位提示">关闭</button>
++    </div>}
+     <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
+       <Droppable
+         droppableId="droppable"
+@@ -425,8 +527,12 @@ export default function GraphicalEditor(props: IGraphicalEditorProps) {
+                 if (!rowProps) return null;
+                 return <div
+                   key={rowProps.sentenceItem.id}
+-                  className={styles.virtualItem}
++                  className={`${styles.virtualItem} ${locatedSourceValid && locatedSource?.startLine === rowProps.startLine ? styles.locatedSource : ''}`}
+                   data-index={virtualRow.index}
++                  data-source-start-line={rowProps.startLine}
++                  tabIndex={-1}
++                  role="group"
++                  aria-label={`第 ${rowProps.startLine + 1} 行${locatedSourceValid && locatedSource?.startLine === rowProps.startLine ? ' · 已定位来源' : ''}`}
+                   ref={rowVirtualizer.measureElement}
+                   style={{
+                     transform: `translateY(${virtualRow.start}px)`,
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
+index b73ae9962d589e9cd945ecd247b0a8805b6c05ef..7e0bb11b941d072242fa87026ef0b88bea0328a2 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
+@@ -4,6 +4,7 @@ import { sentenceEditorConfig } from '../SentenceEditor';
+ import { getArgByKey } from '../utils/getArgByKey';
+ import { addDirectorSessionNode, removeDirectorSessionNode, editDirectorSession, commitDirectorSession, type DirectorSession, type DirectorSessionNode, type DirectorSourceFact } from '../../SceneDocument/directorSession';
+ import type { SceneDocument } from '../../SceneDocument/sceneDocument';
++import { createDirectorSourceNavigation, type DirectorSourceNavigation } from '../../SceneDocument/directorNavigation';
+ import { holdScenePreview } from '../../SceneDocument/sceneDocumentRegistry';
+ import ChooseFile from '../../ChooseFile/ChooseFile';
+ import { extNameMap, stageImageExtensions } from '../../ChooseFile/chooseFileConfig';
+@@ -16,6 +17,7 @@ interface DirectorPanelProps {
+   document: SceneDocument;
+   targetPath: string;
+   onClose: () => void;
++  onLocate: (navigation: DirectorSourceNavigation) => boolean;
+ }
+ 
+ const editorByCommand = new Map(sentenceEditorConfig.map(config => [config.type, config.component]));
+@@ -78,16 +80,18 @@ function sourceTarget(target: string) {
+   return target;
+ }
+ 
+-function SourceRow({ title, fact }: { title: string; fact: DirectorSourceFact }) {
++function SourceRow({ title, fact, onLocate }: { title: string; fact: DirectorSourceFact; onLocate: (fact: DirectorSourceFact) => void }) {
+   return <div className={styles.sourceRow} data-director-source-status={fact.status}>
+     <span className={styles.sourceTitle}>{title}</span>
+     <span className={styles.sourceValue}>{sourceSummary(fact)}</span>
+     {fact.startLine !== undefined && <small>第 {fact.startLine + 1} 行 · {fact.scope === 'local' ? '本句前设置' : '较早前文'}</small>}
++    {fact.startLine !== undefined && fact.command && <Button size="small" appearance="subtle"
++      aria-label={`定位${title}来源，第 ${fact.startLine + 1} 行`} onClick={() => onLocate(fact)}>定位来源</Button>}
+   </div>;
+ }
+ 
+ /** A local transaction. No child callback writes or previews the shared scene. */
+-export function DirectorPanel({ initialSession, document, targetPath, onClose }: DirectorPanelProps) {
++export function DirectorPanel({ initialSession, document, targetPath, onClose, onLocate }: DirectorPanelProps) {
+   const [session, setSession] = useState(initialSession);
+   const sessionRef = useRef(session);
+   const [errors, setErrors] = useState<Record<string, string>>({});
+@@ -244,10 +248,50 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose }:
+     }));
+   };
+ 
++  const locateSource = (fact: DirectorSourceFact) => {
++    if (closed.current) return;
++    if (composing.current) { setMessage('请先完成中文候选输入，再定位来源。'); return; }
++    // A focused native control may still own a newer buffer than the session.
++    const active = globalThis.document.activeElement;
++    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) active.blur();
++    queueMicrotask(() => queueMicrotask(() => {
++      if (closed.current) return;
++      if (composing.current || document.getSnapshot().isComposing) {
++        setMessage('请先完成中文候选输入，再定位来源。'); return;
++      }
++      if (pendingAdditionRef.current || Object.keys(errorsRef.current).length) {
++        setMessage('面板还有未完成的输入。请先完成并应用，或取消本次修改，再定位来源。'); return;
++      }
++      const current = document.getSnapshot();
++      if (!current.revision || ['loading', 'saving', 'conflict'].includes(current.status)) {
++        setMessage('主文档正在读取、保存或存在冲突。面板内容已保留，请处理后重试。'); return;
++      }
++      try {
++        const navigation = createDirectorSourceNavigation(sessionRef.current, fact);
++        if (!onLocate(navigation)) {
++          setMessage('来源位置已失效或文档尚未就绪。面板内容已保留，请重新打开后重试。'); return;
++        }
++        closed.current = true;
++        releasePreview.current();
++      } catch (error) {
++        setMessage(error instanceof Error ? error.message : '无法定位来源，面板内容已保留。');
++      }
++    }));
++  };
++
+   const selected = session.nodes.find(node => node.nodeId === session.selectedNodeId)!;
+   const editableCount = session.nodes.filter(node => node.editable && node.role !== 'dialogue').length;
+ 
+-  return <Dialog open onOpenChange={(_, data) => { if (!data.open && !composing.current) cancel(); }}>
++  return <Dialog open onOpenChange={(event, data) => {
++    if (data.open) return;
++    // A native asset picker closes on its first click. A second click can land
++    // on the backdrop; an outside click must never discard this transaction.
++    if (data.type === 'backdropClick' || composing.current || document.getSnapshot().isComposing
++      || (data.type === 'escapeKeyDown' && (data.event.nativeEvent.isComposing || data.event.keyCode === 229))) {
++      event.preventDefault(); return;
++    }
++    cancel();
++  }}>
+     <DialogSurface className={styles.surface} data-makenovel-director-panel="true"
+       onCompositionStartCapture={() => { composing.current = true; }}
+       onCompositionEndCapture={() => { queueMicrotask(() => { composing.current = false; }); }}
+@@ -276,10 +320,11 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose }:
+             <summary>本场景前文来源 <span>只读参考</span></summary>
+             <div className={styles.sourceContent}>
+               <p className={styles.hint}>列出本句之前最近可确认的脚本设置，随面板草稿更新；不代表素材已经上屏或音效仍在播放。</p>
+-              <SourceRow title="背景" fact={session.inheritance.background} />
+-              <SourceRow title="背景音乐" fact={session.inheritance.bgm} />
+-              {session.inheritance.figures.map(fact => <SourceRow key={fact.target} title={`立绘 · ${sourceTarget(fact.target)}`} fact={fact} />)}
+-              {session.inheritance.effects.map(fact => <SourceRow key={fact.target} title={`最近效果音 · ${sourceTarget(fact.target)}`} fact={fact} />)}
++              <p className={styles.hint}>定位会关闭面板并选中原语句，可返回当前对白。请先应用或取消未完成的修改。</p>
++              <SourceRow title="背景" fact={session.inheritance.background} onLocate={locateSource} />
++              <SourceRow title="背景音乐" fact={session.inheritance.bgm} onLocate={locateSource} />
++              {session.inheritance.figures.map(fact => <SourceRow key={fact.target} title={`立绘 · ${sourceTarget(fact.target)}`} fact={fact} onLocate={locateSource} />)}
++              {session.inheritance.effects.map(fact => <SourceRow key={fact.target} title={`最近效果音 · ${sourceTarget(fact.target)}`} fact={fact} onLocate={locateSource} />)}
+               {session.inheritance.boundary && <p className={styles.sourceBoundary}>
+                 来源检查止于第 {session.inheritance.boundary.startLine + 1} 行：{session.inheritance.boundary.reason} 边界之前的内容保持未知。
+               </p>}
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss b/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss
+index 7b4222ab0fec6623c92176039f20d1a7864bf2a0..38e2d8aaad95762f304a3bd3c745b8bcad00ef1e 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss
+@@ -24,7 +24,7 @@
+ .sources > summary span { color: var(--text-sub); font-weight: 400; margin-left: 8px; }
+ .sources > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+ .sourceContent { padding: 0 12px 10px; }
+-.sourceRow { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 7px 0; border-bottom: var(--border-md); font-size: 12px; }
++.sourceRow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 7px 0; border-bottom: var(--border-md); font-size: 12px; }
+ .sourceTitle { min-width: 108px; font-weight: 600; }
+ .sourceValue { flex: 1; min-width: 140px; overflow-wrap: anywhere; }
+ .sourceRow small { color: var(--text-sub); }
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/graphicalEditor.module.scss b/packages/origine2/src/pages/editor/GraphicalEditor/graphicalEditor.module.scss
+index 1ad26ae03be0f5de83af02a073639ea5da22ee78..1b4c5030d7c49ffbe1ca364dcbd810cd0f633072 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/graphicalEditor.module.scss
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/graphicalEditor.module.scss
+@@ -209,3 +209,30 @@
+   opacity: 1;
+   visibility: visible;
+ }
++
++.sourceLocation {
++  display: flex;
++  align-items: center;
++  flex-wrap: wrap;
++  gap: 8px;
++  padding: 8px 12px;
++  color: var(--text);
++  background: var(--bg-card);
++  border-bottom: var(--border-md);
++  font-size: 13px;
++
++  span { flex: 1; min-width: 160px; }
++}
++
++.locatedSource .sentenceEditorContent {
++  outline: 2px solid var(--primary);
++  outline-offset: -2px;
++}
++
++.virtualItem:focus { outline: none; }
++.virtualItem:focus-visible .sentenceEditorContent {
++  outline: 2px solid var(--primary);
++  outline-offset: -2px;
++}
++
++.sentenceEditorWrapper:focus-within .optionButtonContainer { opacity: 1; }
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/directorNavigation.ts b/packages/origine2/src/pages/editor/SceneDocument/directorNavigation.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..d2ca21688747b4a3642bca73dffcf92199896aea
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/SceneDocument/directorNavigation.ts
+@@ -0,0 +1,97 @@
++import type { DirectorSession, DirectorSourceFact } from './directorSession';
++import { analyzeScene, inspectSceneIdentity } from './sceneContract';
++import { nativeRanges } from './graphicalSourceEdits';
++
++/** A location within one exact shared-document snapshot; never a write intent. */
++export interface DirectorNavigationLocator {
++  readonly expectedSource: string;
++  readonly historyVersion: number;
++  /** Zero-based physical source line, as used by the native parser. */
++  readonly startLine: number;
++  readonly raw: string;
++  readonly command: string;
++  /** Only a source-registered identity, never the director's reserved local ID. */
++  readonly nodeId?: string;
++}
++
++export interface DirectorSourceNavigation {
++  readonly target: DirectorNavigationLocator;
++  readonly origin: DirectorNavigationLocator;
++}
++
++export interface DirectorNavigationLocation {
++  readonly startLine: number;
++  readonly raw: string;
++  readonly command: string;
++  readonly nodeId?: string;
++}
++
++function sourceLocation(source: string, startLine: number): DirectorNavigationLocation {
++  if (!Number.isInteger(startLine) || startLine < 0) throw new Error('来源位置已失效，请重新打开导演面板。');
++  const analysis = analyzeScene(source);
++  const block = analysis.blocks.find(item => item.startLine === startLine + 1);
++  const ranges = nativeRanges(source);
++  const sentence = ranges.find(item => item.startLine === startLine && !item.isLineBreakHolder);
++  const identity = inspectSceneIdentity(source, ranges);
++  const node = identity.nodes.find(item => item.startLine === startLine);
++  if (!analysis.valid || !block || !sentence || !node || block.startLine !== block.endLine
++    || (block.kind !== 'command' && block.kind !== 'dialogue')) {
++    throw new Error('来源语句无法安全定位，请重新打开导演面板。');
++  }
++  return { startLine, raw: source.slice(node.start, node.end), command: block.command ?? sentence.commandRaw,
++    ...(node.nodeId ? { nodeId: node.nodeId } : {}) };
++}
++
++function sameFact(left: DirectorSourceFact, right: DirectorSourceFact) {
++  return left.target === right.target && left.status === right.status && left.command === right.command
++    && left.content === right.content && left.startLine === right.startLine
++    && left.nodeId === right.nodeId && left.scope === right.scope;
++}
++
++/**
++ * Build a source/return pair without registering IDs, editing or saving. The UI
++ * also guards unfinished controls and binds this pair to its scene document.
++ */
++export function createDirectorSourceNavigation(session: DirectorSession, fact: DirectorSourceFact): DirectorSourceNavigation {
++  if (session.changed || session.source !== session.expectedSource) {
++    throw new Error('导演面板还有未应用修改，请先应用或取消修改，再定位来源。');
++  }
++  if (!Number.isInteger(session.historyVersion) || session.historyVersion < 0) {
++    throw new Error('导演面板的文档版本已失效，请重新打开。');
++  }
++  const facts = [session.inheritance.background, session.inheritance.bgm,
++    ...session.inheritance.figures, ...session.inheritance.effects];
++  if (fact.startLine === undefined || !fact.command || fact.status === 'not-seen'
++    || !facts.some(candidate => sameFact(candidate, fact))) {
++    throw new Error('该设置没有可定位的本场景来源。');
++  }
++  const selected = session.nodes.find(node => node.nodeId === session.selectedNodeId);
++  if (!selected || selected.role !== 'dialogue' || selected.origin !== 'existing') {
++    throw new Error('原对白位置已失效，请重新打开导演面板。');
++  }
++  const target = sourceLocation(session.expectedSource, fact.startLine);
++  const origin = sourceLocation(session.expectedSource, selected.startLine);
++  if (target.command !== fact.command || target.startLine >= origin.startLine
++    || origin.raw !== selected.originalRaw || origin.command !== selected.command
++    || (selected.originallyRegistered && origin.nodeId !== selected.nodeId)) {
++    throw new Error('来源或原对白已改变，请重新打开导演面板。');
++  }
++  const locator = (location: DirectorNavigationLocation): DirectorNavigationLocator => Object.freeze({
++    expectedSource: session.expectedSource, historyVersion: session.historyVersion, ...location,
++  });
++  return Object.freeze({ target: locator(target), origin: locator(origin) });
++}
++
++/** Recheck immediately before focusing or returning; undo/redo ABA is stale too. */
++export function resolveDirectorNavigation(
++  currentSource: string, currentHistoryVersion: number, locator: DirectorNavigationLocator,
++): DirectorNavigationLocation {
++  if (currentSource !== locator.expectedSource || currentHistoryVersion !== locator.historyVersion) {
++    throw new Error('主文档已改变，来源定位已失效。请重新打开导演面板。');
++  }
++  const location = sourceLocation(currentSource, locator.startLine);
++  if (location.raw !== locator.raw || location.command !== locator.command || location.nodeId !== locator.nodeId) {
++    throw new Error('来源身份或原文已改变，无法定位。请重新打开导演面板。');
++  }
++  return location;
++}

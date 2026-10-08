@@ -58,11 +58,12 @@ async function harness(initialSource=source,selectedLine=5) {
   globalThis.HTMLInputElement=class {};
   globalThis.HTMLTextAreaElement=class {};
   globalThis.__directorHold=()=>{holds++;let released=false;return ()=>{if(!released){released=true;holds--;}};};
-  const props={initialSession:createDirectorSession(initialSource,selectedLine,document.getSnapshot().historyVersion),document,targetPath:'games/test/game/scene/start.txt',onClose:()=>{closeHolds.push(holds);closed++;}};
+  const navigations=[];
+  const props={initialSession:createDirectorSession(initialSource,selectedLine,document.getSnapshot().historyVersion),document,targetPath:'games/test/game/scene/start.txt',onClose:()=>{closeHolds.push(holds);closed++;},onLocate:navigation=>{navigations.push(navigation);closed++;return true;}};
   const hooks=new Hooks();
   const render=()=>hooks.render(DirectorPanel,props);
   let tree=render(); hooks.commit();
-  return {document,transport,hooks,props,render,tree,closeHolds,get writes(){return writes;},get closed(){return closed;},get holds(){return holds;}};
+  return {document,transport,hooks,props,render,tree,closeHolds,navigations,get writes(){return writes;},get closed(){return closed;},get holds(){return holds;}};
 }
 
 test('open and cancel leave the scene byte-identical and release this panel preview hold',async()=>{
@@ -145,7 +146,7 @@ test('invalid form input blocks the entire apply until that row is corrected',as
 
 test('composition prevents apply, escape dismissal and shortcut until the final input is committed',async()=>{
   const h=await harness();surface(h.tree).props.onCompositionStartCapture();
-  button(h.tree,'应用到草稿').props.onClick();h.tree.props.onOpenChange({}, {open:false});
+  button(h.tree,'应用到草稿').props.onClick();h.tree.props.onOpenChange({preventDefault(){}}, {open:false,type:'escapeKeyDown',event:{nativeEvent:{}}});
   assert.equal(h.closed,0);assert.match(alerts(h.render()),/中文候选/);
   let stopped=0,prevented=0;
   surface(h.render()).props.onKeyDownCapture({ctrlKey:true,key:'s',nativeEvent:{isComposing:true},preventDefault(){prevented++;},stopPropagation(){stopped++;}});
@@ -254,6 +255,103 @@ const addFromPicker=(h,label,name)=>{
   pendingPicker(h.render()).props.onChange({name});
 };
 const removals=tree=>collect(tree,node=>node.type==='button'&&node.props.children==='撤掉本次新增');
+const locateButton=(tree,title='背景')=>{
+  const row=collect(tree,node=>typeof node.type==='function'&&node.props.fact&&node.props.title===title)[0];
+  return row&&button(row.type(row.props),'定位来源');
+};
+
+test('a clean source request carries exact target and return without edits, saves or identity registration',async()=>{
+  const initial='\uFEFF; author note\r\nchangeBg:day.svg; keep\r\nsay:前一句;\r\nsay:本句;';
+  const h=await harness(initial,3),before=h.document.getSnapshot();
+  locateButton(h.tree).props.onClick();await flush();
+  assert.equal(h.navigations.length,1);assert.equal(h.closed,1);assert.equal(h.holds,0);
+  assert.equal(h.navigations[0].target.startLine,1);assert.equal(h.navigations[0].origin.startLine,3);
+  assert.equal(h.navigations[0].target.nodeId,undefined);assert.equal(h.navigations[0].origin.nodeId,undefined);
+  assert.equal(h.document.getSnapshot(),before);assert.equal(h.writes,0);h.hooks.unmount();
+});
+
+test('locating flushes a native input and refuses its unapplied value without losing the draft',async()=>{
+  const h=await harness(),active=new HTMLInputElement();
+  active.blur=()=>form(h.tree,'bgm').props.onSubmit('bgm:music.wav -volume=61;');
+  globalThis.document.activeElement=active;locateButton(h.tree).props.onClick();await flush();
+  assert.equal(h.navigations.length,0);assert.equal(h.closed,0);assert.equal(h.holds,1);
+  assert.match(alerts(h.render()),/未应用修改/);
+  assert.equal(form(h.render(),'bgm').props.sentence.args.find(arg=>arg.key==='volume').value,61);
+  assert.equal(h.document.getSnapshot().text,source);assert.equal(h.writes,0);h.hooks.unmount();
+});
+
+test('pending additions, invalid controls and complete additions all retain their draft when locating',async()=>{
+  for(const state of ['pending','invalid','inserted']) {
+    const h=await harness();
+    if(state==='pending') button(h.tree,'新增背景').props.onClick();
+    if(state==='invalid') form(h.tree,'bgm').props.onSubmit('bgm:music.wav -volume=wrong;');
+    if(state==='inserted') addFromPicker(h,'效果音','bell.wav');
+    locateButton(h.render()).props.onClick();await flush();
+    assert.equal(h.closed,0);assert.equal(h.navigations.length,0);assert.equal(h.holds,1);
+    assert.match(alerts(h.render()),/未完成|未应用/);assert.equal(h.document.getSnapshot().text,source);
+    if(state==='pending') assert.ok(pendingPicker(h.render()));
+    if(state==='inserted') assert.equal(removals(h.render()).length,1);
+    h.hooks.unmount();
+  }
+});
+
+test('navigation waits for IME in either panel or shared document and ignores queued work after cancel',async()=>{
+  const h=await harness();surface(h.tree).props.onCompositionStartCapture();
+  locateButton(h.tree).props.onClick();await flush();assert.equal(h.navigations.length,0);
+  surface(h.render()).props.onCompositionEndCapture();await flush();h.document.setComposing(true);
+  locateButton(h.render()).props.onClick();await flush();assert.equal(h.navigations.length,0);
+  assert.match(alerts(h.render()),/中文候选/);h.document.setComposing(false);
+  locateButton(h.render()).props.onClick();button(h.render(),'取消').props.onClick();await flush();
+  assert.equal(h.navigations.length,0);assert.equal(h.closed,1);assert.equal(h.document.getSnapshot().text,source);h.hooks.unmount();
+});
+
+test('parent refusal preserves modal and preview hold and saving documents cannot navigate',async()=>{
+  const h=await harness();h.props.onLocate=()=>false;
+  locateButton(h.render()).props.onClick();await flush();assert.equal(h.closed,0);assert.equal(h.holds,1);
+  assert.match(alerts(h.render()),/已失效|尚未就绪/);
+  let resolveSave;h.transport.save=()=>new Promise(resolve=>{resolveSave=resolve;});
+  const edited=source.replace('第一句','共享修改');h.document.edit(edited);
+  const saving=h.document.save();locateButton(h.render()).props.onClick();await flush();
+  assert.match(alerts(h.render()),/正在读取、保存/);resolveSave({text:edited,revision:B});await saving;
+  assert.equal(h.navigations.length,0);assert.equal(h.document.getSnapshot().text,edited);h.hooks.unmount();
+});
+
+test('source buttons omit unknown boundaries and unseen facts but retain explicit none and visible diff',async()=>{
+  const cases=[
+    ['changeBg:none;\r\nsay:本句;',1,'背景',true],
+    ['say:本句;',0,'背景',false],
+    ['changeBg:day.svg;\r\nlabel:branch;\r\nsay:本句;',2,'背景',false],
+    ['changeFigureDiff:smile.svg -left;\r\nsay:本句;',1,'立绘 · 左侧',true],
+  ];
+  for(const [initial,line,title,expected] of cases) {
+    const h=await harness(initial,line);assert.equal(!!locateButton(h.tree,title),expected);
+    if(expected) {locateButton(h.tree,title).props.onClick();await flush();assert.equal(h.navigations.length,1);}
+    h.hooks.unmount();
+  }
+});
+
+test('picker follow-through and ordinary backdrop clicks cannot discard a pending or selected local draft',async()=>{
+  for(const selected of [false,true]) {
+    const h=await harness();button(h.tree,'新增背景').props.onClick();
+    if(selected) pendingPicker(h.render()).props.onChange({name:'night.svg'});
+    let prevented=0;h.render().props.onOpenChange({preventDefault(){prevented++;}}, {open:false,type:'backdropClick',event:{}});
+    assert.equal(prevented,1);assert.equal(h.closed,0);assert.equal(h.holds,1);
+    assert.equal(h.document.getSnapshot().text,source);
+    if(selected) assert.equal(removals(h.render()).length,1);else assert.ok(pendingPicker(h.render()));
+    button(h.render(),'取消').props.onClick();assert.equal(h.closed,1);h.hooks.unmount();
+  }
+});
+
+test('Escape honors native IME flags and explicit non-composing Escape still cancels without saving',async()=>{
+  for(const flags of [{nativeEvent:{isComposing:true}},{nativeEvent:{},keyCode:229}]) {
+    const h=await harness();let prevented=0;
+    h.tree.props.onOpenChange({preventDefault(){prevented++;}}, {open:false,type:'escapeKeyDown',event:flags});
+    assert.equal(prevented,1);assert.equal(h.closed,0);assert.equal(h.holds,1);h.hooks.unmount();
+  }
+  const h=await harness();form(h.tree,'bgm').props.onSubmit('bgm:music.wav -volume=54;');
+  h.render().props.onOpenChange({preventDefault(){}}, {open:false,type:'escapeKeyDown',event:{nativeEvent:{},keyCode:27}});
+  assert.equal(h.closed,1);assert.equal(h.holds,0);assert.equal(h.document.getSnapshot().text,source);assert.equal(h.writes,0);h.hooks.unmount();
+});
 
 test('a pending addition uses the native picker and blocks both apply and Ctrl+S without writing a placeholder',async()=>{
   const h=await harness();button(h.tree,'新增背景').props.onClick();

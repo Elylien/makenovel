@@ -127,3 +127,19 @@ if ($LASTEXITCODE -ne 0) { throw 'Terre independent replay failed' }
 以上 hash/tree 记录导出目标，不等于重放或产品验收结果。第八轮重放、构建、真实 GUI 与 Windows 结果分别以当轮最终证据为准，不能沿用第七轮 `4/4` 和 `18/18` 的结论。
 
 最终本轮五补丁独立重放 **18/18 通过**，准确匹配上述 `0005` SHA 与完整树，两个真实 index 保持原字节；证据为 `docs/evidence/local/round8/terre-independent-replay.json`。构建和有限 GUI/Windows 结果独立记录于 [第八轮证据](../evidence/2026-10-09-round8.md)。
+
+## 第九轮来源定位补丁
+
+`0.0.9` 保留 Terre 0001–0005 原字节，追加 `0006-director-source-navigation.patch`。从第五份完整树 `40dc0cb9472a10018d43e16eb462dc2d5e4ba79e` 导出五个前端源文件；不改变原生运行时、后端、锁文件与上游HEAD。
+
+- 0006 SHA-256：`90d536c4550d1860944e121ce1e44dd587ed96bc18b466804331b90457bd2ad4`，25,781字节。
+- 六份完整 tree：`cae19ae2f2d9619016fbb726b442923a28fdbb4d`。
+- 清单 SHA-256：`5a8d7705d5af50e492985176fd891d70fdc3390b7aac40fde234f9bdc6670ee8`。
+
+新增精确来源/返回位置契约、导演面板定位入口和输入门禁、GraphicalEditor虚拟列表焦点/高亮/返回与生命周期失效、backdrop草稿保护。定位不改稿、保存、登记ID或执行预览。独立重放 **18/18**，无hardlinks/alternates，正反向、幂等、开发树与两个真实index均核对通过。
+
+```powershell
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL_Terre -ExpectedPatchCount 6 -EvidencePath docs/evidence/local/round9/terre-independent-replay.json
+```
+
+本轮构建、500项代码、长场景GUI与文件保持另见 [第九轮证据](../evidence/2026-10-09-round9.md)。未导出新Windows包，不把前轮EXE结果记作本轮验收。

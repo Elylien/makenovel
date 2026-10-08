@@ -6,6 +6,7 @@ import path from 'node:path';
 const load = name => import(pathToFileURL(path.join(process.env.DIRECTOR_SESSION_TEST_BUNDLE, `${name}.mjs`)));
 const { createDirectorSession: open, editDirectorSession: edit, commitDirectorSession: commit,
   addDirectorSessionNode: add, removeDirectorSessionNode: remove } = await load('director');
+const { createDirectorSourceNavigation: navigation, resolveDirectorNavigation: locate } = await load('navigation');
 const { SceneDocument } = await load('document');
 const { nativeRanges } = await load('graph');
 const runtime = await load('runtimeParser');
@@ -433,4 +434,167 @@ test('new source overrides disappear from the summary when removed and the earli
   assert.equal(session.inheritance.bgm.nodeId, 'earlier');
   assert.equal(session.inheritance.bgm.scope, 'earlier');
   assert.equal(session.changed, false);
+});
+
+test('source navigation selects the latest concrete command among duplicate text without registering IDs', () => {
+  const source = 'changeBg:day.svg;\nsay:前一段;\nchangeBg:day.svg;\nsay:前一句;\nsay:原对白;';
+  const session = open(source, 4, 3);
+  const request = navigation(session, { ...session.inheritance.background });
+  assert.deepEqual(locate(source, 3, request.target), { startLine: 2, raw: 'changeBg:day.svg;', command: 'changeBg' });
+  assert.deepEqual(locate(source, 3, request.origin), { startLine: 4, raw: 'say:原对白;', command: 'say' });
+  assert.equal(request.target.nodeId, undefined);
+  assert.equal(request.origin.nodeId, undefined);
+  assert.equal(session.source, source);
+  assert.equal(session.nodes.some(node => node.registered), false);
+});
+
+test('local source navigation never exposes reserved session IDs as source-registered identity', () => {
+  const source = 'changeBg:day.svg;\nsay:原对白;';
+  const session = open(source, 1, 0);
+  assert.equal(typeof session.inheritance.background.nodeId, 'string');
+  const request = navigation(session, session.inheritance.background);
+  assert.equal(Object.hasOwn(request.target, 'nodeId'), false);
+  assert.equal(Object.hasOwn(request.origin, 'nodeId'), false);
+  assert.equal(locate(source, 0, request.target).startLine, 0);
+});
+
+test('source and return navigation preserve registered inline and legacy identities with BOM and CRLF', () => {
+  const source = '\uFEFF; 作者\r\nchangeBg:day.svg; 原注释 ; @makenovel-node background.one\r\nsay:前句;\r\n; @makenovel-node origin.one\r\nsay:原对白; 作者正文\r\n';
+  const session = open(source, 4, 8);
+  const request = navigation(session, session.inheritance.background);
+  assert.equal(request.target.nodeId, 'background.one');
+  assert.equal(request.origin.nodeId, 'origin.one');
+  assert.equal(locate(source, 8, request.target).raw, source.split('\r\n')[1]);
+  assert.deepEqual(locate(source, 8, request.origin), {
+    startLine: 4, command: 'say', raw: 'say:原对白; 作者正文', nodeId: 'origin.one',
+  });
+  assert.equal(session.source, source);
+});
+
+test('repeated source and return resolution has no shared document, draft, history, save or preview side effects', async () => {
+  const source = 'bgm:test.wav -volume=41;\nsay:前句;\nsay:原对白;';
+  const h = await documentFor(source);
+  const snapshot = h.document.getSnapshot();
+  let updates = 0;
+  const unsubscribe = h.document.subscribe(() => updates++);
+  const session = open(snapshot.text, 2, snapshot.historyVersion);
+  const request = navigation(session, session.inheritance.bgm);
+  for (let index = 0; index < 3; index++) {
+    locate(h.document.getSnapshot().text, h.document.getSnapshot().historyVersion, request.target);
+    locate(h.document.getSnapshot().text, h.document.getSnapshot().historyVersion, request.origin);
+  }
+  unsubscribe();
+  assert.equal(h.document.getSnapshot(), snapshot);
+  assert.equal(h.document.canPreview(), true);
+  assert.equal(updates, 0);
+  assert.equal(h.stored(), null);
+  assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.disk(), { text: source, revision: A });
+  assert.equal(Object.isFrozen(request), true);
+  assert.equal(Object.isFrozen(request.target), true);
+  assert.equal(Object.isFrozen(request.origin), true);
+});
+
+test('explicitly closed sources and unknown diff results retain a navigable concrete source', () => {
+  const source = 'bgm:none;\nchangeFigureDiff:smile.svg -id=hero;\nsay:原对白;';
+  const session = open(source, 2, 0);
+  const diff = session.inheritance.figures.find(fact => fact.target === 'id:hero');
+  assert.equal(session.inheritance.bgm.status, 'none');
+  assert.equal(diff.status, 'unknown');
+  assert.equal(locate(source, 0, navigation(session, session.inheritance.bgm).target).startLine, 0);
+  assert.equal(locate(source, 0, navigation(session, diff).target).command, 'changeFigureDiff');
+});
+
+for (const [name, source] of [
+  ['unseen source', 'say:原对白;'],
+  ['unknown beyond a control-flow boundary', 'bgm:test.wav;\nlabel:branch;\nsay:原对白;'],
+]) {
+  test(`navigation does not invent a location for ${name}`, () => {
+    const session = open(source, source.split('\n').length - 1, 0);
+    assert.throws(() => navigation(session, session.inheritance.bgm), /没有可定位/);
+    assert.equal(session.source, source);
+  });
+}
+
+test('facts from another session and modified fact metadata cannot redirect a source lookup', () => {
+  const source = 'changeBg:day.svg;\nsay:原对白;';
+  const session = open(source, 1, 0);
+  const foreign = open(source.replace('day.svg', 'night.svg'), 1, 0);
+  for (const fact of [foreign.inheritance.background,
+    { ...session.inheritance.background, target: 'bgm' },
+    { ...session.inheritance.background, startLine: 1 },
+    { ...session.inheritance.background, nodeId: 'other' },
+  ]) assert.throws(() => navigation(session, fact), /没有可定位/);
+});
+
+test('unapplied text or inserted commands cannot be navigated away from', () => {
+  const source = 'changeBg:day.svg;\nsay:原对白;';
+  const original = open(source, 1, 0);
+  const changed = edit(original, original.selectedNodeId, 'say:局部草稿;');
+  const added = add(original, 'bgm:music.wav;');
+  for (const session of [changed, added, { ...changed, changed: false }]) {
+    assert.throws(() => navigation(session, session.inheritance.background), /未应用修改/);
+  }
+  assert.equal(changed.nodes.at(-1).sentence.content, '局部草稿');
+  assert.equal(added.nodes.some(node => node.origin === 'inserted'), true);
+  assert.equal(original.source, source);
+});
+
+test('reverting a local edit or removing its new row restores nonmutating source navigation', () => {
+  const source = 'changeBg:day.svg;\nsay:原对白;';
+  const original = open(source, 1, 0);
+  let text = edit(original, original.selectedNodeId, 'say:局部草稿;');
+  text = edit(text, text.selectedNodeId, 'say:原对白;');
+  let inserted = add(original, 'bgm:test.wav;');
+  inserted = remove(inserted, inserted.nodes.find(node => node.origin === 'inserted').nodeId);
+  for (const session of [text, inserted]) {
+    const request = navigation(session, session.inheritance.background);
+    assert.equal(locate(source, 0, request.origin).startLine, 1);
+    assert.equal(session.source, source);
+  }
+});
+
+test('navigation rejects unrelated edits, removed source, and moved registered identity instead of guessing', () => {
+  const source = 'changeBg:day.svg; @makenovel-node bg.one\nsay:原对白; @makenovel-node say.one';
+  const session = open(source, 1, 4);
+  const request = navigation(session, session.inheritance.background);
+  for (const current of [
+    `${source}\n; unrelated`, source.replace('day.svg', 'night.svg'), source.split('\n')[1],
+    `; inserted\n${source}`, source.replace('@makenovel-node bg.one', '@makenovel-node bg.two'),
+  ]) {
+    assert.throws(() => locate(current, 4, request.target), /主文档已改变/);
+    assert.throws(() => locate(current, 4, request.origin), /主文档已改变/);
+  }
+});
+
+test('source and return navigation both refuse undo-redo ABA with exact restored source', async () => {
+  const source = 'changeBg:day.svg;\nsay:原对白;';
+  const h = await documentFor(source);
+  const initial = h.document.getSnapshot();
+  const session = open(source, 1, initial.historyVersion);
+  const request = navigation(session, session.inheritance.background);
+  h.document.edit(source.replace('原对白', '另一次编辑'));
+  assert.equal(h.document.undo(), true);
+  const afterUndo = h.document.getSnapshot();
+  assert.equal(afterUndo.text, source);
+  for (const locator of [request.target, request.origin]) {
+    assert.throws(() => locate(afterUndo.text, afterUndo.historyVersion, locator), /主文档已改变/);
+  }
+  assert.equal(h.document.redo(), true);
+  assert.equal(h.document.undo(), true);
+  const afterRedoUndo = h.document.getSnapshot();
+  assert.equal(afterRedoUndo.text, source);
+  assert.throws(() => locate(afterRedoUndo.text, afterRedoUndo.historyVersion, request.target), /主文档已改变/);
+  assert.deepEqual(h.writes, []);
+});
+
+test('navigation refuses missing ranges, fabricated IDs and changed raw metadata in a frozen snapshot', () => {
+  const source = 'changeBg:day.svg;\n; comment\nsay:原对白;';
+  const session = open(source, 2, 0);
+  const request = navigation(session, session.inheritance.background);
+  for (const locator of [
+    { ...request.target, startLine: -1 }, { ...request.target, startLine: 40 },
+    { ...request.target, startLine: 1 }, { ...request.target, nodeId: session.nodes[0].nodeId },
+    { ...request.target, raw: 'changeBg:night.svg;' }, { ...request.target, command: 'bgm' },
+  ]) assert.throws(() => locate(source, 0, locator), /来源/);
 });

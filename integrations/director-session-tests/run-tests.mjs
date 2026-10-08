@@ -18,6 +18,7 @@ execFileSync('git', ['diff', '--exit-code', 'HEAD', '--', 'packages/parser/src']
 await build({
   entryPoints: {
     director: path.join(scene, 'directorSession.ts'),
+    navigation: path.join(scene, 'directorNavigation.ts'),
     document: path.join(scene, 'sceneDocument.ts'),
     graph: path.join(scene, 'graphicalSourceEdits.ts'),
     runtimeParser: path.join(runtime, 'packages/parser/src/index.ts'),
