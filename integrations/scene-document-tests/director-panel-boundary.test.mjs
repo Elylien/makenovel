@@ -11,6 +11,7 @@ const { default: Bgm } = await load('bgm');
 const { default: Figure } = await load('figure');
 const { default: FigureDiff } = await load('figureDiff');
 const { default: Bg } = await load('bg');
+const { default: Wait } = await load('wait');
 const { createDirectorSession } = await load('directorSession');
 const { SceneDocument } = await load('document');
 const registry = await load('previewRegistry');
@@ -171,10 +172,10 @@ test('cancel beats a queued apply and ignores late child cleanup callbacks',asyn
   assert.equal(h.closed,1);assert.equal(h.document.getSnapshot().text,source);assert.equal(h.holds,0);
 });
 
-test('every mounted native control disables the global effect editor and wait is read-only',async()=>{
+test('every mounted native control disables the global effect editor and ordinary wait uses its native control',async()=>{
   const h=await harness();const forms=collect(h.tree,node=>node.type==='director-editor');
-  assert.equal(forms.length,5);assert.ok(forms.every(node=>node.props.disableEffectEditor===true));
-  assert.equal(form(h.tree,'wait'),undefined);h.hooks.unmount();
+  assert.equal(forms.length,6);assert.ok(forms.every(node=>node.props.disableEffectEditor===true));
+  assert.ok(form(h.tree,'wait'));h.hooks.unmount();
 });
 
 test('fresh native Bgm and Figure projections initialize from an applied registered-node batch',async()=>{
@@ -561,7 +562,7 @@ test('asset control characters and extra script lines cannot become a truncated 
 });
 
 const structuralButton=(tree,prefix,line)=>collect(tree,node=>node.type==='button'&&node.props['aria-label']?.startsWith(prefix)&&node.props['aria-label']?.endsWith(`第 ${line} 行`))[0];
-const stageRows=tree=>collect(tree,node=>node.type==='director-editor'&&node.props.sentence.commandRaw!=='say');
+const stageRows=tree=>collect(tree,node=>node.type==='director-editor'&&!['say','wait'].includes(node.props.sentence.commandRaw));
 
 test('existing deletion presents bound impact and only confirmation changes the local transaction',async()=>{
   const h=await harness();
@@ -663,4 +664,96 @@ test('two rapid structural clicks execute once and review confirmation cannot be
   structuralButton(h.render(),'移除背景，',2).props.onClick();await flush();const confirm=button(h.render(),'确认移除').props.onClick;
   confirm();confirm();await flush();confirm();await flush();
   assert.equal(form(h.render(),'changeBg'),undefined);assert.equal(stageRows(h.render()).length,3);h.hooks.unmount();
+});
+
+test('native Wait flushes duration and toggle as one transaction with another row and shared undo',async()=>{
+  const h=await harness(),hooks=new Hooks(),props=form(h.tree,'wait').props;
+  let tree=hooks.render(Wait,props);hooks.commit();
+  const input=()=>collect(tree,node=>node.type==='input'&&node.props['aria-label']==='等待时间（毫秒）')[0];
+  input().props.onChange({target:{value:'2400'}});
+  tree=hooks.render(Wait,props);hooks.commit();
+  collect(tree,node=>node.type==='toggle')[0].props.onChange(false);
+  assert.equal(h.document.getSnapshot().text,source);
+  form(h.render(),'bgm').props.onSubmit('bgm:music.wav -volume=42;');
+  const active=new HTMLInputElement();active.blur=()=>input().props.onBlur();
+  globalThis.document.activeElement=active;
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,1);assert.equal(h.writes,0);
+  assert.match(h.document.getSnapshot().text,/wait:2400 -nobreak=false; @makenovel-node wait/);
+  assert.match(h.document.getSnapshot().text,/volume=42/);
+  hooks.unmount();h.hooks.unmount();h.document.undo();
+  assert.equal(h.document.getSnapshot().text,source);assert.equal(h.document.getSnapshot().canUndo,false);
+});
+
+test('native Wait invalid buffer blocks the whole batch until corrected without losing other rows',async()=>{
+  const h=await harness(),hooks=new Hooks(),props=form(h.tree,'wait').props;
+  let tree=hooks.render(Wait,props);hooks.commit();
+  const set=value=>{collect(tree,node=>node.type==='input')[0].props.onChange({target:{value}});tree=hooks.render(Wait,props);hooks.commit();};
+  form(h.render(),'say').props.onSubmit('say:保留有效对白 -speaker=林 -vocal=voice.wav;');
+  const active=new HTMLInputElement();active.blur=()=>collect(tree,node=>node.type==='input')[0].props.onBlur();
+  globalThis.document.activeElement=active;
+  for(const invalid of ['', '-1', '1.5', '1e3', '2147483648', '2; jump:other.txt']) {
+    set(invalid);button(h.render(),'应用到草稿').props.onClick();await flush();
+    assert.equal(h.closed,0,invalid);assert.equal(h.document.getSnapshot().text,source);
+    assert.match(alerts(h.render()),/无法应用的输入/);
+  }
+  set('1750');button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,1);assert.match(h.document.getSnapshot().text,/wait:1750 -nobreak/);
+  assert.match(h.document.getSnapshot().text,/保留有效对白/);hooks.unmount();h.hooks.unmount();
+});
+
+test('native Wait no-op normalization preserves leading zeroes and explicit false without registering identity',async()=>{
+  const initial='wait:000900 -nobreak=false; author note\r\nsay:当前句;';
+  const h=await harness(initial,1),hooks=new Hooks(),props=form(h.tree,'wait').props;
+  let tree=hooks.render(Wait,props);hooks.commit();
+  collect(tree,node=>node.type==='input')[0].props.onChange({target:{value:'900'}});
+  tree=hooks.render(Wait,props);hooks.commit();
+  const active=new HTMLInputElement();active.blur=()=>collect(tree,node=>node.type==='input')[0].props.onBlur();globalThis.document.activeElement=active;
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,1);assert.equal(h.document.getSnapshot().text,initial);assert.equal(h.document.getSnapshot().canUndo,false);
+  hooks.unmount();h.hooks.unmount();
+});
+
+test('wait editing keeps advanced syntax read-only and explains the restricted control',async()=>{
+  for(const line of ['wait:{delay};','wait:900 -next;','wait:900 -next=false;','wait:900 -nobreak=1;','wait:900 -unknown=x;']) {
+    const h=await harness(`${line}\r\nsay:当前句;`,1);
+    assert.equal(form(h.tree,'wait'),undefined,line);
+    const text=JSON.stringify(h.tree);
+    assert.match(text,/保留原文，请在源码中设置|来源检查止于第/);
+    button(h.render(),'应用到草稿').props.onClick();await flush();
+    assert.equal(h.document.getSnapshot().text,`${line}\r\nsay:当前句;`);h.hooks.unmount();
+  }
+});
+
+test('wait edits remain local while IME is active and cancel ignores late native submission',async()=>{
+  const h=await harness(),callback=form(h.tree,'wait').props.onSubmit;
+  surface(h.tree).props.onCompositionStartCapture();callback('wait:2300 -nobreak;');
+  button(h.render(),'应用到草稿').props.onClick();await flush();assert.equal(h.closed,0);
+  assert.equal(h.document.getSnapshot().text,source);
+  surface(h.render()).props.onCompositionEndCapture();await flush();
+  button(h.render(),'取消').props.onClick();callback('wait:500;');await flush();
+  assert.equal(h.closed,1);assert.equal(h.document.getSnapshot().text,source);assert.equal(h.document.getSnapshot().canUndo,false);h.hooks.unmount();
+});
+
+test('wait controls survive a neighbouring deletion by stable identity and cannot acquire structural actions',async()=>{
+  const h=await harness(),callback=form(h.tree,'wait').props.onSubmit;
+  structuralButton(h.tree,'移除背景音乐，',4).props.onClick();await flush();
+  button(h.render(),'确认移除').props.onClick();await flush();
+  callback('wait:1900;');
+  assert.equal(form(h.render(),'wait').props.index,3);
+  assert.equal(structuralButton(h.render(),'上移等待',4),undefined);
+  assert.equal(structuralButton(h.render(),'移除等待',4),undefined);
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.match(h.document.getSnapshot().text,/wait:1900 -nobreak=false; @makenovel-node wait/);
+  h.hooks.unmount();h.document.undo();assert.equal(h.document.getSnapshot().text,source);
+});
+
+test('execution order reads current local draft and never adds overlapping durations',async()=>{
+  const h=await harness();
+  const order=tree=>collect(tree,node=>node.type==='ol'&&node.props['aria-label']==='本句执行顺序')[0];
+  assert.ok(order(h.tree));
+  form(h.tree,'wait').props.onSubmit('wait:2100 -nobreak;');
+  const text=JSON.stringify(order(h.render()));
+  assert.match(text,/2100/);assert.doesNotMatch(text,/3000/);
+  assert.equal(h.document.getSnapshot().text,source);h.hooks.unmount();
 });

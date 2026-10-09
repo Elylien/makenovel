@@ -1,0 +1,416 @@
+diff --git a/packages/origine2/src/locales/en.po b/packages/origine2/src/locales/en.po
+index 009818f929d429faf211a18039dfbc3ca08d9a88..a7dff073697190c594b24c29d4eac673e62d1dec 100644
+--- a/packages/origine2/src/locales/en.po
++++ b/packages/origine2/src/locales/en.po
+@@ -1877,6 +1877,9 @@ msgstr "Wait for a while"
+ msgid "等待时间（单位为毫秒）"
+ msgstr "Wait time (ms)"
+ 
++msgid "等待时间（毫秒）"
++msgstr ""
++
+ msgid "简体中文"
+ msgstr "Simplified Chinese"
+ 
+diff --git a/packages/origine2/src/locales/ja.po b/packages/origine2/src/locales/ja.po
+index c17e24c14130bd76a96400f5c5027a77ec8c0e76..6647f264a1970c59b28e4b48fa58f1c60d8012d1 100644
+--- a/packages/origine2/src/locales/ja.po
++++ b/packages/origine2/src/locales/ja.po
+@@ -1877,6 +1877,9 @@ msgstr "一定時間待機"
+ msgid "等待时间（单位为毫秒）"
+ msgstr "待機時間（ミリ秒）"
+ 
++msgid "等待时间（毫秒）"
++msgstr ""
++
+ msgid "简体中文"
+ msgstr "簡体字中国語"
+ 
+diff --git a/packages/origine2/src/locales/ko.po b/packages/origine2/src/locales/ko.po
+index d55b36744ad58dcebfcf692ae975db16747629f0..17b675cde872aac6528f6291af311e190b6ff31d 100644
+--- a/packages/origine2/src/locales/ko.po
++++ b/packages/origine2/src/locales/ko.po
+@@ -1877,6 +1877,9 @@ msgstr "일정 시간 대기"
+ msgid "等待时间（单位为毫秒）"
+ msgstr "대기 시간(단위: 밀리초)"
+ 
++msgid "等待时间（毫秒）"
++msgstr ""
++
+ msgid "简体中文"
+ msgstr "중국어 간체"
+ 
+diff --git a/packages/origine2/src/locales/zhCn.po b/packages/origine2/src/locales/zhCn.po
+index f0227b5c32ecb2c1b466dbf37e944c8a3bdd979b..a607eacfd33ecf1b7e58230e0dd71447388c9246 100644
+--- a/packages/origine2/src/locales/zhCn.po
++++ b/packages/origine2/src/locales/zhCn.po
+@@ -1877,6 +1877,9 @@ msgstr "等待一段时间"
+ msgid "等待时间（单位为毫秒）"
+ msgstr "等待时间（单位为毫秒）"
+ 
++msgid "等待时间（毫秒）"
++msgstr "等待时间（毫秒）"
++
+ msgid "简体中文"
+ msgstr "简体中文"
+ 
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Wait.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Wait.tsx
+index e29d1e9e3a3f90c35068d475f1daa0b787d2cdf1..f20e7af68bc5015908cc5a2df105e9dcc85edcb9 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Wait.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Wait.tsx
+@@ -12,6 +12,10 @@ export default function Wait(props: ISentenceEditorProps) {
+   const nobreak = useValue(getArgByKey(props.sentence, "nobreak") === true);
+ 
+   const submit = () => {
++    if (props.onWaitSubmit) {
++      props.onWaitSubmit({ duration: duration.value, nobreak: nobreak.value });
++      return;
++    }
+     const submitString = combineSubmitString(
+       props.sentence.commandRaw,
+       duration.value,
+@@ -28,6 +32,7 @@ export default function Wait(props: ISentenceEditorProps) {
+     <div className={styles.editItem}>
+       <CommonOptions title={t`等待时间（单位为毫秒）`}>
+         <input
++          aria-label={t`等待时间（毫秒）`}
+           value={duration.value}
+           onChange={(ev) => duration.set(ev.target.value ?? "")}
+           onBlur={submit}
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
+index 474812ccf0afc989c08f3498b1884cb2a221234b..9673594e89631ba60cf4e07e676be2463f8ffad1 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
+@@ -64,6 +64,8 @@ export interface ISentenceEditorProps {
+   extraOptions?: ReactNode;
+   /** A local director draft must not open shared effect or advanced option panels. */
+   disableEffectEditor?: boolean;
++  /** Keep a local director wait's raw buffer intact until its range validation. */
++  onWaitSubmit?: (input: { duration: string; nobreak: boolean }) => void;
+ }
+ 
+ export interface ISentenceEditorConfig {
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
+index a6c66e03aa146b590c32a8498c1b6d76f5b95e83..8d053f1a8e0e91881ee02f7acff6d8179d1b6d5b 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
+@@ -2,7 +2,8 @@ import { useLayoutEffect, useRef, useState } from 'react';
+ import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle } from '@fluentui/react-components';
+ import { sentenceEditorConfig } from '../SentenceEditor';
+ import { getArgByKey } from '../utils/getArgByKey';
+-import { addDirectorSessionNode, removeDirectorSessionNode, deleteDirectorSessionNode, moveDirectorSessionNode, directorStructuralActions, editDirectorSession, commitDirectorSession, type DirectorSession, type DirectorSessionNode, type DirectorSourceFact } from '../../SceneDocument/directorSession';
++import { addDirectorSessionNode, removeDirectorSessionNode, deleteDirectorSessionNode, moveDirectorSessionNode, directorStructuralActions, directorWaitState, editDirectorWait, editDirectorSession, commitDirectorSession, type DirectorSession, type DirectorSessionNode, type DirectorSourceFact } from '../../SceneDocument/directorSession';
++import { directorExecutionNote } from '../../SceneDocument/directorTiming';
+ import type { SceneDocument } from '../../SceneDocument/sceneDocument';
+ import { createDirectorSourceNavigation, type DirectorSourceNavigation } from '../../SceneDocument/directorNavigation';
+ import { holdScenePreview } from '../../SceneDocument/sceneDocumentRegistry';
+@@ -59,7 +60,10 @@ function rowSummary(node: DirectorSessionNode) {
+     const voice = getArgByKey(node.sentence, 'vocal');
+     return voice ? `语音：${voice}` : '未指定本句语音';
+   }
+-  if (node.role === 'wait') return `${node.sentence.content} 毫秒 · 保留原等待顺序`;
++  if (node.role === 'wait') {
++    const wait = directorWaitState(node);
++    return wait.editable ? `${wait.duration} 毫秒 · ${wait.nobreak ? '禁止跳过' : '允许点击或快进跳过'}` : node.sentence.content;
++  }
+   if (node.role === 'comment') return node.raw.trim() || '空行';
+   return node.sentence.content === 'none' || !node.sentence.content ? '关闭 / 清除' : node.sentence.content;
+ }
+@@ -145,13 +149,15 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+     row?.scrollIntoView({ block: 'nearest' });
+   }, [session]);
+ 
+-  const updateNode = (nodeId: string, replacement: string) => {
++  const updateNode = (nodeId: string, replacement: string | { duration: string; nobreak: boolean }) => {
+     // A removed row may still emit blur/cleanup work. Its identity must not
+     // migrate to the line which moved into that position, or leave a ghost error.
+     const node = sessionRef.current.nodes.find(item => item.nodeId === nodeId);
+     if (closed.current || !node) return false;
+     try {
+-      const next = editDirectorSession(sessionRef.current, nodeId, node.origin === 'inserted' ? singleNativeProposal(replacement) : replacement);
++      const next = typeof replacement === 'string'
++        ? editDirectorSession(sessionRef.current, nodeId, node.origin === 'inserted' || node.role === 'wait' ? singleNativeProposal(replacement) : replacement)
++        : editDirectorWait(sessionRef.current, nodeId, replacement);
+       setLocalSession(next);
+       const nextErrors = { ...errorsRef.current };
+       delete nextErrors[nodeId];
+@@ -388,7 +394,7 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+         <DialogTitle>舞台与声音</DialogTitle>
+         <div className={styles.heading}>
+           <p className={styles.dialogue} title={selected.sentence.content}>{selected.sentence.content || '（空白对白）'}</p>
+-          <p className={styles.explanation}>集中编辑本句前的 {editableCount} 项设置与本句语音。可移除设置或交换相邻舞台命令；等待、独立注释与对白是顺序边界。</p>
++          <p className={styles.explanation}>集中编辑本句前的 {editableCount} 项设置与本句语音。可移除设置或交换相邻舞台命令；等待可改时长与跳过方式；排序不能跨越等待、独立注释或对白。</p>
+           <p className={styles.hint}>面板打开期间不能执行到此句或修改舞台预览。应用只进入场景草稿；保存后再预览。Ctrl+S 同样只应用到草稿。</p>
+         </div>
+         <DialogContent className={styles.content}>
+@@ -406,6 +412,18 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+               </p>}
+             </div>
+           </details>
++          <details className={styles.sources}>
++            <summary>执行顺序 <span>按源码顺序阅读</span></summary>
++            <div className={styles.sourceContent}>
++              <p className={styles.hint}>“立即继续”允许演出与后续命令重叠。下方是脚本配置说明，不累加总时长；实际效果请保存后播放确认。</p>
++              <ol className={styles.executionOrder} aria-label="本句执行顺序">
++                {session.nodes.filter(node => node.role !== 'comment').map(node => <li key={node.nodeId}>
++                  <strong>{rowTitle(node)} · 第 {node.startLine + 1} 行</strong>
++                  <p>{directorExecutionNote(node) || '显示本句对白，依照点击、自动播放或快进继续。'}</p>
++                </li>)}
++              </ol>
++            </div>
++          </details>
+           <section className={styles.additions} aria-label="新增舞台与声音设置">
+             <div className={styles.additionHeading}>
+               <span className={styles.rowTitle}>在本句前新增</span>
+@@ -438,7 +456,9 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+             const reviewing = deleteReview?.nodeId === node.nodeId ? deleteReview : null;
+             const addition = node.origin === 'inserted' ? additions.find(item => item.command === node.command) : undefined;
+             if (!node.editable) return <div key={node.nodeId} className={styles.readOnly}>
+-              <span>{rowTitle(node)}</span><small>{rowSummary(node)}</small>
++              <span>{rowTitle(node)}</span><small>{rowSummary(node)}
++                {node.role === 'wait' && <><br />{directorWaitState(node).reason} 保留原文，请在源码中设置。</>}
++              </small>
+             </div>;
+             return <details key={node.nodeId} ref={element => {
+                 if (element) rowElements.current.set(node.nodeId, element);
+@@ -452,6 +472,10 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+                 <span className={styles.line}>{node.origin === 'inserted' ? '本次新增' : `第 ${node.startLine + 1} 行`}{errors[node.nodeId] ? ' · 输入待修正' : node.origin !== 'inserted' && node.raw !== node.originalRaw ? ' · 已修改' : ''}</span>
+               </summary>
+               <div className={styles.controls}>
++                {node.role === 'wait' && <>
++                  <p className={styles.hint}>等待时间使用 0–2147483647 的整数毫秒。自动播放始终等它结束；禁止跳过还会阻止点击和快进提前结束等待。</p>
++                  <p className={styles.hint}>菜单打开时计时仍继续；等待结束后的剧情推进会延后到菜单关闭。此处保持等待的位置，应用后可连同其他修改一次撤销。</p>
++                </>}
+                 {(node.command === 'changeBg' || node.command === 'changeFigure') && <p className={styles.hint}>此处编辑素材与原有参数。动画及更多选项请应用或取消后在原语句中设置。</p>}
+                 {addition && (!node.sentence.content || node.sentence.content === 'none' || errors[node.nodeId]) && <div className={styles.recoveryPicker}>
+                   <span className={styles.hint}>重新选择素材以显示或播放；其余参数会保留。</span>
+@@ -459,7 +483,10 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+                     selectedFilePath="" extNames={addition.extensions} onChange={file => chooseReplacement(node.nodeId, controlEpoch, file?.name)} />
+                 </div>}
+                 {Editor && <Editor key={`${node.nodeId}:${controlEpoch}`} sentence={node.sentence} index={node.startLine} targetPath={targetPath}
+-                  disableEffectEditor onSubmit={replacement => {
++                  disableEffectEditor onWaitSubmit={node.role === 'wait' ? input => {
++                    if ((controlEpochsRef.current[node.nodeId] ?? 0) !== controlEpoch) return;
++                    updateNode(node.nodeId, input);
++                  } : undefined} onSubmit={replacement => {
+                     if ((controlEpochsRef.current[node.nodeId] ?? 0) !== controlEpoch) return;
+                     updateNode(node.nodeId, replacement);
+                   }} />}
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss b/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss
+index 8de3a68980529c4c78703381872be4c24cd1b9a2..53513e90c3f3af0ab4863a238403f7205f0a834c 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/components/directorPanel.module.scss
+@@ -61,3 +61,7 @@
+ .deleteReview p { margin: 6px 0; }
+ 
+ .sourcePreview { white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px; border: var(--border-md); border-radius: 4px; font-size: 11px; }
++
++.executionOrder { padding-left: 22px; margin: 8px 0; font-size: 12px; line-height: 1.6; }
++.executionOrder li { padding: 4px 0; }
++.executionOrder p { margin: 2px 0; color: var(--text-sub); }
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts b/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
+index ab150796ac1d7d491d2772d6e79e0aa50da82835..725e2fdbfcd85b32bb455547ae52b596c60bce25 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
++++ b/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
+@@ -63,6 +63,42 @@ export interface DirectorStructuralActions {
+   readonly upReason: string | null;
+   readonly downReason: string | null;
+ }
++export interface DirectorWaitState {
++  readonly editable: boolean;
++  readonly duration: string;
++  readonly durationMs: number | null;
++  readonly nobreak: boolean | null;
++  readonly reason: string | null;
++}
++/** This is the editor's supported timer range, not the full native language. */
++export const directorWaitMaximum = 2147483647;
++const waitDurationReason = `等待时间请填写 0 至 ${directorWaitMaximum} 的十进制整数，单位为毫秒。`;
++function staticWaitDuration(content: string) {
++  if (!/^\d+$/.test(content)) return null;
++  const value = Number(content);
++  return Number.isInteger(value) && value >= 0 && value <= directorWaitMaximum ? value : null;
++}
++
++function waitState(sentence: ISentence): DirectorWaitState {
++  const durationMs = staticWaitDuration(sentence.content);
++  const supportedArgs = sentence.args.length <= 1 && sentence.args.every(arg => arg.key === 'nobreak' && typeof arg.value === 'boolean');
++  const nobreak = supportedArgs ? sentence.args[0]?.value === true : null;
++  const reason = sentence.commandRaw !== 'wait' ? '该行不是等待命令。'
++    : durationMs === null ? waitDurationReason
++      : !supportedArgs ? '含条件、连续执行或非布尔参数的等待保持只读，请使用原有编辑方式。' : null;
++  return { editable: reason === null, duration: sentence.content, durationMs, nobreak, reason };
++}
++
++/** Read-only eligibility for a local native wait. Waiting remains a structural barrier. */
++export function directorWaitState(node: DirectorSessionNode): DirectorWaitState {
++  const state = waitState(node.sentence);
++  return node.role === 'wait' && node.editable ? state : { ...state, editable: false,
++    reason: state.reason ?? '该等待超出本面板支持的单行范围，请使用原有编辑方式。' };
++}
++
++function acceptedWait(block: SceneBlock, sentence: ISentence) {
++  return acceptedStage(block, sentence) && block.command === 'wait' && waitState(sentence).editable;
++}
+ const imageFile = /\.(png|jpg|jpeg|webp|svg)$/i;
+ const audioFile = /\.(mp3|ogg|wav|opus)$/i;
+ 
+@@ -193,7 +229,7 @@ export function createDirectorSession(source: string, startLine: number, history
+       nodeId: node?.nodeId ?? reserveId(), startLine: sentence.startLine,
+       command: block.command ?? sentence.commandRaw, sentence, raw: block.raw, originalRaw: block.raw,
+       originallyRegistered: !!node?.nodeId, registered: !!node?.nodeId,
+-      editable: role === 'dialogue' || role === 'stage', role,
++      editable: role === 'dialogue' || role === 'stage' || (role === 'wait' && acceptedWait(block, sentence)), role,
+     };
+   });
+   return { expectedSource: source, historyVersion, source, selectedNodeId: nodes[nodes.length - 1].nodeId, nodes, changed: false,
+@@ -219,6 +255,9 @@ function refreshNodes(session: DirectorSession, source: string): DirectorSession
+     if (node.role === 'stage' && !acceptedStage(block, sentence)) {
+       throw new Error('该修改超出本面板支持的单行演出参数，导演草稿未应用。');
+     }
++    if (node.role === 'wait' && (block.command !== 'wait' || (node.editable && !acceptedWait(block, sentence)))) {
++      throw new Error('等待的语法或时序边界已改变，导演草稿未应用。');
++    }
+     if (node.origin === 'inserted') validateInsertedStage(block, sentence);
+     return { ...node, sentence, raw: block.raw, registered: !!identified };
+   });
+@@ -230,6 +269,28 @@ function refreshNodes(session: DirectorSession, source: string): DirectorSession
+ export function editDirectorSession(session: DirectorSession, nodeId: string, replacement: string): DirectorSession {
+   const selected = session.nodes.find(node => node.nodeId === nodeId);
+   if (!selected?.editable) throw new Error('该行仅供参考，不能在导演面板修改。');
++  if (selected.role === 'wait') {
++    if (!directorWaitState(selected).editable) throw new Error('该等待仅供参考，不能在导演面板修改。');
++    if (/[\r\n\uFEFF]/.test(replacement)) throw new Error('等待必须保持完整的单行语句。');
++    const proposal = checkedAnalysis(replacement);
++    const sentences = nativeRanges(replacement);
++    const sentence = sentences.find(item => !item.isLineBreakHolder);
++    if (proposal.blocks.length !== 1 || sentences.length !== 1 || !sentence || !acceptedWait(proposal.blocks[0], sentence)) {
++      throw new Error(`本面板只能修改静态等待时间和禁止点击跳过选项。${waitDurationReason}`);
++    }
++    const desired = waitState(sentence);
++    const current = waitState(selected.sentence);
++    // Native Wait omits false options, and content is text even for a numeric
++    // timer. Equivalent serializer spelling must neither rewrite nor register.
++    if (desired.durationMs === current.durationMs && desired.nobreak === current.nobreak) return session;
++    const original = nativeRanges(selected.originalRaw).find(item => !item.isLineBreakHolder)!;
++    const originalState = waitState(original);
++    const duration = desired.durationMs === current.durationMs ? current.duration
++      : desired.durationMs === originalState.durationMs ? originalState.duration : desired.duration;
++    const nobreak = desired.nobreak === current.nobreak
++      ? selected.sentence.args.find(arg => arg.key === 'nobreak')?.value : desired.nobreak;
++    replacement = `wait:${duration}${nobreak === undefined ? '' : ` -nobreak=${nobreak}`};`;
++  }
+   if (selected.origin === 'inserted') {
+     if (/[\r\n\uFEFF]/.test(replacement)) throw new Error('新增命令必须保持完整的单行语句。');
+     const proposal = checkedAnalysis(replacement);
+@@ -257,6 +318,23 @@ export function editDirectorSession(session: DirectorSession, nodeId: string, re
+   // A serializer spelling-only change must not silently register an identity.
+   if (edited === source) return session;
+   source = edited;
++  if (selected.role === 'wait') {
++    const editedNode = inspectSceneIdentity(source, nativeRanges(source)).nodes.find(node => node.nodeId === nodeId)!;
++    const sentence = nativeRanges(source).find(item => item.startLine === editedNode.startLine && !item.isLineBreakHolder)!;
++    const current = waitState(sentence);
++    const original = waitState(nativeRanges(selected.originalRaw).find(item => !item.isLineBreakHolder)!);
++    // A full semantic roundtrip restores this node's original spelling and
++    // identity state; author comments and all other source bytes stay intact.
++    if (current.durationMs === original.durationMs && current.nobreak === original.nobreak) {
++      const beforeRanges = nativeRanges(source);
++      const originalSentence = nativeRanges(selected.originalRaw).find(item => !item.isLineBreakHolder)!;
++      const restored = applySourceChanges(source, [{ start: editedNode.start, end: editedNode.end,
++        before: source.slice(editedNode.start, editedNode.end), after: selected.originalRaw }]).source;
++      assertNativeStructure(restored, beforeRanges.map(item => item.startLine === editedNode.startLine
++        ? { ...originalSentence, startLine: item.startLine, endLine: item.endLine } : item));
++      source = restored;
++    }
++  }
+   if (!selected.originallyRegistered && selected.origin !== 'inserted') {
+     const editedNode = inspectSceneIdentity(source, nativeRanges(source)).nodes.find(node => node.nodeId === nodeId);
+     const suffix = `; @makenovel-node ${nodeId}`;
+@@ -269,6 +347,18 @@ export function editDirectorSession(session: DirectorSession, nodeId: string, re
+   return refreshNodes(session, source);
+ }
+ 
++/** A convenience input adapter; the native serializer/token edit remains authoritative. */
++export function editDirectorWait(session: DirectorSession, nodeId: string, input: { duration: string; nobreak: boolean }): DirectorSession {
++  const node = session.nodes.find(item => item.nodeId === nodeId);
++  if (!node || !directorWaitState(node).editable) throw new Error('该等待仅供参考，不能在导演面板修改。');
++  // Validate raw form text before any serializer can treat a semicolon as an
++  // author comment or a newline as another command and silently truncate it.
++  if (typeof input.duration !== 'string' || staticWaitDuration(input.duration) === null || typeof input.nobreak !== 'boolean') {
++    throw new Error(waitDurationReason);
++  }
++  return editDirectorSession(session, nodeId, `wait:${input.duration}${input.nobreak ? ' -nobreak' : ''};`);
++}
++
+ /** Add one complete native command immediately before this session's dialogue. */
+ export function addDirectorSessionNode(session: DirectorSession, statement: string): DirectorSession {
+   if (/[\r\n\uFEFF]/.test(statement)) throw new Error('一次只能新增一条完整的单行命令。');
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/directorTiming.ts b/packages/origine2/src/pages/editor/SceneDocument/directorTiming.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..3ad8c1266f31285b9b0cc6d09fd7fe5bf5985ad0
+--- /dev/null
++++ b/packages/origine2/src/pages/editor/SceneDocument/directorTiming.ts
+@@ -0,0 +1,62 @@
++import type { DirectorSessionNode } from './directorSession';
++import { ADD_NEXT_ARG_LIST } from 'webgal-parser';
++
++// Source-editing parses omit implicit arguments. The locked runtime prepends
++// next=true for ADD_NEXT_ARG_LIST, then reads the first matching argument.
++const firstArgument = (node: DirectorSessionNode, key: string) =>
++  node.sentence.args.find(arg => arg.key === key)?.value;
++
++// Match getBooleanArgByKey/toSafeBoolean without evaluating source or variables.
++function nativeBoolean(value: unknown): boolean | null {
++  if (typeof value === 'boolean') return value;
++  if (typeof value === 'number') return value !== 0;
++  if (typeof value === 'string') {
++    if (value.trim().toLowerCase() === 'true') return true;
++    if (value.trim().toLowerCase() === 'false') return false;
++  }
++  return null;
++}
++
++function configuredDurations(node: DirectorSessionNode): string {
++  const values = ['duration', 'enterDuration', 'exitDuration'].flatMap(key => {
++    const value = firstArgument(node, key);
++    return typeof value === 'number' && Number.isFinite(value) ? [`${key}=${value} 毫秒`] : [];
++  });
++  return values.length ? ` 时长配置：${values.join('，')}；实际演出还受动画与运行状态影响。` : '';
++}
++
++/** Source-level guidance only; never a timeline, runtime snapshot or edit. */
++export function directorExecutionNote(node: DirectorSessionNode): string | null {
++  if (node.role !== 'wait' && node.role !== 'stage') return null;
++  const args = node.sentence.args;
++  const dynamic = [node.sentence.content, ...args.map(arg => String(arg.value))]
++    .some(value => /[{}]/.test(value));
++  if (dynamic || args.some(arg => arg.key === 'when')) {
++    return '包含条件或动态内容，执行时按原文解析；本面板不推断完成时间或舞台终态。';
++  }
++
++  if (node.role === 'wait') {
++    if (args.some(arg => arg.key === 'next' || arg.key === 'continue')) {
++      return '等待带有 next 或 continue 参数，执行顺序按原文处理；可能与其他演出重叠，不据此推算停留时间。';
++    }
++    const content = node.sentence.content;
++    const duration = Number(content);
++    if (!/^[0-9]+$/.test(content) || !Number.isSafeInteger(duration) || duration > 2147483647) {
++      return '等待时长按原文执行；此处不推算实际停留时间。';
++    }
++    const value = firstArgument(node, 'nobreak');
++    const nobreak = value === undefined ? false : nativeBoolean(value);
++    const skip = nobreak === true ? '点击与快进不会提前结束此等待'
++      : nobreak === false ? '点击或快进可提前结束此等待'
++        : '能否提前结束按原文参数处理';
++    return `配置等待 ${duration} 毫秒；${skip}，自动播放仍等待结束。菜单内计时继续，剧情推进延后到菜单关闭；实际停留还受其他演出和运行状态影响。`;
++  }
++
++  const next = ADD_NEXT_ARG_LIST.includes(node.sentence.command)
++    || (nativeBoolean(firstArgument(node, 'next')) ?? false);
++  const order = next ? '立即继续执行后续命令，演出可能与后续内容重叠。'
++    : '未开启立即继续，推进以原生演出完成与玩家输入为准。';
++  const continuation = args.some(arg => arg.key === 'continue')
++    ? ' continue 参数按原文处理，不据此推断完成时间。' : '';
++  return order + continuation + configuredDurations(node);
++}

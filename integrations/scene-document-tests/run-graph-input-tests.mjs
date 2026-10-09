@@ -45,6 +45,7 @@ const mocks = {
   './components/SentenceArgOption': `export default 'arg-option';`,
   './components/TerrePanel': `export const GlobalTerrePanel=()=>null;`,
   '../../ChooseFile/ChooseFile': `export default 'choose-file';`,
+  '@/components/terreToggle/TerreToggle': `export default 'toggle';`,
   '../../../../components/terreToggle/TerreToggle': `export default 'toggle';`,
   '../components/CommonOption': `export default 'option';`,
   '../components/CommonTips': `export default 'tips';`,
@@ -58,6 +59,8 @@ await build({ entryPoints: {
   director: path.join(source,'GraphicalEditor/components/DirectorPanel.tsx'),
   directorSession: path.join(source,'SceneDocument/directorSession.ts'),
   directorNavigation: path.join(source,'SceneDocument/directorNavigation.ts'),
+  wait: path.join(source,'GraphicalEditor/SentenceEditor/Wait.tsx'),
+  directorTiming: path.join(source,'SceneDocument/directorTiming.ts'),
   bgm: path.join(source,'GraphicalEditor/SentenceEditor/Bgm.tsx'),
   figure: path.join(source,'GraphicalEditor/SentenceEditor/ChangeFigure.tsx'),
   figureDiff: path.join(source,'GraphicalEditor/SentenceEditor/ChangeFigureDiff.tsx'),
@@ -68,6 +71,6 @@ plugins:[{name:'graph-event-boundary',setup(api){
   api.onResolve({filter:/.*/},args=>Object.hasOwn(mocks,args.path)?{path:args.path,namespace:'mock'}:args.path.endsWith('.scss')?{path:'styles',namespace:'mock'}:undefined);
   api.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:args.path==='styles'?'export default {};':mocks[args.path],loader:'js'}));
 }}] });
-const run=spawnSync(process.execPath,['--test',fileURLToPath(new URL('./graph-input-boundary.test.mjs',import.meta.url)),fileURLToPath(new URL('./director-panel-boundary.test.mjs',import.meta.url)),fileURLToPath(new URL('./graph-source-navigation.test.mjs',import.meta.url))],{stdio:'inherit',env:{...process.env,GRAPH_INPUT_TEST_BUNDLE:out}});
+const run=spawnSync(process.execPath,['--test',fileURLToPath(new URL('./graph-input-boundary.test.mjs',import.meta.url)),fileURLToPath(new URL('./director-panel-boundary.test.mjs',import.meta.url)),fileURLToPath(new URL('./graph-source-navigation.test.mjs',import.meta.url)),fileURLToPath(new URL('./director-timing.test.mjs',import.meta.url))],{stdio:'inherit',env:{...process.env,GRAPH_INPUT_TEST_BUNDLE:out}});
 if(run.error)throw run.error;
 process.exitCode=run.status??1;

@@ -6,7 +6,8 @@ import path from 'node:path';
 const load = name => import(pathToFileURL(path.join(process.env.DIRECTOR_SESSION_TEST_BUNDLE, `${name}.mjs`)));
 const { createDirectorSession: open, editDirectorSession: edit, commitDirectorSession: commit,
   addDirectorSessionNode: add, removeDirectorSessionNode: remove,
-  deleteDirectorSessionNode: deleteSetting, moveDirectorSessionNode: moveSetting, directorStructuralActions: actions } = await load('director');
+  deleteDirectorSessionNode: deleteSetting, moveDirectorSessionNode: moveSetting, directorStructuralActions: actions,
+  directorWaitState: waitState, editDirectorWait: editWait, directorWaitMaximum } = await load('director');
 const { createDirectorSourceNavigation: navigation, resolveDirectorNavigation: locate } = await load('navigation');
 const { SceneDocument } = await load('document');
 const { nativeRanges } = await load('graph');
@@ -45,7 +46,7 @@ test('opening and cancelling leave the shared document, history and persistent d
   assert.equal(h.writes.length, 0);
 });
 
-test('collects supported existing commands, comments and read-only wait up to the selected dialogue', () => {
+test('collects supported existing commands, comments and bounded editable wait up to the selected dialogue', () => {
   const source = [
     'say:上一句;', 'changeBg:day.svg -next;', '; 保留的独立注释', 'changeFigure:lin.svg -id=lin -left -next;',
     'changeFigureDiff:smile.svg -id=lin -next;', 'bgm:rain.wav -volume=55 -next;', 'playEffect:bell.wav -next;',
@@ -56,7 +57,7 @@ test('collects supported existing commands, comments and read-only wait up to th
   assert.equal(session.nodes[0].startLine, 1);
   assert.equal(session.nodes.at(-1).startLine, 8);
   assert.equal(session.nodes.at(-1).nodeId, session.selectedNodeId);
-  assert.equal(session.nodes.find(node => node.role === 'wait').editable, false);
+  assert.equal(session.nodes.find(node => node.role === 'wait').editable, true);
   assert.equal(session.nodes.find(node => node.role === 'comment').raw, '; 保留的独立注释');
   assert.equal(session.source, source);
 });
@@ -153,6 +154,186 @@ test('read-only references and foreign node identities cannot be changed', () =>
   for (const node of session.nodes.filter(node => !node.editable)) assert.throws(() => edit(session, node.nodeId, 'say:覆盖;'), /仅供参考/);
   assert.throws(() => edit(session, 'missing', 'say:覆盖;'), /仅供参考/);
   assert.equal(session.source, source);
+});
+
+for (const [content, nobreak, expected] of [
+  ['0', '', false], ['000500', '', false], ['500', ' -nobreak', true], ['500', ' -nobreak=true', true],
+  ['500', ' -nobreak=false', false], ['2147483647', '', false],
+]) {
+  test(`safe wait eligibility preserves ${content}${nobreak} without registering or changing history`, () => {
+    const source = `wait:${content}${nobreak}; 作者\nsay:正文;`;
+    const session = open(source, 1, 3);
+    const wait = target(session, 'wait');
+    assert.deepEqual(waitState(wait), { editable: true, duration: content, durationMs: Number(content), nobreak: expected, reason: null });
+    assert.equal(session.source, source);
+    assert.equal(session.changed, false);
+    assert.equal(wait.registered, false);
+    assert.equal(commit(source, 3, session), source);
+  });
+}
+
+test('native-valid but unsupported waits stay read-only and cannot be modified, deleted or crossed', () => {
+  for (const statement of [
+    'wait:-1;', 'wait:0.5;', 'wait:1e3;', 'wait:0x20;', 'wait:2147483648;', 'wait:;',
+    'wait:{duration};', 'wait:500 -nobreak=1;', 'wait:500 -nobreak=0;', 'wait:500 -nobreak=TRUE;',
+    'wait:500 -next;', 'wait:500 -next=false;', 'wait:500 -continue;',
+  ]) {
+    const source = `changeBg:day.svg;\n${statement}\nchangeFigure:lin.svg;\nsay:正文;`;
+    const session = open(source, 3, 0);
+    const wait = target(session, 'wait');
+    assert.ok(wait, statement);
+    assert.equal(wait.editable, false, statement);
+    assert.equal(waitState(wait).editable, false, statement);
+    assert.ok(waitState(wait).reason, statement);
+    assert.throws(() => edit(session, wait.nodeId, 'wait:200;'), /仅供参考/, statement);
+    assert.throws(() => editWait(session, wait.nodeId, { duration: '200', nobreak: false }), /仅供参考/, statement);
+    assert.equal(actions(session, wait.nodeId).canDelete, false, statement);
+    assert.equal(actions(session, wait.nodeId).canMoveUp, false, statement);
+    assert.equal(actions(session, wait.nodeId).canMoveDown, false, statement);
+    assert.equal(actions(session, target(session, 'changeBg').nodeId).canMoveDown, false, statement);
+    assert.equal(actions(session, target(session, 'changeFigure').nodeId).canMoveUp, false, statement);
+    assert.equal(session.source, source, statement);
+  }
+});
+
+test('conditional, unknown-argument and multiline waits remain collection boundaries', () => {
+  for (const statement of ['wait:500 -when=flag;', 'wait:500 -future=kept;', 'wait:500\n  -nobreak;']) {
+    const source = `changeBg:day.svg;\n${statement}\nchangeFigure:lin.svg;\nsay:正文;`;
+    const session = open(source, source.split('\n').length - 1, 0);
+    assert.deepEqual(session.nodes.map(node => node.command), ['changeFigure', 'say']);
+    const next = edit(session, session.selectedNodeId, 'say:新文;');
+    assert.ok(next.source.startsWith(source.slice(0, source.indexOf('changeFigure:'))));
+  }
+});
+
+test('numeric-equivalent duration and native omitted false are exact no-ops with no new identity', () => {
+  for (const flag of ['', ' -nobreak=false']) {
+    const source = `wait: 000500 ${flag};  作者\nsay:正文;`;
+    const session = open(source, 1, 0);
+    const id = target(session, 'wait').nodeId;
+    assert.equal(edit(session, id, 'wait:500;'), session);
+    assert.equal(edit(session, id, 'wait:0500 -nobreak=false;'), session);
+    assert.equal(editWait(session, id, { duration: '500', nobreak: false }), session);
+    assert.equal(session.source, source);
+  }
+});
+
+test('time-only edit preserves explicit false token spelling, author comment and legacy identity', () => {
+  const source = '\uFEFF; 标头\r\nfutureFx:before -opaque=1; 保留\r\n; @makenovel-node wait.legacy\r\nwait: 00500  -nobreak = false ;  作者\t; 尾注  \r\nsay:正文; @makenovel-node say\r\nfutureFx:after -opaque=2; 保留\r\n';
+  const session = open(source, 4, 1);
+  const result = edit(session, 'wait.legacy', 'wait:800; 作者\t; 尾注');
+  assert.equal(result.source, source.replace('00500', '800'));
+  assert.equal(result.nodes.find(node => node.nodeId === 'wait.legacy').registered, true);
+  assert.deepEqual(semantics(nativeRanges(result.source)), semantics(runtimeParse(result.source)));
+  assert.deepEqual(result.nodes.map(node => [node.nodeId, node.startLine]), session.nodes.map(node => [node.nodeId, node.startLine]));
+});
+
+test('nobreak-only edit preserves duration spelling and registers exactly the modified wait', () => {
+  const source = 'changeBg:day.svg;\nwait: 00500 ; 原作者\nsay:正文;';
+  const session = open(source, 2, 0);
+  const wait = target(session, 'wait');
+  const result = editWait(session, wait.nodeId, { duration: '500', nobreak: true });
+  assert.equal((result.source.match(/@makenovel-node/g) ?? []).length, 1);
+  assert.equal(result.source, source.replace('wait: 00500 ; 原作者', `wait: 00500 -nobreak=true ; 原作者; @makenovel-node ${wait.nodeId}`));
+  assert.equal(waitState(target(result, 'wait')).nobreak, true);
+  assert.deepEqual(result.nodes.map(node => node.registered), [false, true, false]);
+  assert.equal(result.nodes.find(node => node.nodeId === wait.nodeId).startLine, wait.startLine);
+});
+
+test('full wait semantic roundtrip restores exact original tokens and identity state', () => {
+  for (const original of [
+    'wait: 000500 ; 作者', 'wait: 000500 -nobreak ; 作者', 'wait: 000500 -nobreak = true ; 作者',
+    'wait: 000500 -nobreak = false ; 作者', 'wait: 000500 -nobreak; 作者 ; @makenovel-node registered',
+    '; @makenovel-node legacy\r\nwait: 000500 -nobreak=false; 作者',
+  ]) {
+    const source = `; 标头\r\n${original}\r\nsay:正文;\r\n`;
+    const opened = open(source, source.split('\r\n').length - 2, 0);
+    const wait = target(opened, 'wait');
+    let result = editWait(opened, wait.nodeId, { duration: '800', nobreak: !waitState(wait).nobreak });
+    assert.equal(result.changed, true);
+    result = editWait(result, wait.nodeId, { duration: '500', nobreak: waitState(wait).nobreak });
+    assert.equal(result.source, source, original);
+    assert.equal(result.changed, false, original);
+    assert.equal(target(result, 'wait').registered, wait.registered, original);
+    assert.equal(target(result, 'wait').nodeId, wait.nodeId, original);
+    assert.equal(commit(source, 0, result), source, original);
+  }
+});
+
+test('wait invalid proposals reject atomically after a valid local edit', () => {
+  const source = 'wait:500 -nobreak;\nsay:正文;';
+  let session = open(source, 1, 0);
+  const id = target(session, 'wait').nodeId;
+  session = editWait(session, id, { duration: '800', nobreak: true });
+  const before = session.source;
+  for (const replacement of [
+    'wait:;', 'wait:none;', 'wait:-1;', 'wait:1.5;', 'wait:1e3;', 'wait:0x20;', 'wait:NaN;', 'wait:Infinity;',
+    'wait:2147483648;', 'wait:{timer};', 'wait:100 -next;', 'wait:100 -next=false;', 'wait:100 -continue;',
+    'wait:100 -when=flag;', 'wait:100 -future=1;', 'wait:100 -nobreak=1;', 'wait:100 -nobreak=TRUE;',
+    'wait:100 -nobreak -nobreak=false;', 'bgm:rain.wav;', 'say:覆盖;', 'wait:100;\nsay:注入;',
+    '\uFEFFwait:100;', 'wait:100\r\n  -nobreak;',
+  ]) {
+    assert.throws(() => edit(session, id, replacement), Error, replacement);
+    assert.equal(session.source, before, replacement);
+  }
+  for (const input of [
+    { duration: '', nobreak: false }, { duration: ' 100 ', nobreak: false }, { duration: '100\n', nobreak: false },
+    { duration: '１００', nobreak: false }, { duration: '100', nobreak: 'true' }, { duration: 100, nobreak: false },
+    { duration: '2; jump:other.txt', nobreak: false }, { duration: '2\\;', nobreak: false },
+    { duration: '2\u0000', nobreak: false }, { duration: '2\t', nobreak: false },
+  ]) assert.throws(() => editWait(session, id, input), /十进制整数/);
+  assert.throws(() => editWait(session, 'missing', { duration: '100', nobreak: false }), /仅供参考/);
+  assert.throws(() => editWait(session, session.selectedNodeId, { duration: '100', nobreak: false }), /仅供参考/);
+  assert.equal(session.source, before);
+});
+
+test('both supported duration endpoints remain native millisecond values', () => {
+  const source = 'wait:500;\nsay:正文;';
+  const opened = open(source, 1, 0);
+  const id = target(opened, 'wait').nodeId;
+  assert.equal(directorWaitMaximum, 2147483647);
+  for (const duration of ['0', String(directorWaitMaximum)]) {
+    const session = editWait(opened, id, { duration, nobreak: false });
+    assert.equal(target(session, 'wait').sentence.content, duration);
+    assert.equal(Number(runtimeParse(session.source)[0].content), Number(duration));
+  }
+});
+
+test('edited waits remain undeletable, unmovable and hard barriers for adjacent settings', () => {
+  const source = 'changeBg:day.svg;\nwait:500;\nchangeFigure:lin.svg;\nsay:正文;';
+  const opened = open(source, 3, 0);
+  const wait = target(opened, 'wait');
+  const session = editWait(opened, wait.nodeId, { duration: '0', nobreak: true });
+  for (const operation of [() => deleteSetting(session, wait.nodeId), () => remove(session, wait.nodeId),
+    () => moveSetting(session, wait.nodeId, 'up'), () => moveSetting(session, wait.nodeId, 'down'),
+    () => moveSetting(session, target(session, 'changeBg').nodeId, 'down'),
+    () => moveSetting(session, target(session, 'changeFigure').nodeId, 'up')]) assert.throws(operation, Error);
+  assert.equal(target(session, 'wait').startLine, 1);
+  assert.equal(waitState(target(session, 'wait')).durationMs, 0);
+});
+
+test('mixed wait, structure and dialogue edits commit as one undo and save transaction with ABA protection', async () => {
+  const source = '\uFEFF; header\r\nchangeFigure:neutral.svg -left;\r\nchangeFigure:smile.svg -left;\r\nwait:000500 -nobreak=false; 作者\r\nsay:正文;\r\nsay:后继;\r\n';
+  const h = await documentFor(source);
+  const opened = open(source, 4, h.document.getSnapshot().historyVersion);
+  let session = editWait(opened, target(opened, 'wait').nodeId, { duration: '900', nobreak: true });
+  session = moveSetting(session, target(session, 'changeFigure').nodeId, 'down');
+  session = edit(session, session.selectedNodeId, 'say:新文;');
+  assert.equal(h.document.getSnapshot().text, source);
+  assert.equal(h.writes.length, 0);
+  const state = h.document.getSnapshot();
+  h.document.edit(commit(state.text, state.historyVersion, session));
+  assert.equal(h.document.undo(), true);
+  assert.equal(h.document.getSnapshot().text, source);
+  assert.equal(h.document.undo(), false);
+  assert.throws(() => commit(source, h.document.getSnapshot().historyVersion, session), /主文档已改变/);
+  assert.equal(h.document.redo(), true);
+  assert.equal(h.document.getSnapshot().text, session.source);
+  assert.equal(await h.document.save(), true);
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.disk().text, session.source);
+  assert.deepEqual(semantics(nativeRanges(session.source)), semantics(runtimeParse(session.source)));
+  assert.equal((session.source.match(/@makenovel-node/g) ?? []).length, 2);
 });
 
 test('unsupported changes reject atomically and preserve previous valid local edits', () => {

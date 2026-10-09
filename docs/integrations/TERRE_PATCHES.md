@@ -161,3 +161,21 @@ pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.p
 ```
 
 代码、实际构建、GUI 与文件保存证据见 [第十轮报告](../evidence/2026-10-09-round10.md)。
+
+## 第十一轮等待编辑补丁
+
+`0.0.11` 保留 Terre 0001–0007 与 WebGAL 0001–0004 原字节，追加 `0008-director-wait-editing.patch`。增量基树 `88fc8d1c98e50326f2028d390683bb2fece1ca37`，仅涉及六个前端源文件及四份翻译目录；后端、锁文件、上游 HEAD 和 runtime 不变。
+
+- SHA-256：`90461f066ba5e6fe5f2e21a90557b873a4c5d6d883f49df78f481c4acbb1a5ae`，27,240 字节。
+- 八份完整树：`9251575c495fe730b409526f0af9e07cbbf14d3e`。
+- Manifest SHA-256：`91274b87c08fb8543b22e33f6798c1f579ef6293aada2dff057e7b7bd78ff252`。
+
+Wait 保留原生控件，在导演会话先验证原始输入，阻止非法时长被序列化器解释成注释。支持范围为 0–2147483647 的十进制整数和可选布尔 nobreak；等价修改保持原拼写和身份，全语义往返恢复原字节，并复核原生解析。执行说明复用原生 ADD_NEXT_ARG_LIST，区分 BGM/SE 的隐式连续执行与其他命令的显式参数；不创建独立执行器或累计时间轴。
+
+独立无 alternates clone 的正向、幂等、反序和真实索引保持检查 **18/18 通过**。记录 `docs/evidence/local/round11/terre-independent-replay.json`；运行：
+
+```powershell
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL_Terre -ExpectedPatchCount 8 -EvidencePath docs/evidence/local/round11/terre-independent-replay.json
+```
+
+代码、构建、保存与实际播放分别见 [第十一轮报告](../evidence/2026-10-09-round11.md)。

@@ -28,6 +28,10 @@
     {
       "file": "0007-director-structure-editing.patch",
       "sha256": "32d9a1cd5bca8394e1b1e701d8572b2171b6652722139da7590a696786396ae4"
+    },
+    {
+      "file": "0008-director-wait-editing.patch",
+      "sha256": "90461f066ba5e6fe5f2e21a90557b873a4c5d6d883f49df78f481c4acbb1a5ae"
     }
   ]
 }
