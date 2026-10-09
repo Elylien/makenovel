@@ -179,3 +179,20 @@ pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.p
 ```
 
 代码、构建、保存与实际播放分别见 [第十一轮报告](../evidence/2026-10-09-round11.md)。
+
+
+## 第十二轮背景转场补丁
+
+`0.0.12` 保留Terre0001–0008/runtime0001–0004原字节，追加 `0009-director-background-transition.patch`。增量基树 `9251575c495fe730b409526f0af9e07cbbf14d3e`，仅五个前端文件；上游HEAD、锁文件、后端与runtime不变，构建后无需新增PO变更。
+
+- SHA256 `086b3406d25f587b1d9903acada47911b635aedc7fbef75612266b3c1a76f487`，24848字节。
+- 九补丁完整树 `7863611a8c1e2a566a84a0162b6aa0e7d3570f7a`。
+- Manifest SHA256 `2cfa7a0efe518b76164f339d5350931126eea517c7d6fde9e3713bfb06dbca67`。
+
+复用原生ChangeBg，raw整数/空值先校验再局部写回，保持next缺省/false、长折行和完整背景往返语义；高级只读行仍用原控件初值。导演111及图形107回归通过。最终独立clone正向、幂等、反序和真实index保持检查18/18通过。首次重放因期间重新导出补丁触发hash门禁，最终固定补丁复测通过，分别保留机器证据。
+
+```powershell
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL_Terre -ExpectedPatchCount 9 -EvidencePath docs/evidence/local/round12/terre-independent-replay.json
+```
+
+代码、受控构建、真实编辑与播放、未运行Windows范围见 [第十二轮报告](../evidence/2026-10-09-round12.md)。

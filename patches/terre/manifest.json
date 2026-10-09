@@ -32,6 +32,10 @@
     {
       "file": "0008-director-wait-editing.patch",
       "sha256": "90461f066ba5e6fe5f2e21a90557b873a4c5d6d883f49df78f481c4acbb1a5ae"
+    },
+    {
+      "file": "0009-director-background-transition.patch",
+      "sha256": "086b3406d25f587b1d9903acada47911b635aedc7fbef75612266b3c1a76f487"
     }
   ]
 }

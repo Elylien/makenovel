@@ -757,3 +757,172 @@ test('execution order reads current local draft and never adds overlapping durat
   assert.match(text,/2100/);assert.doesNotMatch(text,/3000/);
   assert.equal(h.document.getSnapshot().text,source);h.hooks.unmount();
 });
+
+const backgroundLabels={
+  duration:'背景入场回退时间（毫秒）',
+  enterDuration:'背景入场时间（毫秒）',
+  exitDuration:'背景下次退场时间（毫秒）',
+};
+function mountBackground(h) {
+  const hooks=new Hooks();let tree;
+  const render=()=>{tree=hooks.render(Bg,form(h.render(),'changeBg').props);hooks.commit();return tree;};
+  const input=key=>collect(tree,node=>node.type==='input'&&node.props['aria-label']===backgroundLabels[key])[0];
+  const set=(key,value)=>{assert.ok(input(key),key);input(key).props.onChange({target:{value}});render();};
+  const choose=name=>{collect(tree,node=>node.type==='choose-file')[0].props.onChange({name});render();};
+  render();return {hooks,render,input,set,choose,get tree(){return tree;}};
+}
+const sentenceArg=(sentence,key)=>sentence.args.find(arg=>arg.key===key)?.value;
+
+test('only native background rows receive the local transition state and raw input adapter',async()=>{
+  const h=await harness(),bg=form(h.tree,'changeBg');
+  assert.equal(bg.props.backgroundTransition.editable,true);
+  assert.deepEqual({duration:bg.props.backgroundTransition.duration,enterDuration:bg.props.backgroundTransition.enterDuration,
+    exitDuration:bg.props.backgroundTransition.exitDuration,next:bg.props.backgroundTransition.next},
+  {duration:'900',enterDuration:'',exitDuration:'',next:true});
+  assert.equal(typeof bg.props.onBackgroundTransitionSubmit,'function');
+  for(const item of collect(h.tree,node=>node.type==='director-editor'&&node!==bg)) {
+    assert.equal(item.props.backgroundTransition,undefined,item.props.sentence.commandRaw);
+    assert.equal(item.props.onBackgroundTransitionSubmit,undefined,item.props.sentence.commandRaw);
+  }
+  const mounted=mountBackground(h);
+  assert.equal(mounted.input('duration').props.value,'900');
+  assert.equal(mounted.input('enterDuration').props.value,'');
+  assert.equal(mounted.input('exitDuration').props.value,'');
+  mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('native background buffers survive asset selection and join dialogue in one undoable transaction',async()=>{
+  const h=await harness(),mounted=mountBackground(h),version=h.document.getSnapshot().historyVersion;
+  mounted.set('duration','1100');mounted.set('enterDuration','2200');mounted.set('exitDuration','3300');
+  assert.equal(h.document.getSnapshot().text,source);
+  mounted.choose('night.svg');
+  let current=form(h.render(),'changeBg').props.sentence;
+  assert.equal(current.content,'night.svg');
+  assert.equal(sentenceArg(current,'duration'),1100);assert.equal(sentenceArg(current,'enterDuration'),2200);
+  assert.equal(sentenceArg(current,'exitDuration'),3300);
+  form(h.render(),'say').props.onSubmit('say:转场与对白一起修改 -speaker=林 -vocal=voice.wav;');
+  mounted.render();mounted.set('enterDuration','2400');
+  let blurred=0;const active=new HTMLInputElement();active.blur=()=>{blurred++;mounted.input('enterDuration').props.onBlur();};
+  globalThis.document.activeElement=active;
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(blurred,1);assert.equal(h.closed,1);assert.equal(h.writes,0);
+  assert.equal(h.document.getSnapshot().historyVersion,version+1);
+  const edited=h.document.getSnapshot().text;
+  assert.match(edited,/changeBg:night.svg/);assert.match(edited,/-duration=1100/);
+  assert.match(edited,/-enterDuration=2400/);assert.match(edited,/-exitDuration=3300/);
+  assert.match(edited,/; @makenovel-node bg\r\n/);assert.match(edited,/转场与对白一起修改/);
+  assert.deepEqual(edited.split('\r\n').slice(1,5),source.split('\r\n').slice(1,5));
+  mounted.hooks.unmount();h.hooks.unmount();h.document.undo();
+  assert.equal(h.document.getSnapshot().text,source);assert.equal(h.document.getSnapshot().canUndo,false);
+  h.document.redo();assert.equal(h.document.getSnapshot().text,edited);
+});
+
+test('invalid background raw values block asset, next and apply without discarding another valid row',async()=>{
+  const h=await harness(),mounted=mountBackground(h);
+  form(h.render(),'say').props.onSubmit('say:保留转场旁的对白 -speaker=林 -vocal=voice.wav;');
+  mounted.set('enterDuration','2300');
+  const active=new HTMLInputElement();active.blur=()=>mounted.input('duration').props.onBlur();globalThis.document.activeElement=active;
+  for(const invalid of ['-1','1.5','1e3','2147483648','2; jump:other.txt','2\nchangeBg:injected.svg']) {
+    mounted.set('duration',invalid);mounted.choose('night.svg');
+    const next=collect(mounted.tree,node=>node.type==='toggle'&&node.props.offText==='本句执行后等待')[0];
+    next.props.onChange(false);mounted.render();
+    button(h.render(),'应用到草稿').props.onClick();await flush();
+    assert.equal(h.closed,0,invalid);assert.equal(h.document.getSnapshot().text,source);
+    assert.equal(form(h.render(),'changeBg').props.sentence.content,'day.svg',invalid);
+    assert.equal(sentenceArg(form(h.render(),'changeBg').props.sentence,'next'),true,invalid);
+    assert.match(alerts(h.render()),/无法应用的输入/);
+    assert.equal(mounted.input('duration').props.value,invalid);
+    assert.equal(mounted.input('enterDuration').props.value,'2300');
+    assert.equal(form(h.render(),'say').props.sentence.content,'保留转场旁的对白');
+  }
+  mounted.set('duration','1500');mounted.choose('night.svg');
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,1);assert.match(h.document.getSnapshot().text,/changeBg:night.svg/);
+  assert.match(h.document.getSnapshot().text,/-duration=1500/);assert.match(h.document.getSnapshot().text,/-enterDuration=2300/);
+  assert.match(h.document.getSnapshot().text,/保留转场旁的对白/);assert.doesNotMatch(h.document.getSnapshot().text,/injected|jump:/);
+  mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('clearing native background timing fields removes only overrides and preserves source identity',async()=>{
+  const initial='\uFEFF; 转场边界\r\nchangeBg:day.svg -duration=900 -enterDuration=0 -exitDuration=1500 -next; 保留备注 ; @makenovel-node bg\r\nsay:当前句;\r\n';
+  const h=await harness(initial,2),mounted=mountBackground(h);
+  for(const key of Object.keys(backgroundLabels)) mounted.set(key,'');
+  collect(mounted.tree,node=>node.type==='toggle'&&node.props.offText==='本句执行后等待')[0].props.onChange(false);
+  mounted.render();
+  const active=new HTMLInputElement();active.blur=()=>mounted.input('exitDuration').props.onBlur();globalThis.document.activeElement=active;
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,1);
+  const edited=h.document.getSnapshot().text,reopened=createDirectorSession(edited,2,h.document.getSnapshot().historyVersion);
+  const bg=reopened.nodes.find(node=>node.command==='changeBg').sentence;
+  for(const key of Object.keys(backgroundLabels)) assert.equal(sentenceArg(bg,key),undefined,key);
+  assert.ok([undefined,false].includes(sentenceArg(bg,'next')));
+  assert.ok(edited.startsWith('\uFEFF; 转场边界\r\nchangeBg:day.svg'));
+  assert.match(edited,/; 保留备注 ; @makenovel-node bg\r\nsay:当前句;\r\n$/);
+  mounted.hooks.unmount();h.hooks.unmount();h.document.undo();assert.equal(h.document.getSnapshot().text,initial);
+});
+
+test('equivalent background timing and complete round trips preserve original bytes without new identity',async()=>{
+  const initial='changeBg:day.svg -duration=000900 -next=false; author note\r\nsay:当前句;';
+  for(const values of [['900'],['1200','900']]) {
+    const h=await harness(initial,1),mounted=mountBackground(h);
+    for(const value of values) {mounted.set('duration',value);mounted.input('duration').props.onBlur();mounted.render();}
+    button(h.render(),'应用到草稿').props.onClick();await flush();
+    assert.equal(h.closed,1);assert.equal(h.document.getSnapshot().text,initial);
+    assert.equal(h.document.getSnapshot().canUndo,false);assert.equal(h.writes,0);
+    mounted.hooks.unmount();h.hooks.unmount();
+  }
+});
+
+test('background transition IME and cancellation gates ignore late native adapters and buffered submissions',async()=>{
+  const h=await harness(),mounted=mountBackground(h),late=form(h.tree,'changeBg').props;
+  mounted.set('enterDuration','1800');mounted.input('enterDuration').props.onBlur();mounted.render();
+  surface(h.render()).props.onCompositionStartCapture();
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,0);assert.equal(h.document.getSnapshot().text,source);assert.match(alerts(h.render()),/中文候选/);
+  surface(h.render()).props.onCompositionEndCapture();await flush();
+  button(h.render(),'应用到草稿').props.onClick();button(h.render(),'取消').props.onClick();
+  late.onBackgroundTransitionSubmit({duration:'5000',enterDuration:'',exitDuration:'',next:false});
+  late.onSubmit('changeBg:late.svg -duration=5000;');await flush();
+  assert.equal(h.closed,1);assert.equal(h.document.getSnapshot().text,source);
+  assert.equal(h.document.getSnapshot().canUndo,false);assert.equal(h.writes,0);assert.equal(h.holds,0);
+  mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('advanced or non-image background transition state stays read-only in the native local form',async()=>{
+  for(const line of ['changeBg:day.svg -enter=fade.json;','changeBg:movie.mp4;','changeBg:none;']) {
+    const initial=`${line}\r\nsay:当前句;`,h=await harness(initial,1),props=form(h.tree,'changeBg').props;
+    assert.equal(props.backgroundTransition.editable,false,line);assert.ok(props.backgroundTransition.reason,line);
+    const mounted=mountBackground(h);
+    for(const key of Object.keys(backgroundLabels)) {
+      const input=mounted.input(key);
+      assert.ok(!input||input.props.disabled||collect(mounted.tree,node=>node.type==='fieldset'&&node.props.disabled).length,line);
+    }
+    assert.ok(JSON.stringify(mounted.tree).includes(props.backgroundTransition.reason));
+    button(h.render(),'应用到草稿').props.onClick();await flush();
+    assert.equal(h.document.getSnapshot().text,initial);assert.equal(h.document.getSnapshot().canUndo,false);
+    mounted.hooks.unmount();h.hooks.unmount();
+  }
+});
+
+test('removed background rows cannot return through a late transition adapter',async()=>{
+  const h=await harness(),late=form(h.tree,'changeBg').props.onBackgroundTransitionSubmit;
+  structuralButton(h.tree,'移除背景，',1).props.onClick();await flush();
+  button(h.render(),'确认移除').props.onClick();await flush();
+  late({duration:'bad; injected',enterDuration:'',exitDuration:'',next:false});
+  late({duration:'800',enterDuration:'',exitDuration:'',next:false});
+  assert.equal(form(h.render(),'changeBg'),undefined);assert.equal(alerts(h.render()),'');
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,1);assert.doesNotMatch(h.document.getSnapshot().text,/changeBg:/);
+  h.hooks.unmount();h.document.undo();assert.equal(h.document.getSnapshot().text,source);
+});
+
+
+test('read-only background state does not replace the existing native control values',async()=>{
+  const h=await harness('changeBg:day.svg -next=TRUE;\r\nsay:当前句;',1),mounted=mountBackground(h);
+  assert.equal(form(h.render(),'changeBg').props.backgroundTransition.editable,false);
+  const next=collect(mounted.tree,node=>node.type==='toggle'&&node.props.offText==='本句执行后等待')[0];
+  assert.equal(next.props.isChecked,true);
+  mounted.choose('night.svg');
+  assert.equal(sentenceArg(form(h.render(),'changeBg').props.sentence,'next'),true);
+  mounted.hooks.unmount();h.hooks.unmount();
+});

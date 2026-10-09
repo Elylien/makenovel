@@ -1,0 +1,346 @@
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeBg.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeBg.tsx
+index 090966cb3f332dc6464ad775748871c9ac58d82c..070be161136abf53e0e3e0e0807b8224d87dab4e 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeBg.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/ChangeBg.tsx
+@@ -16,20 +16,26 @@ import { IgnoreDefaultOption } from "../components/IgnoreDefaultOption";
+ 
+ export default function ChangeBg(props: ISentenceEditorProps) {
+   const isNoFile = props.sentence.content === "" || props.sentence.content === "none";
+-  const isGoNext = useValue(!!getArgByKey(props.sentence, "next"));
++  const isGoNext = useValue(props.backgroundTransition?.editable ? props.backgroundTransition.next : !!getArgByKey(props.sentence, "next"));
+   const bgFile = useValue(props.sentence.content);
+   const unlockName = useValue(getArgByKey(props.sentence, "unlockname").toString() ?? "");
+   const unlockSeries = useValue(getArgByKey(props.sentence, "series").toString() ?? "");
+   const unlockOrder = useValue<number | string>(getArgByKey(props.sentence, "order") as number);
+   const json = useValue<string>(getArgByKey(props.sentence, 'transform') as string);
+-  const duration = useValue<number | string>(getArgByKey(props.sentence, 'duration') as number);
+-  const enterDuration = useValue<number | string>(getArgByKey(props.sentence, 'enterDuration') as number);
+-  const exitDuration = useValue<number | string>(getArgByKey(props.sentence, 'exitDuration') as number);
++  const duration = useValue<number | string>(props.backgroundTransition?.editable ? props.backgroundTransition.duration : getArgByKey(props.sentence, 'duration') as number);
++  const enterDuration = useValue<number | string>(props.backgroundTransition?.editable ? props.backgroundTransition.enterDuration : getArgByKey(props.sentence, 'enterDuration') as number);
++  const exitDuration = useValue<number | string>(props.backgroundTransition?.editable ? props.backgroundTransition.exitDuration : getArgByKey(props.sentence, 'exitDuration') as number);
+   const enterAnimation = useValue(getArgByKey(props.sentence, 'enter').toString() ?? "");
+   const exitAnimation = useValue(getArgByKey(props.sentence, 'exit').toString() ?? "");
+   const ease = useValue(getArgByKey(props.sentence, 'ease').toString() ?? '');
+   const ignoreDefault = useValue(getArgByKey(props.sentence, 'ignoreDefault') === true);
+   const submit = () => {
++    // The local transaction validates the entire raw buffer before serialization.
++    // Reuse the same values below so asset edits cannot restore stale timings.
++    if (props.backgroundTransition?.editable && !props.onBackgroundTransitionSubmit?.({
++      duration: String(duration.value), enterDuration: String(enterDuration.value),
++      exitDuration: String(exitDuration.value), next: isGoNext.value,
++    })) return;
+     const submitString = combineSubmitString(
+       props.sentence.commandRaw,
+       bgFile.value,
+@@ -151,6 +157,26 @@ export default function ChangeBg(props: ISentenceEditorProps) {
+           placeholder={t`默认值0`}
+         />
+       </CommonOptions>}
++      {props.backgroundTransition && <section className={styles.backgroundTransition} aria-label="背景转场">
++        <strong>背景转场</strong>
++        {props.backgroundTransition.editable ? <>
++          <div className={styles.transitionFields}>
++            {([
++              ['入场回退', '背景入场回退时间（毫秒）', duration],
++              ['入场时间', '背景入场时间（毫秒）', enterDuration],
++              ['下次退场', '背景下次退场时间（毫秒）', exitDuration],
++            ] as const).map(([title, label, value]) => <label key={label}>
++              <span>{title} <small>毫秒</small></span>
++              <input aria-label={label} inputMode="numeric" value={value.value}
++                onChange={event => value.set(event.target.value)} onBlur={submit}
++                className={styles.sayInput} placeholder="留空使用回退值" />
++            </label>)}
++          </div>
++          <p>填写 0–2147483647 的整数毫秒，留空移除该项配置。入场时间优先于入场回退；两项均空时，当前引擎默认为 1500 毫秒。</p>
++          <p>下次退场用于这个背景之后被替换或关闭时，留空默认为 1500 毫秒。当前旧背景仍按它之前的配置退出。</p>
++          <p>切换到不同背景，或关闭后重新显示，才能看到新的转场。连续执行会立即处理后续命令，演出可能重叠；关闭连续执行后，按原生玩家或自动播放方式推进。</p>
++        </> : <p>{props.backgroundTransition.reason} 转场配置保留原文；请应用或取消后在原语句中设置。</p>}
++      </section>}
+       <CommonOptions key="23" title={t`显示效果`}>
+         <Button disabled={props.disableEffectEditor} onClick={showEffectEditor}>{t`打开效果编辑器`}</Button>
+       </CommonOptions>
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
+index 9673594e89631ba60cf4e07e676be2463f8ffad1..d3bb457744fc56a7b859e769b789314480406771 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
+@@ -55,6 +55,8 @@ import Wait from "@/pages/editor/GraphicalEditor/SentenceEditor/Wait";
+ import BasicCommands from "@/pages/editor/GraphicalEditor/SentenceEditor/BasicCommands";
+ import { t } from "@lingui/macro";
+ 
++import type { DirectorBackgroundTransitionInput, DirectorBackgroundTransitionState } from '../../SceneDocument/directorSession';
++
+ export interface ISentenceEditorProps {
+   sentence: ISentence;
+   onSubmit: (newSentence: string) => void;
+@@ -66,6 +68,9 @@ export interface ISentenceEditorProps {
+   disableEffectEditor?: boolean;
+   /** Keep a local director wait's raw buffer intact until its range validation. */
+   onWaitSubmit?: (input: { duration: string; nobreak: boolean }) => void;
++  /** Validate raw local timing buffers before the native serializer sees them. */
++  backgroundTransition?: DirectorBackgroundTransitionState;
++  onBackgroundTransitionSubmit?: (input: DirectorBackgroundTransitionInput) => boolean;
+ }
+ 
+ export interface ISentenceEditorConfig {
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/sentenceEditor.module.scss b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/sentenceEditor.module.scss
+index 07e3acf6e4261b37472fb68eacc87fcc3c1d373e..1a3c743be25ca7c4005f67a6c32e54b3f1968c21 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/sentenceEditor.module.scss
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/sentenceEditor.module.scss
+@@ -249,3 +249,26 @@
+   gap: 8px;
+   padding: 8px 0;
+ }
++
++.backgroundTransition {
++  width: 100%;
++  box-sizing: border-box;
++  padding: 14px 16px;
++  margin: 8px 0;
++  border: 1px solid var(--black-10pct);
++  border-radius: 8px;
++  background: var(--bg);
++
++  p { color: var(--text-sub); font-size: 12px; line-height: 1.6; margin: 8px 0 0; }
++}
++
++.transitionFields {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 12px;
++  margin-top: 12px;
++
++  label { display: flex; flex: 1 1 160px; flex-direction: column; gap: 6px; }
++  small { color: var(--text-sub); font-weight: normal; }
++  input { width: 100%; min-width: 0; box-sizing: border-box; }
++}
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
+index 8d053f1a8e0e91881ee02f7acff6d8179d1b6d5b..04218dd5b4541d3f946dc37eff73a4f28320b4ef 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
+@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
+ import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle } from '@fluentui/react-components';
+ import { sentenceEditorConfig } from '../SentenceEditor';
+ import { getArgByKey } from '../utils/getArgByKey';
+-import { addDirectorSessionNode, removeDirectorSessionNode, deleteDirectorSessionNode, moveDirectorSessionNode, directorStructuralActions, directorWaitState, editDirectorWait, editDirectorSession, commitDirectorSession, type DirectorSession, type DirectorSessionNode, type DirectorSourceFact } from '../../SceneDocument/directorSession';
++import { addDirectorSessionNode, removeDirectorSessionNode, deleteDirectorSessionNode, moveDirectorSessionNode, directorStructuralActions, directorWaitState, editDirectorWait, directorBackgroundTransitionState, editDirectorBackgroundTransition, type DirectorBackgroundTransitionInput, editDirectorSession, commitDirectorSession, type DirectorSession, type DirectorSessionNode, type DirectorSourceFact } from '../../SceneDocument/directorSession';
+ import { directorExecutionNote } from '../../SceneDocument/directorTiming';
+ import type { SceneDocument } from '../../SceneDocument/sceneDocument';
+ import { createDirectorSourceNavigation, type DirectorSourceNavigation } from '../../SceneDocument/directorNavigation';
+@@ -149,7 +149,7 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+     row?.scrollIntoView({ block: 'nearest' });
+   }, [session]);
+ 
+-  const updateNode = (nodeId: string, replacement: string | { duration: string; nobreak: boolean }) => {
++  const updateNode = (nodeId: string, replacement: string | { duration: string; nobreak: boolean } | DirectorBackgroundTransitionInput) => {
+     // A removed row may still emit blur/cleanup work. Its identity must not
+     // migrate to the line which moved into that position, or leave a ghost error.
+     const node = sessionRef.current.nodes.find(item => item.nodeId === nodeId);
+@@ -157,7 +157,8 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+     try {
+       const next = typeof replacement === 'string'
+         ? editDirectorSession(sessionRef.current, nodeId, node.origin === 'inserted' || node.role === 'wait' ? singleNativeProposal(replacement) : replacement)
+-        : editDirectorWait(sessionRef.current, nodeId, replacement);
++        : 'nobreak' in replacement ? editDirectorWait(sessionRef.current, nodeId, replacement)
++          : editDirectorBackgroundTransition(sessionRef.current, nodeId, replacement);
+       setLocalSession(next);
+       const nextErrors = { ...errorsRef.current };
+       delete nextErrors[nodeId];
+@@ -476,14 +477,19 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+                   <p className={styles.hint}>等待时间使用 0–2147483647 的整数毫秒。自动播放始终等它结束；禁止跳过还会阻止点击和快进提前结束等待。</p>
+                   <p className={styles.hint}>菜单打开时计时仍继续；等待结束后的剧情推进会延后到菜单关闭。此处保持等待的位置，应用后可连同其他修改一次撤销。</p>
+                 </>}
+-                {(node.command === 'changeBg' || node.command === 'changeFigure') && <p className={styles.hint}>此处编辑素材与原有参数。动画及更多选项请应用或取消后在原语句中设置。</p>}
++                {node.command === 'changeFigure' && <p className={styles.hint}>此处编辑素材与原有参数。动画及更多选项请应用或取消后在原语句中设置。</p>}
+                 {addition && (!node.sentence.content || node.sentence.content === 'none' || errors[node.nodeId]) && <div className={styles.recoveryPicker}>
+                   <span className={styles.hint}>重新选择素材以显示或播放；其余参数会保留。</span>
+                   <ChooseFile title={`重新选择${addition.title}`} basePath={[addition.basePath]}
+                     selectedFilePath="" extNames={addition.extensions} onChange={file => chooseReplacement(node.nodeId, controlEpoch, file?.name)} />
+                 </div>}
+                 {Editor && <Editor key={`${node.nodeId}:${controlEpoch}`} sentence={node.sentence} index={node.startLine} targetPath={targetPath}
+-                  disableEffectEditor onWaitSubmit={node.role === 'wait' ? input => {
++                  disableEffectEditor
++                  backgroundTransition={node.command === 'changeBg' ? directorBackgroundTransitionState(node) : undefined}
++                  onBackgroundTransitionSubmit={node.command === 'changeBg' ? input => {
++                    if ((controlEpochsRef.current[node.nodeId] ?? 0) !== controlEpoch) return false;
++                    return updateNode(node.nodeId, input);
++                  } : undefined} onWaitSubmit={node.role === 'wait' ? input => {
+                     if ((controlEpochsRef.current[node.nodeId] ?? 0) !== controlEpoch) return;
+                     updateNode(node.nodeId, input);
+                   } : undefined} onSubmit={replacement => {
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts b/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
+index 725e2fdbfcd85b32bb455547ae52b596c60bce25..7417b8feb646e35cbb9d1d88d664b98ec987f619 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
++++ b/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
+@@ -1,4 +1,5 @@
+ import type { ISentence } from 'webgal-parser/src/interface/sceneInterface';
++import { sceneTextPreProcess } from 'webgal-parser';
+ import { analyzeScene, assignMissingNodeIds, inspectSceneIdentity, insertSceneStatement, deleteNode, type SceneBlock, type SourceNode } from './sceneContract';
+ import { editGraphicalStatement, freshNodeId, nativeRanges } from './graphicalSourceEdits';
+ import { applySourceChanges } from '../../../../../terre2/src/Modules/scene-identity/scene-identity';
+@@ -70,6 +71,20 @@ export interface DirectorWaitState {
+   readonly nobreak: boolean | null;
+   readonly reason: string | null;
+ }
++export interface DirectorBackgroundTransitionInput {
++  readonly duration: string;
++  readonly enterDuration: string;
++  readonly exitDuration: string;
++  readonly next: boolean;
++}
++export interface DirectorBackgroundTransitionState extends DirectorBackgroundTransitionInput {
++  readonly editable: boolean;
++  readonly reason: string | null;
++}
++export const directorBackgroundTransitionMaximum = 2147483647;
++const backgroundDurationKeys = ['duration', 'enterDuration', 'exitDuration'] as const;
++const backgroundTransitionArguments = new Set([...backgroundDurationKeys, 'next', 'order']);
++const backgroundDurationReason = `转场时长请留空或填写 0 至 ${directorBackgroundTransitionMaximum} 的十进制整数，单位为毫秒。`;
+ /** This is the editor's supported timer range, not the full native language. */
+ export const directorWaitMaximum = 2147483647;
+ const waitDurationReason = `等待时间请填写 0 至 ${directorWaitMaximum} 的十进制整数，单位为毫秒。`;
+@@ -102,6 +117,59 @@ function acceptedWait(block: SceneBlock, sentence: ISentence) {
+ const imageFile = /\.(png|jpg|jpeg|webp|svg)$/i;
+ const audioFile = /\.(mp3|ogg|wav|opus)$/i;
+ 
++function backgroundTransitionState(sentence: ISentence): DirectorBackgroundTransitionState {
++  const argument = (key: string) => sentence.args.find(arg => arg.key === key)?.value;
++  const duration = (key: string) => {
++    const value = argument(key);
++    return value === undefined ? '' : String(value);
++  };
++  const validDuration = (key: string) => {
++    const value = argument(key);
++    return value === undefined || (typeof value === 'number' && Number.isInteger(value)
++      && value >= 0 && value <= directorBackgroundTransitionMaximum);
++  };
++  const next = argument('next');
++  const dynamic = [sentence.content, ...sentence.args.map(arg => String(arg.value))]
++    .some(value => /[{}\r\n]/.test(value));
++  const supportedArgs = sentence.args.every(arg => backgroundTransitionArguments.has(arg.key))
++    && new Set(sentence.args.map(arg => arg.key)).size === sentence.args.length;
++  const reason = sentence.commandRaw !== 'changeBg' ? '该行不是背景切换命令。'
++    : !imageFile.test(sentence.content) || dynamic ? '仅静态图片背景支持此处的转场编辑；关闭背景、视频及动态资源请使用原有编辑方式。'
++      : !supportedArgs ? '含条件、连续组合或自定义效果的背景保持原参数，请使用原有编辑方式。'
++        : !backgroundDurationKeys.every(validDuration) ? backgroundDurationReason
++          : next !== undefined && typeof next !== 'boolean' ? '连续执行参数必须为布尔值；此处保留原文，请使用原有编辑方式。' : null;
++  return { editable: reason === null, reason, duration: duration('duration'),
++    enterDuration: duration('enterDuration'), exitDuration: duration('exitDuration'), next: next === true };
++}
++
++/** Bounded source configuration, not a promise of a visible transition or its elapsed time. */
++export function directorBackgroundTransitionState(node: DirectorSessionNode): DirectorBackgroundTransitionState {
++  const state = backgroundTransitionState(node.sentence);
++  return node.role === 'stage' && node.editable ? state : { ...state, editable: false,
++    reason: state.reason ?? '该背景超出本面板支持的单行范围，请使用原有编辑方式。' };
++}
++
++function sameBackgroundSemantics(left: ISentence, right: ISentence) {
++  if (!backgroundTransitionState(left).editable || !backgroundTransitionState(right).editable
++    || left.commandRaw !== right.commandRaw || left.content !== right.content) return false;
++  const normalize = (sentence: ISentence) => {
++    const args = sentence.args.filter(arg => arg.key !== 'next').map(arg => [arg.key, arg.value]);
++    args.push(['next', sentence.args.find(arg => arg.key === 'next')?.value === true]);
++    return JSON.stringify(args.sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
++  };
++  return normalize(left) === normalize(right);
++}
++
++function backgroundProposalHead(source: string) {
++  const code = sceneTextPreProcess(source).split('\n')[0].split(/(?<!\\);/)[0];
++  const argsAt = code.indexOf(' -');
++  return (argsAt < 0 ? code : code.slice(0, argsAt)).trimEnd();
++}
++
++function backgroundProposal(head: string, values: ReadonlyMap<string, string | number | boolean>) {
++  return `${head}${[...values].map(([key, value]) => ` -${key}=${value}`).join('')};`;
++}
++
+ function explicitlyNone(block: SceneBlock, sentence: ISentence) {
+   // The native contentParser maps both `none` and an empty token to ''. Only
+   // this literal source spelling distinguishes the author's explicit close.
+@@ -269,6 +337,25 @@ function refreshNodes(session: DirectorSession, source: string): DirectorSession
+ export function editDirectorSession(session: DirectorSession, nodeId: string, replacement: string): DirectorSession {
+   const selected = session.nodes.find(node => node.nodeId === nodeId);
+   if (!selected?.editable) throw new Error('该行仅供参考，不能在导演面板修改。');
++  if (selected.command === 'changeBg' && directorBackgroundTransitionState(selected).editable) {
++    // Native controls fold long proposals across continuation lines. Their
++    // holders are not commands; an additional real statement must still fail.
++    const proposal = nativeRanges(replacement).filter(item => !item.isLineBreakHolder);
++    if (proposal.length !== 1) throw new Error('背景修改必须保持一条完整语句，不能包含额外命令。');
++    const desired = proposal[0];
++    if (backgroundTransitionState(desired).editable) {
++      if (sameBackgroundSemantics(selected.sentence, desired)) return session;
++      const currentNext = selected.sentence.args.find(arg => arg.key === 'next');
++      if (backgroundTransitionState(selected.sentence).next === backgroundTransitionState(desired).next) {
++        // Native controls omit false. Keep an existing explicit false token
++        // even when their full proposal also changes the image or duration.
++        const values = new Map(desired.args.map(arg => [arg.key, arg.value]));
++        if (currentNext) values.set('next', currentNext.value);
++        else values.delete('next');
++        replacement = backgroundProposal(backgroundProposalHead(replacement), values);
++      }
++    }
++  }
+   if (selected.role === 'wait') {
+     if (!directorWaitState(selected).editable) throw new Error('该等待仅供参考，不能在导演面板修改。');
+     if (/[\r\n\uFEFF]/.test(replacement)) throw new Error('等待必须保持完整的单行语句。');
+@@ -335,6 +422,21 @@ export function editDirectorSession(session: DirectorSession, nodeId: string, re
+       source = restored;
+     }
+   }
++  if (selected.command === 'changeBg' && selected.origin === 'existing') {
++    const editedNode = inspectSceneIdentity(source, nativeRanges(source)).nodes.find(node => node.nodeId === nodeId)!;
++    const sentence = nativeRanges(source).find(item => item.startLine === editedNode.startLine && !item.isLineBreakHolder)!;
++    const original = nativeRanges(selected.originalRaw).find(item => !item.isLineBreakHolder)!;
++    // Restore only when the entire background command is back to its original
++    // semantics. Matching the timing fields alone would discard a new image.
++    if (sameBackgroundSemantics(sentence, original)) {
++      const beforeRanges = nativeRanges(source);
++      const restored = applySourceChanges(source, [{ start: editedNode.start, end: editedNode.end,
++        before: source.slice(editedNode.start, editedNode.end), after: selected.originalRaw }]).source;
++      assertNativeStructure(restored, beforeRanges.map(item => item.startLine === editedNode.startLine
++        ? { ...original, startLine: item.startLine, endLine: item.endLine } : item));
++      source = restored;
++    }
++  }
+   if (!selected.originallyRegistered && selected.origin !== 'inserted') {
+     const editedNode = inspectSceneIdentity(source, nativeRanges(source)).nodes.find(node => node.nodeId === nodeId);
+     const suffix = `; @makenovel-node ${nodeId}`;
+@@ -359,6 +461,36 @@ export function editDirectorWait(session: DirectorSession, nodeId: string, input
+   return editDirectorSession(session, nodeId, `wait:${input.duration}${input.nobreak ? ' -nobreak' : ''};`);
+ }
+ 
++/** Validate native form buffers before they can be truncated into a comment or another statement. */
++export function editDirectorBackgroundTransition(session: DirectorSession, nodeId: string,
++  input: DirectorBackgroundTransitionInput): DirectorSession {
++  const node = session.nodes.find(item => item.nodeId === nodeId);
++  if (!node || !directorBackgroundTransitionState(node).editable) {
++    throw new Error('该背景的转场参数仅供参考，请使用原有编辑方式。');
++  }
++  if (!input || typeof input.next !== 'boolean' || !backgroundDurationKeys.every(key =>
++    typeof input[key] === 'string' && (input[key] === '' || staticWaitDuration(input[key]) !== null))) {
++    throw new Error(backgroundDurationReason);
++  }
++  const current = directorBackgroundTransitionState(node);
++  const equalDuration = (key: typeof backgroundDurationKeys[number]) => input[key] === ''
++    ? current[key] === '' : current[key] !== '' && Number(input[key]) === Number(current[key]);
++  if (backgroundDurationKeys.every(equalDuration) && input.next === current.next) return session;
++
++  const values = new Map(node.sentence.args.map(arg => [arg.key, arg.value]));
++  for (const key of backgroundDurationKeys) {
++    if (input[key] === '') values.delete(key);
++    else if (!equalDuration(key)) values.set(key, Number(input[key]));
++  }
++  // Omitted false and explicit false execute alike, but retain their original
++  // spelling when another field changes. A duration's presence is significant.
++  if (input.next !== current.next) values.set('next', input.next);
++  // The existing content token may contain native escapes. Reuse that token,
++  // rather than serializing its decoded path and changing the resource name.
++  const replacement = backgroundProposal(backgroundProposalHead(node.raw), values);
++  return editDirectorSession(session, nodeId, replacement);
++}
++
+ /** Add one complete native command immediately before this session's dialogue. */
+ export function addDirectorSessionNode(session: DirectorSession, statement: string): DirectorSession {
+   if (/[\r\n\uFEFF]/.test(statement)) throw new Error('一次只能新增一条完整的单行命令。');

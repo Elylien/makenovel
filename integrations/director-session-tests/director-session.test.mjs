@@ -7,7 +7,9 @@ const load = name => import(pathToFileURL(path.join(process.env.DIRECTOR_SESSION
 const { createDirectorSession: open, editDirectorSession: edit, commitDirectorSession: commit,
   addDirectorSessionNode: add, removeDirectorSessionNode: remove,
   deleteDirectorSessionNode: deleteSetting, moveDirectorSessionNode: moveSetting, directorStructuralActions: actions,
-  directorWaitState: waitState, editDirectorWait: editWait, directorWaitMaximum } = await load('director');
+  directorWaitState: waitState, editDirectorWait: editWait, directorWaitMaximum,
+  directorBackgroundTransitionState: backgroundState, editDirectorBackgroundTransition: editBackground,
+  directorBackgroundTransitionMaximum } = await load('director');
 const { createDirectorSourceNavigation: navigation, resolveDirectorNavigation: locate } = await load('navigation');
 const { SceneDocument } = await load('document');
 const { nativeRanges } = await load('graph');
@@ -18,6 +20,10 @@ const semantics = statements => statements.map(({ commandRaw, content, args, sta
 const target = (session, command) => session.nodes.find(node => node.command === command);
 const A = 'a'.repeat(64);
 const B = 'b'.repeat(64);
+const backgroundInput = (session, overrides = {}) => {
+  const { duration, enterDuration, exitDuration, next } = backgroundState(target(session, 'changeBg'));
+  return { duration, enterDuration, exitDuration, next, ...overrides };
+};
 
 async function documentFor(source) {
   let disk = { text: source, revision: A };
@@ -30,6 +36,228 @@ async function documentFor(source) {
   await document.load();
   return { document, writes, stored: () => stored, disk: () => disk };
 }
+
+test('background transition eligibility exposes only native static image settings without registering IDs', () => {
+  for (const extension of ['png', 'jpg', 'jpeg', 'webp', 'svg', 'PNG']) {
+    const source = `changeBg:day.${extension} -duration = 00800 -enterDuration=0 -exitDuration=1200 -next=false; 作者\r\nsay:正文;`;
+    const opened = open(source, 1, 0);
+    const background = target(opened, 'changeBg');
+    assert.deepEqual(backgroundState(background), { editable: true, reason: null,
+      duration: '800', enterDuration: '0', exitDuration: '1200', next: false });
+    assert.equal(opened.source, source);
+    assert.equal(opened.changed, false);
+    assert.equal(background.registered, false);
+  }
+  const opened = open('changeBg:day.svg;\nsay:正文;', 1, 0);
+  assert.deepEqual(backgroundState(target(opened, 'changeBg')), { editable: true, reason: null,
+    duration: '', enterDuration: '', exitDuration: '', next: false });
+  assert.equal(backgroundState(target(opened, 'say')).editable, false);
+});
+
+test('advanced or unsupported existing backgrounds retain resource editing but no transition adapter', () => {
+  for (const statement of [
+    'changeBg:none;', 'changeBg:day.mp4;', 'changeBg:day.gif;', 'changeBg:{image}.svg;',
+    'changeBg:day.svg -continue;', 'changeBg:day.svg -continue=false;',
+    'changeBg:day.svg -enter=fade;', 'changeBg:day.svg -exit=fade;',
+    'changeBg:day.svg -transform={"x":1};', 'changeBg:day.svg -duration={timer};',
+    'changeBg:day.svg -duration=-1;', 'changeBg:day.svg -duration=0.5;',
+    'changeBg:day.svg -duration=true;', 'changeBg:day.svg -duration=2147483648;',
+    'changeBg:day.svg -next=1;', 'changeBg:day.svg -next=0;', 'changeBg:day.svg -next=FALSE;',
+  ]) {
+    const opened = open(`${statement}\nsay:正文;`, 1, 0);
+    const background = target(opened, 'changeBg');
+    assert.ok(background, statement);
+    assert.equal(background.editable, true, statement);
+    assert.equal(backgroundState(background).editable, false, statement);
+    assert.ok(backgroundState(background).reason, statement);
+    assert.throws(() => editBackground(opened, background.nodeId,
+      { duration: '500', enterDuration: '', exitDuration: '', next: false }), /仅供参考/, statement);
+    assert.equal(opened.changed, false, statement);
+  }
+});
+
+test('unknown, conditional, duplicate and multiline backgrounds remain collection boundaries', () => {
+  for (const statement of ['changeBg:day.svg -when=ready;', 'changeBg:day.svg -future=kept;',
+    'changeBg:day.svg -ease=linear;', 'changeBg:day.svg -ignoreDefault;',
+    'changeBg:day.svg -duration=200 -duration=300;', 'changeBg:day.svg\n  -duration=300;']) {
+    const source = `${statement}\nsay:正文;`;
+    const opened = open(source, source.split('\n').length - 1, 0);
+    assert.equal(target(opened, 'changeBg'), undefined, statement);
+    assert.equal(opened.source, source, statement);
+  }
+});
+
+test('background numeric equivalents and omitted false are exact adapter and native-control no-ops', () => {
+  for (const next of ['', ' -next=false']) {
+    const source = `changeBg:  day.svg  -duration = 00800${next};  作者\nsay:正文;`;
+    const opened = open(source, 1, 0);
+    const id = target(opened, 'changeBg').nodeId;
+    assert.equal(editBackground(opened, id, backgroundInput(opened, { duration: '0800' })), opened);
+    assert.equal(edit(opened, id, 'changeBg:day.svg -duration=800;'), opened);
+    assert.equal(edit(opened, id, 'changeBg:day.svg -duration=800 -next=false;'), opened);
+    assert.equal(target(opened, 'changeBg').registered, false);
+  }
+});
+
+test('background duration presence is distinct from a configured default and supports zero and maximum', () => {
+  const source = 'changeBg:day.svg; 原作者\nsay:正文;';
+  const opened = open(source, 1, 0);
+  const id = target(opened, 'changeBg').nodeId;
+  for (const key of ['duration', 'enterDuration', 'exitDuration']) {
+    for (const value of ['0', '500', String(directorBackgroundTransitionMaximum)]) {
+      const changed = editBackground(opened, id, backgroundInput(opened, { [key]: value }));
+      assert.notEqual(changed, opened);
+      assert.equal(backgroundState(target(changed, 'changeBg'))[key], value);
+      assert.equal(runtimeParse(changed.source)[0].args.find(arg => arg.key === key).value, Number(value));
+      const restored = editBackground(changed, id, backgroundInput(changed, { [key]: '' }));
+      assert.equal(restored.source, source);
+      assert.equal(restored.changed, false);
+      assert.equal(target(restored, 'changeBg').registered, false);
+    }
+  }
+});
+
+test('background timing projection retains comments, legacy identity, BOM, CRLF and unrelated numeric spelling', () => {
+  const source = '\uFEFF; header\r\nfutureFx:before -opaque=1; 保留\r\n; @makenovel-node bg.legacy\r\n'
+    + 'changeBg:  day.svg  -duration = 00800 -enterDuration=0600 -exitDuration=0400 -order=007 -next = false;  作者\t; 尾注  \r\n'
+    + 'say:正文; @makenovel-node say\r\nfutureFx:after -opaque=2; 保留\r\n';
+  const opened = open(source, 4, 0);
+  const changed = editBackground(opened, 'bg.legacy', backgroundInput(opened, { enterDuration: '1200' }));
+  assert.equal(changed.source, source.replace('-enterDuration=0600', '-enterDuration=1200'));
+  assert.equal(target(changed, 'changeBg').registered, true);
+  assert.equal(target(changed, 'changeBg').nodeId, 'bg.legacy');
+  assert.deepEqual(semantics(runtimeParse(changed.source)), semantics(nativeRanges(changed.source)));
+});
+
+test('background full semantic roundtrip restores exact original spelling and identity state', () => {
+  for (const raw of [
+    'changeBg:  day.svg  -duration = 00800; 作者',
+    'changeBg:day.svg -enterDuration=00600 -exitDuration=0400 -next; 作者',
+    'changeBg:day.svg -duration=0800 -next = false; 作者 ; @makenovel-node bg.inline  ',
+    '; @makenovel-node bg.legacy\r\nchangeBg:day.svg -duration=0800 -next = true; 作者',
+  ]) {
+    const source = `${raw}\r\nsay:正文;`;
+    const opened = open(source, source.split('\n').length - 1, 0);
+    const original = target(opened, 'changeBg');
+    const input = backgroundInput(opened);
+    const changed = editBackground(opened, original.nodeId,
+      { duration: '1400', enterDuration: '1100', exitDuration: '700', next: !input.next });
+    const restored = editBackground(changed, original.nodeId, input);
+    assert.equal(restored.source, source, raw);
+    assert.equal(restored.changed, false, raw);
+    assert.equal(target(restored, 'changeBg').nodeId, original.nodeId, raw);
+    assert.equal(target(restored, 'changeBg').registered, original.registered, raw);
+  }
+});
+
+test('background timing restoration cannot discard another edit to the image or other fields', () => {
+  const source = 'changeBg:  day.svg  -duration = 00800 -order=001 -next=false; 作者\nsay:正文;';
+  const opened = open(source, 1, 0);
+  const id = target(opened, 'changeBg').nodeId;
+  let changed = editBackground(opened, id, backgroundInput(opened, { duration: '1200', next: true }));
+  changed = edit(changed, id, 'changeBg:night.svg -duration=1200 -order=2 -next;');
+  changed = editBackground(changed, id, backgroundInput(opened));
+  assert.equal(target(changed, 'changeBg').sentence.content, 'night.svg');
+  assert.equal(target(changed, 'changeBg').sentence.args.find(arg => arg.key === 'order').value, 2);
+  assert.equal(changed.changed, true);
+  const restored = edit(changed, id, 'changeBg:day.svg -duration=800 -order=1;');
+  assert.equal(restored.source, source);
+  assert.equal(restored.changed, false);
+});
+
+test('full native background submissions after the raw adapter retain explicit false and current draft', () => {
+  const source = 'changeBg:day.svg -duration=00800 -next = false; 作者\nsay:正文;';
+  const opened = open(source, 1, 0);
+  const id = target(opened, 'changeBg').nodeId;
+  let changed = editBackground(opened, id, backgroundInput(opened, { duration: '1200' }));
+  assert.equal(edit(changed, id, 'changeBg:day.svg -duration=1200;'), changed);
+  changed = edit(changed, id, 'changeBg:night.svg\n  -duration=1200;');
+  assert.match(changed.source, /changeBg:night.svg -duration=1200 -next = false;/);
+  assert.equal(backgroundState(target(changed, 'changeBg')).duration, '1200');
+  changed = editBackground(changed, id, backgroundInput(changed, { duration: '800' }));
+  assert.equal(target(changed, 'changeBg').sentence.content, 'night.svg');
+  assert.equal(changed.changed, true);
+  changed = edit(changed, id, 'changeBg:day.svg -duration=800;');
+  assert.equal(changed.source, source);
+});
+
+test('long folded background proposals preserve false during duration edits and no-ops while extra commands reject', () => {
+  const file = `day-${'coast-'.repeat(18)}.svg`;
+  const source = `changeBg:${file} -duration=00800 -next = false; 作者\nsay:正文;`;
+  const opened = open(source, 1, 0);
+  const id = target(opened, 'changeBg').nodeId;
+  const folded = `changeBg:${file}\n  -duration=1200; 作者`;
+  assert.ok(nativeRanges(folded).some(item => item.isLineBreakHolder));
+  const changed = edit(opened, id, folded);
+  assert.equal(changed.source, source.replace('-duration=00800', '-duration=1200')
+    .replace('; 作者', `; 作者; @makenovel-node ${id}`));
+  assert.equal(edit(changed, id, folded), changed);
+  assert.equal(edit(opened, id, folded.replace('1200', '800')), opened);
+  for (const extra of ['say:注入;', 'changeBg:injected.svg;', '; extra comment']) {
+    assert.throws(() => edit(changed, id, `${folded}\n${extra}`), /额外命令/);
+    assert.equal(changed.source, source.replace('-duration=00800', '-duration=1200')
+      .replace('; 作者', `; 作者; @makenovel-node ${id}`));
+  }
+});
+
+test('background raw field validation rejects partial, injected and unsupported proposals atomically', () => {
+  const opened = open('changeBg:day.svg -duration=800;\nsay:正文;', 1, 0);
+  const id = target(opened, 'changeBg').nodeId;
+  const changed = editBackground(opened, id, backgroundInput(opened, { enterDuration: '1200' }));
+  const before = changed.source;
+  for (const key of ['duration', 'enterDuration', 'exitDuration']) {
+    for (const value of [' ', ' 800', '800 ', '800\n', '-1', '+1', '0.5', '1e3', '0x20', 'NaN',
+      'Infinity', '2147483648', '８００', '800; next:injected', '800\\;', '800\u0000', '800\t', '{timer}', true, 800, null]) {
+      assert.throws(() => editBackground(changed, id, backgroundInput(changed, { [key]: value })), /转场时长/, `${key}: ${String(value)}`);
+      assert.equal(changed.source, before);
+    }
+  }
+  for (const value of [0, 1, 'true', 'false', null, undefined]) {
+    assert.throws(() => editBackground(changed, id, backgroundInput(changed, { next: value })), /转场时长/);
+  }
+  assert.throws(() => editBackground(changed, id, null), /转场时长/);
+  assert.throws(() => editBackground(changed, 'missing', backgroundInput(changed)), /仅供参考/);
+  assert.throws(() => editBackground(changed, changed.selectedNodeId, backgroundInput(changed)), /仅供参考/);
+});
+
+test('background input uses the native escaped resource token rather than reserializing its decoded name', () => {
+  const source = 'changeBg:day\\;coast.svg -duration=800; 作者\nsay:正文;';
+  const opened = open(source, 1, 0);
+  const background = target(opened, 'changeBg');
+  const changed = editBackground(opened, background.nodeId, backgroundInput(opened, { duration: '1200' }));
+  assert.equal(target(changed, 'changeBg').sentence.content, background.sentence.content);
+  assert.equal(changed.source, source.replace('-duration=800;', `-duration=1200;`).replace(' 作者', ` 作者; @makenovel-node ${background.nodeId}`));
+});
+
+test('background transitions join dialogue and structural edits as one save and undo transaction with ABA protection', async () => {
+  const source = '\uFEFF; header\r\nchangeBg:day.svg -duration=00800; 作者\r\nchangeFigure:neutral.svg -left;\r\n'
+    + 'changeFigure:smile.svg -left;\r\nwait:200;\r\nsay:正文;\r\nsay:后继;\r\n';
+  const h = await documentFor(source);
+  const snapshot = h.document.getSnapshot();
+  const opened = open(source, 5, snapshot.historyVersion);
+  const background = target(opened, 'changeBg');
+  let changed = editBackground(opened, background.nodeId,
+    backgroundInput(opened, { duration: '1400', enterDuration: '1000', exitDuration: '600', next: true }));
+  const neutral = changed.nodes.find(node => node.sentence.content === 'neutral.svg');
+  changed = deleteSetting(changed, neutral.nodeId);
+  changed = edit(changed, changed.selectedNodeId, 'say:新对白;');
+  assert.equal(h.document.getSnapshot(), snapshot);
+  assert.equal(h.stored(), null);
+  h.document.edit(commit(snapshot.text, snapshot.historyVersion, changed));
+  assert.equal(h.document.getSnapshot().text, changed.source);
+  assert.equal(h.document.getSnapshot().canUndo, true);
+  assert.equal(await h.document.save(), true);
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.writes[0].text, changed.source);
+  h.document.undo();
+  const undone = h.document.getSnapshot();
+  assert.equal(undone.text, source);
+  assert.equal(undone.canUndo, false);
+  assert.throws(() => commit(undone.text, undone.historyVersion, changed), /历史|改变|过期/);
+  assert.throws(() => commit(source.replace('后继', '外部编辑'), snapshot.historyVersion, changed), /改变|过期/);
+  h.document.redo();
+  assert.equal(h.document.getSnapshot().text, changed.source);
+});
 
 test('opening and cancelling leave the shared document, history and persistent draft untouched', async () => {
   const source = 'changeBg:day.svg -next;\nsay:原文;';

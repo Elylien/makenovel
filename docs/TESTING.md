@@ -1,8 +1,24 @@
 # 测试入口与证据
 
-更新：2026-10-09，MakeNovel `0.0.11`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-09，MakeNovel `0.0.12`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-第十一轮接入有限等待时长/跳过方式和原生执行说明。本轮17入口 **600/600** 通过：作者448（导演98、图形/执行说明98）、五套样片15、runtime菜单/perform/资源/恢复137。前端 tsc 和八补丁独立重放18/18通过。构建、浏览器、真实保存及未执行范围见 [第十一轮证据](evidence/2026-10-09-round11.md)，不混入代码计数。
+第十二轮接入有限静态背景转场。最终625/625=作者470（导演111、图形/执行说明107）+六套样片18+runtime子集137；前端构建含tsc、受控runtime→Terre构建/模板同步、最终九补丁独立重放18/18、HTTP25/25、服务22/22均通过。真实局部输入/取消、整批撤销/重做、三种身份保存刷新、只读边界、正常转场、提前点击、演出拒存和稳定快速存读档按有限路径通过。完整runtime339、新Windows包和全套自动/快进/菜单矩阵未重跑。见 [第十二轮证据](evidence/2026-10-09-round12.md)。
+
+## 第十二轮可复查入口
+
+```powershell
+npm.cmd run test:director
+npm.cmd run test:graph-input
+npm.cmd run test:background-transition-demo
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL_Terre -ExpectedPatchCount 9 -EvidencePath docs/evidence/local/round12/terre-independent-replay.json
+node integrations/terre-launcher/verify-editor.mjs
+node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round12
+```
+
+本轮18入口与最终图形复测见 `local/round12/checks-summary.json`。构建/GUI/字节/服务/重放单独记录，不加入625项代码计数。重放时冻结补丁和manifest，避免中途重新导出的hash门禁拒绝。
+
+
+历史第十一轮接入有限等待时长/跳过方式和原生执行说明。本轮17入口 **600/600** 通过：作者448（导演98、图形/执行说明98）、五套样片15、runtime菜单/perform/资源/恢复137。前端 tsc 和八补丁独立重放18/18通过。构建、浏览器、真实保存及未执行范围见 [第十一轮证据](evidence/2026-10-09-round11.md)，不混入代码计数。
 
 历史第十轮完成已有导演设置删除、相邻原块交换和影响确认。代码 **531/531** = 作者415 + 四套样片12 + runtime资源/恢复104；导演82、图形81。前端tsc、受控runtime→Terre构建/同步、七补丁独立重放18/18、HTTP25/25、服务22/22通过。真实取消、确认门禁、失焦缓冲、旧确认失效、一次撤销/重做、保存重开、原生目标/后继预览及高级语法边界均通过有限路径。逐字节确认注释/身份/BOM/CRLF，改稿作品已重新封存。完整runtime339和新Windows包本轮未重跑，旧轮现场结果保留为历史；完整G1/G2/AT仍未验收。见 [第十轮证据](evidence/2026-10-09-round10.md)。
 

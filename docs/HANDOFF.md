@@ -1,6 +1,6 @@
 # 交接与恢复
 
-记录：2026-10-09，MakeNovel `0.0.11` / `main`，远端 `https://github.com/Elylien/makenovel.git`。提交与推送以现场Git核对为准。
+记录：2026-10-09，MakeNovel `0.0.12` / `main`，远端 `https://github.com/Elylien/makenovel.git`。提交与推送以现场Git核对为准。
 
 ## 恢复先核查
 
@@ -13,38 +13,44 @@ Get-Content -LiteralPath .local/editor-runtime/process.json
 Get-NetTCPConnection -State Listen -LocalPort 3000,3001 -ErrorAction SilentlyContinue
 ```
 
-先读PROJECT_STATUS、DEVELOPMENT_PLAN、TESTING、DIRECTOR_EDITING、KNOWN_ISSUES。私有输入仅在忽略的 `docs/private/`，不得stage/upload。vendor HEAD保持锁定上游，工作树有意应用补丁；不要reset/clean、暂存gitlink或创建嵌套提交。
+先读PROJECT_STATUS、DEVELOPMENT_PLAN、TESTING、DIRECTOR_EDITING、KNOWN_ISSUES。私有输入仅在忽略的docs/private，禁止stage/upload。vendor HEAD保持锁定上游，工作树有意应用补丁；不要reset/clean、暂存gitlink或创建嵌套提交。
 
-## 第十一轮结果
+## 第十二轮结果
 
-已有普通等待支持整数毫秒0–2147483647及布尔nobreak；next/continue/when、变量和未知形式保持只读或收集边界。等待不可结构编辑。原始输入在序列化前检查，保留注释、身份与原生解析；等价操作不改稿。执行说明使用原生ADD_NEXT_ARG_LIST，不累加重叠时长。全文/历史ABA、IME/缓冲/错误、取消和关闭守卫继续生效。
+- 复用原生 ChangeBg 控件，普通单行静态图片背景可编辑入场回退 duration、入场 enterDuration、下次退场 exitDuration 和布尔 next；已有及本次新增图片共用契约。
+- 时长仅接受空字符串或0–2147483647十进制整数毫秒。空值移除覆盖；入场优先 enterDuration，其次 duration，两项均空时锁定引擎默认1500毫秒；下次退场留空也默认1500毫秒，作用于这个背景之后被替换/关闭时。
+- 新转场区保守接受三个时长、布尔 next 及原校验允许的 order；自定义动画、CG解锁名称/系列、变换、变量、条件、连续组合、重复/未知参数、关闭背景及非静态图片保持只读或原收集边界。
+- raw输入在原生序列化前验证，素材/时长/对白仍在局部草稿中合流；等价修改不改字节、不登记身份，整句语义复原才恢复原文。长原生折行保留显式next=false；高级只读行继续使用原有控件初值。
+- 复用取消、失焦/IME、稳定身份、全文/历史过期与整批应用/撤销门禁；未替换原生运行时或存档模型。
 
-真实错误输入、取消、等待与对白整批应用、单步撤销/重做、保存刷新、未登记与legacy等待、next/变量只读通过。正常播放测得nobreak点击不截短、普通等待可提前点击结束及三段自然推进。23行保留19行原字节，BOM/CRLF及原身份保留，未登记等待只增加1个ID。详见 [第十一轮证据](evidence/2026-10-09-round11.md)。
+代码625/625（作者470、样片18、runtime子集137）、最终构建含tsc、受控runtime→Terre构建/同步、HTTP25/25、服务22/22和最终九补丁独立重放18/18通过。真实非法输入/取消、背景与对白整批撤销/重做、三类身份保存刷新、自定义动画只读、next往返无操作、正常淡入/关闭淡出、提前点击结算、演出中快存拒绝及稳定快速存读档通过有限路径。完整证据和未运行范围见 [第十二轮证据](evidence/2026-10-09-round12.md)。
 
-代码600/600（作者448、样片15、runtime子集137）、tsc、受控runtime→Terre构建/同步、HTTP25/25、服务22/22、八补丁最终独立重放18/18通过。未运行完整runtime339、新Windows包或完整输入/快进/自动/菜单GUI矩阵。
+新0009 SHA `086b3406d25f587b1d9903acada47911b635aedc7fbef75612266b3c1a76f487`，完整tree `7863611a8c1e2a566a84a0162b6aa0e7d3570f7a`，增量基树 `9251575c495fe730b409526f0af9e07cbbf14d3e`，manifestSHA `2cfa7a0efe518b76164f339d5350931126eea517c7d6fde9e3713bfb06dbca67`。首次重放恰逢根修复只读初值并重新导出0009，hash门禁拒绝中途变化；固定最终补丁后重放18项全部通过。此失败和最终结果分别保留；新补丁只含五个前端文件，构建未引入新PO变更。
 
-0008 SHA `90461f066ba5e6fe5f2e21a90557b873a4c5d6d883f49df78f481c4acbb1a5ae`，完整tree `9251575c495fe730b409526f0af9e07cbbf14d3e`，增量基树 `88fc8d1c98e50326f2028d390683bb2fece1ca37`，manifestSHA `91274b87c08fb8543b22e33f6798c1f579ef6293aada2dff057e7b7bd78ff252`。首次构建生成4个新增标签PO条目导致patch:check拒绝未知状态，审查后已补入0008并重新通过最终重放。原Terre1–7/runtime1–4字节不变。上游HEAD：Terre `cf73dd58535d3ef15bddf0852adee153fa92d7da`，WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`。
+原Terre1–8/runtime1–4字节不变。上游HEAD：Terre `cf73dd58535d3ef15bddf0852adee153fa92d7da`，WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`。
 
 ## 当前进程与作品
 
-编辑器PID **15796**，UTC启动 **2026-10-09T03:54:45.9802856Z**，入口 `vendor/WebGAL_Terre/packages/terre2/dist/src/main.js`，仅127.0.0.1:3001；停止前重查PID/时间/入口。无本轮EXE。进程和日志入口 `.local/editor-runtime/`。
+编辑器PID **9188**，UTC启动 **2026-10-09T04:25:24.3132764Z**，入口 `vendor/WebGAL_Terre/packages/terre2/dist/src/main.js`，仅127.0.0.1:3001；停止前核对PID/时间/入口。无本轮EXE。进程/日志 `.local/editor-runtime/`。
 
-作品 `.local/editor-profile/games/makenovel-round11`，标题“MakeNovel 第十一轮导演等待时序验证”，projectId `d51623a7-5da3-45cb-85d6-6bba2f6bbd88`，Game_key `makenovel-round11-c7c4cdf4-a19e-4b95-9360-a3f821c22dbf`。初始manifest `a2659086449bbd2794fe913ed3defc9af66e23cdd2b39f6e84742a17a327c95c`；保存后Update封存并verify，最终 **`3f8e2567998878ef184ad707f4163c0180f3d51ca9f710c754feb0f2d4f9401a`**，19文件。旧manifest备份保留在 `.local/manifest-backups/d51623a7-5da3-45cb-85d6-6bba2f6bbd88/`。
+作品 `.local/editor-profile/games/makenovel-round12`，标题“MakeNovel 第十二轮背景转场验证”，projectId `10736bd7-0c50-44a1-b44c-67b0e8ddcf9c`，Game_key `makenovel-round12-cb72aa57-c644-4b22-9180-56f1a196178c`。初始manifest `050171fc807ff44d65e030a35c5d5cd5993aa3b923dc7389e45caa7d15a32a12`；改稿后Update封存并verify，最终 `5044bcc51e193062df0928dd8207d420cd05f135308743a1fce5e24805220862`，20文件。manifest备份在 `.local/manifest-backups/10736bd7-0c50-44a1-b44c-67b0e8ddcf9c/`。
 
-start最终SHA `6f89b1c8ff29a70bf1183cdac0191694d8202e1be20f02aeb48713ee5e96f5ee`；等待第10/14/19行3200/3500/1600毫秒，目标第12/16/21行。第10行开关往返后原生表示为 `-nobreak=true`；legacy第18行不变。readonly SHA `dc4f80f2a2ab6ed30bc91097503133f5e04722f008c47c420d6a86197927d223`。新身份 `node-61f7b725-65f9-475a-a79a-c6dd895d5183` 仅属于第14行等待。最后start已保存、无撤销/重做、面板关闭、预览关闭。IAB交付tab2，保留用户原round7标签；截图 `docs/evidence/local/round11/08-final-wait-panel.png`，观察/计时和初末字节证据同目录，均忽略。
+start最终SHA `645063012183152829dd44a1d9e79551fb4f923565311192099792b27e52a92e`；第4行enterDuration3200/exitDuration3000、第10行duration3000且next=false、第14行duration1600；第5行改对白。18行中14行原字节保留，BOM/CRLF和第9行legacy标记不变，新增身份 `node-a987c5a0-48ce-4cbc-9589-98e5119e2cde` 只属于第14行。readonlySHA `5b576487728564fa4ec74f02a884c6c7dd7d8c24f8976578d93f1bdcced6c026` 不变。
 
-runtime25文件签名 `aa10038a666fcea893a5501f09723d2427aabee4b433bd0122060e0ea7264e93`，收据 `.local/runtime-sync/runtime-build.json`，模板备份 `.local/runtime-sync/20261009-035421-322e7883944d485b873d7c31053b2dc8/previous-template`。旧轮作者作品、Windows开发包、槽位与APPDATA玩家数据保持。
+最终start已保存、无撤销/重做/待保存，面板和预览关闭。IAB交付tab5；原round7、round11标签保留。启动期间误提前访问生成的失败临时tab4未标记交付，随工具清理。最终截图 `docs/evidence/local/round12/16-final-background-panel.png`，逐字节/GUI记录同目录，均忽略。新作品IAB快速存档保存于COOL稳定对白，已推进后读回；旧作品和玩家槽位未修改。存档悬浮预览会盖住文本中心，本次改点背景canvas完成推进，未更改上游提示层。
+
+runtime25文件签名 `aa10038a666fcea893a5501f09723d2427aabee4b433bd0122060e0ea7264e93`，收据 `.local/runtime-sync/runtime-build.json`，模板备份 `.local/runtime-sync/20261009-042444-dddea217f6cf498cb9e6af75ba291cd0/previous-template`。旧轮作品、Windows开发包、模板备份和玩家数据保留。
 
 ## 下一具体单元
 
 ```powershell
-node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round11
+node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round12
 npm.cmd run test:director
 npm.cmd run test:graph-input
 ```
 
-下一作者单元优先审查一种原生动作/转场的集中编辑路径，明确目标、资源、时长单位、next及完成/跳过关系，继续复用原生控件和局部写回。先制定有限契约再实现，保存/重开/实际播放独立验收。跨分支、完整时间轴、面板内历史/恢复和AI接力仍为独立范围。
+下一作者单元优先审查静态立绘的同类转场，明确位置/ID、差分及退场目标；setAnimation再独立定义资源、目标、keep/parallel和外部动画时长。保持源码、身份、局部事务和正常播放验收。完整时间轴、跨分支、AI接力及独立恢复仍为独立范围。
 
-修改vendor后从本轮完整tree增量导出下一补丁。停editor后 `baseline:build` → `editor:build`；不并发Terre两workspace，不在runtime重建parser时执行parser依赖测试/生成器/封存。构建后再次检查翻译目录等生成源码并审查进补丁，不能忽略未知改动。保留模板备份和作者文件；普通作品共用模板，自带入口另行升级。
+修改vendor后从本轮完整tree增量导出0010。停editor后baseline:build→editor:build；不并发Terre两workspace，不在runtime重建parser时运行parser依赖测试/生成/封存。构建后检查生成源码，不忽略未知改动；重放运行期间冻结patch/manifest。普通作品共用模板，自带入口另行升级。
 
-作品改稿后暂停写入，显式 `npm.cmd run game:seal -- -GamePath '<作品目录>' -Action Update` 并重开。用户已授权公开Git、工具安装和Computer Use；付费及正式发行另行处理。
+作品改稿后暂停写入，显式 `npm.cmd run game:seal -- -GamePath '<作品目录>' -Action Update` 并重开。用户已授权开源Git、工具安装和Computer Use；付费与正式发行分开处理。
