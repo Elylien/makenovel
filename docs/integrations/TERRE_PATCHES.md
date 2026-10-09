@@ -196,3 +196,16 @@ pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.p
 ```
 
 代码、受控构建、真实编辑与播放、未运行Windows范围见 [第十二轮报告](../evidence/2026-10-09-round12.md)。
+
+
+## 第十三轮静态立绘转场补丁
+
+`0.0.13` 保留 Terre0001–0009/runtime0001–0004 的原字节，追加 `0010-director-figure-transition.patch`，增量基树 `7863611a8c1e2a566a84a0162b6aa0e7d3570f7a`。仅四个前端文件：原生 ChangeFigure、编辑器 props、DirectorPanel 与 directorSession。
+
+- SHA256 `5e3ba82f9b9e2245634803837ea9dbe8e882da5f9cfb672e3129cb1c6fc4ea29`，24373 字节。
+- 十补丁完整树 `23c07e4ee8229c7d413493128420e745c1d10865`。
+- manifest SHA256 `8cc89a8478e78fd73db98ba2c6b2f62feadb793aa9d2e49cf0ea9d94fdae7df5`。
+
+新增原始时长适配、严格单位置和 ID 范围、显式 center/next=false 保留、完整语义无操作及恢复；首次位置同步初始化，原生 center→left/right 提交清除旧 center。复用局部草稿与原生运行时，不修改锁文件、后端、引擎或存档格式。
+
+独立重放和构建后最终核验见 [第十三轮证据](../evidence/2026-10-09-round13.md)。运行重放时不得重新导出补丁或修改 manifest。

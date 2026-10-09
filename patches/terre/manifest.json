@@ -36,6 +36,10 @@
     {
       "file": "0009-director-background-transition.patch",
       "sha256": "086b3406d25f587b1d9903acada47911b635aedc7fbef75612266b3c1a76f487"
+    },
+    {
+      "file": "0010-director-figure-transition.patch",
+      "sha256": "5e3ba82f9b9e2245634803837ea9dbe8e882da5f9cfb672e3129cb1c6fc4ea29"
     }
   ]
 }

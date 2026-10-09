@@ -1,6 +1,6 @@
 {
   "name": "makenovel",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "private": true,
   "description": "Visual novel authoring toolchain based on verified WebGAL and Terre baselines",
   "license": "MPL-2.0",
@@ -55,6 +55,8 @@
     "demo:director-timing": "node integrations/director-timing-demo/generate.mjs",
     "test:director-timing-demo": "node --test integrations/director-timing-demo/director-timing-demo.test.mjs",
     "demo:background-transition": "node integrations/background-transition-demo/generate.mjs",
-    "test:background-transition-demo": "node --test integrations/background-transition-demo/background-transition-demo.test.mjs"
+    "test:background-transition-demo": "node --test integrations/background-transition-demo/background-transition-demo.test.mjs",
+    "demo:figure-transition": "node integrations/figure-transition-demo/generate.mjs",
+    "test:figure-transition-demo": "node --test integrations/figure-transition-demo/figure-transition-demo.test.mjs"
   }
 }

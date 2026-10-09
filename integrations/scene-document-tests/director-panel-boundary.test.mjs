@@ -926,3 +926,218 @@ test('read-only background state does not replace the existing native control va
   assert.equal(sentenceArg(form(h.render(),'changeBg').props.sentence,'next'),true);
   mounted.hooks.unmount();h.hooks.unmount();
 });
+
+const figureLabels={
+  duration:'立绘入场回退时间（毫秒）',
+  enterDuration:'立绘入场时间（毫秒）',
+  exitDuration:'立绘下次退场时间（毫秒）',
+};
+function mountFigure(h) {
+  const hooks=new Hooks();let tree;
+  const render=()=>{tree=hooks.render(Figure,form(h.render(),'changeFigure').props);hooks.commit();return tree;};
+  const input=key=>collect(tree,node=>node.type==='input'&&node.props['aria-label']===figureLabels[key])[0];
+  const set=(key,value)=>{assert.ok(input(key),key);input(key).props.onChange({target:{value}});render();};
+  const choose=name=>{collect(tree,node=>node.type==='choose-file')[0].props.onChange({name});render();};
+  const next=()=>collect(tree,node=>node.type==='toggle'&&node.props.offText==='本句执行后等待')[0];
+  render();return {hooks,render,input,set,choose,next,get tree(){return tree;}};
+}
+
+test('native figure transition state initializes the left slot before the first control blur',async()=>{
+  const h=await harness(),props=form(h.tree,'changeFigure').props,mounted=mountFigure(h);
+  assert.equal(props.figureTransition.editable,true);
+  assert.equal(props.figureTransition.position,'left');
+  assert.equal(typeof props.onFigureTransitionSubmit,'function');
+  assert.equal(collect(mounted.tree,node=>node.type==='wheel')[0].props.value,'left');
+  for(const key of Object.keys(figureLabels)) assert.equal(mounted.input(key).props.value,'',key);
+  // Use the first render's callback, without another render after layout/effects.
+  mounted.input('enterDuration').props.onBlur();
+  const current=form(h.render(),'changeFigure').props.sentence;
+  assert.equal(sentenceArg(current,'left'),true);assert.equal(sentenceArg(current,'next'),true);
+  for(const item of collect(h.tree,node=>node.type==='director-editor'&&node.props.sentence.commandRaw!=='changeFigure')) {
+    assert.equal(item.props.figureTransition,undefined,item.props.sentence.commandRaw);
+    assert.equal(item.props.onFigureTransitionSubmit,undefined,item.props.sentence.commandRaw);
+  }
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.document.getSnapshot().text,source);assert.equal(h.document.getSnapshot().canUndo,false);
+  mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('figure timing edits retain custom ID with right position and an explicit center token',async()=>{
+  for(const target of ['-id=hero -right','-center','-id=hero -center']) {
+    const initial=`\uFEFF; 目标不可漂移\r\nchangeFigure:lin.svg ${target} -duration=000800 -next=false; 作者备注 ; @makenovel-node figure\r\nsay:当前句;\r\n`;
+    const h=await harness(initial,2),mounted=mountFigure(h);
+    assert.equal(form(h.render(),'changeFigure').props.figureTransition.position,target.includes('-right')?'right':'');
+    assert.equal(collect(mounted.tree,node=>node.type==='wheel')[0].props.value,target.includes('-right')?'right':'');
+    mounted.set('enterDuration','2400');mounted.input('enterDuration').props.onBlur();mounted.render();
+    button(h.render(),'应用到草稿').props.onClick();await flush();
+    const edited=h.document.getSnapshot().text;
+    assert.ok(edited.includes(`changeFigure:lin.svg ${target} -duration=000800`),edited);
+    assert.match(edited,/-enterDuration=2400/);assert.match(edited,/-next=false/);
+    assert.ok(edited.startsWith('\uFEFF; 目标不可漂移\r\n'));
+    assert.match(edited,/; 作者备注 ; @makenovel-node figure\r\nsay:当前句;\r\n$/);
+    const reopened=createDirectorSession(edited,2,h.document.getSnapshot().historyVersion).nodes.find(node=>node.command==='changeFigure');
+    assert.equal(sentenceArg(reopened.sentence,'id'),target.includes('-id=hero')?'hero':undefined);
+    assert.equal(sentenceArg(reopened.sentence,target.includes('-right')?'right':'center'),true);
+    assert.equal(sentenceArg(reopened.sentence,'enterDuration'),2400);
+    mounted.hooks.unmount();h.hooks.unmount();h.document.undo();assert.equal(h.document.getSnapshot().text,initial);
+  }
+});
+
+test('native figure position changes replace explicit center with left while retaining a custom ID',async()=>{
+  for(const target of ['-center=true','-id=hero -center=true']) {
+    const initial=`changeFigure:lin.svg ${target} -enterDuration=1200 -next=false; target note ; @makenovel-node figure\r\nsay:当前句;`;
+    const h=await harness(initial,1),mounted=mountFigure(h);
+    assert.equal(collect(mounted.tree,node=>node.type==='wheel')[0].props.value,'');
+    collect(mounted.tree,node=>node.type==='wheel')[0].props.onValueChange('left');mounted.render();
+    const props=form(h.render(),'changeFigure').props,current=props.sentence;
+    assert.equal(props.figureTransition.editable,true);assert.equal(props.figureTransition.position,'left');
+    assert.equal(sentenceArg(current,'left'),true);assert.equal(sentenceArg(current,'center'),undefined);
+    assert.equal(sentenceArg(current,'id'),target.includes('-id=hero')?'hero':undefined);
+    assert.equal(sentenceArg(current,'enterDuration'),1200);assert.equal(sentenceArg(current,'next'),false);
+    assert.equal(alerts(h.render()),'');assert.equal(h.document.getSnapshot().text,initial);
+    button(h.render(),'应用到草稿').props.onClick();await flush();
+    const edited=h.document.getSnapshot().text;
+    assert.notEqual(edited,initial);assert.match(edited,/-left(?:[= ;]|$)/);assert.doesNotMatch(edited,/-center/);
+    assert.match(edited,/; target note ; @makenovel-node figure\r\nsay:当前句;$/);
+    if(target.includes('-id=hero')) assert.match(edited,/-id=hero/);
+    const reopened=createDirectorSession(edited,1,h.document.getSnapshot().historyVersion).nodes.find(node=>node.command==='changeFigure');
+    assert.equal(sentenceArg(reopened.sentence,'left'),true);assert.equal(sentenceArg(reopened.sentence,'center'),undefined);
+    mounted.hooks.unmount();h.hooks.unmount();h.document.undo();assert.equal(h.document.getSnapshot().text,initial);
+  }
+});
+
+test('invalid raw figure timing cannot inject source through asset selection or survive cancellation',async()=>{
+  const initial='changeFigure:lin.svg -id=hero -left -duration=800 -next; @makenovel-node figure\r\nsay:当前句;';
+  const h=await harness(initial,1),mounted=mountFigure(h);
+  form(h.render(),'say').props.onSubmit('say:有效但尚未应用的对白;');
+  mounted.set('enterDuration','2300');
+  const active=new HTMLInputElement();active.blur=()=>mounted.input('duration').props.onBlur();globalThis.document.activeElement=active;
+  for(const invalid of ['-1','1.5','1e3','2147483648','2; jump:other.txt','2\nchangeFigure:injected.svg']) {
+    mounted.set('duration',invalid);mounted.choose('other.svg');mounted.next().props.onChange(false);mounted.render();
+    button(h.render(),'应用到草稿').props.onClick();await flush();
+    assert.equal(h.closed,0,invalid);assert.equal(h.document.getSnapshot().text,initial);
+    const current=form(h.render(),'changeFigure').props.sentence;
+    assert.equal(current.content,'lin.svg',invalid);assert.equal(sentenceArg(current,'id'),'hero');
+    assert.equal(sentenceArg(current,'left'),true);assert.equal(sentenceArg(current,'next'),true);
+    assert.equal(mounted.input('duration').props.value,invalid);assert.equal(mounted.input('enterDuration').props.value,'2300');
+    assert.equal(form(h.render(),'say').props.sentence.content,'有效但尚未应用的对白');
+    assert.match(alerts(h.render()),/无法应用的输入/);
+  }
+  button(h.render(),'取消').props.onClick();await flush();
+  assert.equal(h.closed,1);assert.equal(h.document.getSnapshot().text,initial);
+  assert.equal(h.document.getSnapshot().canUndo,false);assert.equal(h.writes,0);assert.equal(h.holds,0);
+  mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('figure asset replacement carries timing buffers and dialogue into one shared undo transaction',async()=>{
+  const h=await harness(),mounted=mountFigure(h),version=h.document.getSnapshot().historyVersion;
+  mounted.set('duration','1100');mounted.set('enterDuration','2200');mounted.set('exitDuration','3300');
+  assert.equal(h.document.getSnapshot().text,source);mounted.choose('lin-smile.svg');
+  const current=form(h.render(),'changeFigure').props.sentence;
+  assert.equal(current.content,'lin-smile.svg');assert.equal(sentenceArg(current,'left'),true);
+  assert.equal(sentenceArg(current,'duration'),1100);assert.equal(sentenceArg(current,'enterDuration'),2200);
+  assert.equal(sentenceArg(current,'exitDuration'),3300);
+  form(h.render(),'say').props.onSubmit('say:立绘与对白一起修改 -speaker=林 -vocal=voice.wav;');
+  mounted.render();mounted.set('enterDuration','2400');
+  let blurred=0;const active=new HTMLInputElement();active.blur=()=>{blurred++;mounted.input('enterDuration').props.onBlur();};
+  globalThis.document.activeElement=active;button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(blurred,1);assert.equal(h.closed,1);assert.equal(h.writes,0);
+  assert.equal(h.document.getSnapshot().historyVersion,version+1);
+  const edited=h.document.getSnapshot().text;
+  assert.match(edited,/changeFigure:lin-smile.svg -left/);assert.match(edited,/-duration=1100/);
+  assert.match(edited,/-enterDuration=2400/);assert.match(edited,/-exitDuration=3300/);
+  assert.match(edited,/; @makenovel-node left\r\n/);assert.match(edited,/立绘与对白一起修改/);
+  for(const line of [0,2,3,4]) assert.equal(edited.split('\r\n')[line],source.split('\r\n')[line]);
+  mounted.hooks.unmount();h.hooks.unmount();h.document.undo();
+  assert.equal(h.document.getSnapshot().text,source);assert.equal(h.document.getSnapshot().canUndo,false);
+  h.document.redo();assert.equal(h.document.getSnapshot().text,edited);
+});
+
+test('equivalent figure timing and native next false round trips restore exact source without identity churn',async()=>{
+  for(const target of ['-left','-id=hero -right','-center']) {
+    const initial=`changeFigure:lin.svg ${target} -duration=000900 -next=false; author note\r\nsay:当前句;`;
+    const h=await harness(initial,1),mounted=mountFigure(h);
+    assert.equal(mounted.next().props.isChecked,false);
+    mounted.set('duration','900');mounted.input('duration').props.onBlur();mounted.render();
+    assert.equal(sentenceArg(form(h.render(),'changeFigure').props.sentence,'next'),false);
+    mounted.next().props.onChange(true);mounted.render();mounted.next().props.onChange(false);mounted.render();
+    mounted.set('duration','1200');mounted.input('duration').props.onBlur();mounted.render();
+    mounted.set('duration','900');mounted.input('duration').props.onBlur();mounted.render();
+    button(h.render(),'应用到草稿').props.onClick();await flush();
+    assert.equal(h.closed,1);assert.equal(h.document.getSnapshot().text,initial);
+    assert.equal(h.document.getSnapshot().canUndo,false);assert.equal(h.writes,0);
+    mounted.hooks.unmount();h.hooks.unmount();
+  }
+});
+
+test('clearing figure timing overrides preserves the ID, base position, comment and source identity',async()=>{
+  const initial='changeFigure:lin.svg -id=hero -right -duration=800 -enterDuration=0 -exitDuration=160 -next=false; 保留 ; @makenovel-node figure\r\nsay:当前句;';
+  const h=await harness(initial,1),mounted=mountFigure(h);
+  for(const key of Object.keys(figureLabels)) mounted.set(key,'');
+  const active=new HTMLInputElement();active.blur=()=>mounted.input('exitDuration').props.onBlur();globalThis.document.activeElement=active;
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,1);
+  const edited=h.document.getSnapshot().text,reopened=createDirectorSession(edited,1,h.document.getSnapshot().historyVersion);
+  const figure=reopened.nodes.find(node=>node.command==='changeFigure').sentence;
+  for(const key of Object.keys(figureLabels)) assert.equal(sentenceArg(figure,key),undefined,key);
+  assert.equal(sentenceArg(figure,'id'),'hero');assert.equal(sentenceArg(figure,'right'),true);assert.equal(sentenceArg(figure,'next'),false);
+  assert.match(edited,/; 保留 ; @makenovel-node figure\r\nsay:当前句;$/);
+  mounted.hooks.unmount();h.hooks.unmount();h.document.undo();assert.equal(h.document.getSnapshot().text,initial);
+});
+
+test('figure timing IME and cancellation gates ignore late raw adapters and native submissions',async()=>{
+  const h=await harness(),mounted=mountFigure(h),late=form(h.tree,'changeFigure').props;
+  mounted.set('enterDuration','1800');mounted.input('enterDuration').props.onBlur();mounted.render();
+  surface(h.render()).props.onCompositionStartCapture();button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,0);assert.equal(h.document.getSnapshot().text,source);assert.match(alerts(h.render()),/中文候选/);
+  surface(h.render()).props.onCompositionEndCapture();await flush();
+  button(h.render(),'应用到草稿').props.onClick();button(h.render(),'取消').props.onClick();
+  assert.equal(late.onFigureTransitionSubmit({duration:'5000',enterDuration:'',exitDuration:'',next:false}),false);
+  late.onSubmit('changeFigure:late.svg -id=other -right -duration=5000;');await flush();
+  assert.equal(h.closed,1);assert.equal(h.document.getSnapshot().text,source);
+  assert.equal(h.document.getSnapshot().canUndo,false);assert.equal(h.writes,0);assert.equal(h.holds,0);
+  mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('unsupported figure timing stays read-only without exposing active duration controls',async()=>{
+  for(const line of ['changeFigure:lin.svg -enter=custom;','changeFigure:none -left;',
+    'changeFigure:lin.svg -left -right;','changeFigure:lin.svg -id=fig-left;',
+    'changeFigure:lin.svg -duration=1.5;']) {
+    const initial=`${line}\r\nsay:当前句;`,h=await harness(initial,1),props=form(h.tree,'changeFigure').props;
+    assert.equal(props.figureTransition.editable,false,line);assert.ok(props.figureTransition.reason,line);
+    const mounted=mountFigure(h);
+    for(const key of Object.keys(figureLabels)) {
+      const input=mounted.input(key);
+      assert.ok(!input||input.props.disabled||collect(mounted.tree,node=>node.type==='fieldset'&&node.props.disabled).length,line);
+    }
+    assert.ok(JSON.stringify(mounted.tree).includes(props.figureTransition.reason));
+    button(h.render(),'应用到草稿').props.onClick();await flush();
+    assert.equal(h.document.getSnapshot().text,initial);assert.equal(h.document.getSnapshot().canUndo,false);
+    mounted.hooks.unmount();h.hooks.unmount();
+  }
+});
+
+test('read-only figure state preserves the existing native next and position initial values',async()=>{
+  const initial='changeFigure:lin.svg -right -next=TRUE;\r\nsay:当前句;',h=await harness(initial,1),mounted=mountFigure(h);
+  assert.equal(form(h.render(),'changeFigure').props.figureTransition.editable,false);
+  mounted.render();assert.equal(mounted.next().props.isChecked,true);
+  assert.equal(collect(mounted.tree,node=>node.type==='wheel')[0].props.value,'right');
+  mounted.choose('other.svg');
+  const current=form(h.render(),'changeFigure').props.sentence;
+  assert.equal(sentenceArg(current,'next'),true);assert.equal(sentenceArg(current,'right'),true);
+  mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('removed figure rows cannot return through late timing or native asset callbacks',async()=>{
+  const initial='changeFigure:lin.svg -left -next; @makenovel-node figure\r\nsay:当前句;',h=await harness(initial,1);
+  const late=form(h.tree,'changeFigure').props;
+  structuralButton(h.tree,'移除立绘 · 左侧，',1).props.onClick();await flush();
+  button(h.render(),'确认移除').props.onClick();await flush();
+  assert.equal(late.onFigureTransitionSubmit({duration:'bad; injected',enterDuration:'',exitDuration:'',next:false}),false);
+  assert.equal(late.onFigureTransitionSubmit({duration:'800',enterDuration:'',exitDuration:'',next:false}),false);
+  late.onSubmit('changeFigure:late.svg -right;');
+  assert.equal(form(h.render(),'changeFigure'),undefined);assert.equal(alerts(h.render()),'');
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,1);assert.doesNotMatch(h.document.getSnapshot().text,/changeFigure:/);
+  h.hooks.unmount();h.document.undo();assert.equal(h.document.getSnapshot().text,initial);
+});

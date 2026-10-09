@@ -9,7 +9,8 @@ const { createDirectorSession: open, editDirectorSession: edit, commitDirectorSe
   deleteDirectorSessionNode: deleteSetting, moveDirectorSessionNode: moveSetting, directorStructuralActions: actions,
   directorWaitState: waitState, editDirectorWait: editWait, directorWaitMaximum,
   directorBackgroundTransitionState: backgroundState, editDirectorBackgroundTransition: editBackground,
-  directorBackgroundTransitionMaximum } = await load('director');
+  directorBackgroundTransitionMaximum, directorFigureTransitionState: figureState,
+  editDirectorFigureTransition: editFigure, directorFigureTransitionMaximum } = await load('director');
 const { createDirectorSourceNavigation: navigation, resolveDirectorNavigation: locate } = await load('navigation');
 const { SceneDocument } = await load('document');
 const { nativeRanges } = await load('graph');
@@ -25,6 +26,11 @@ const backgroundInput = (session, overrides = {}) => {
   return { duration, enterDuration, exitDuration, next, ...overrides };
 };
 
+const figureInput = (session, overrides = {}) => {
+  const { duration, enterDuration, exitDuration, next } = figureState(target(session, 'changeFigure'));
+  return { duration, enterDuration, exitDuration, next, ...overrides };
+};
+
 async function documentFor(source) {
   let disk = { text: source, revision: A };
   let stored = null;
@@ -36,6 +42,259 @@ async function documentFor(source) {
   await document.load();
   return { document, writes, stored: () => stored, disk: () => disk };
 }
+
+test('figure transition state preserves native position and ID priority without registering identity', () => {
+  for (const [args, position, nativeTarget] of [
+    ['', '', 'fig-center'], [' -center', '', 'fig-center'], [' -left', 'left', 'fig-left'],
+    [' -right=true', 'right', 'fig-right'], [' -id=hero', '', 'hero'],
+    [' -id=hero -right', 'right', 'hero'], [' -center -id=hero', '', 'hero'],
+  ]) {
+    for (const extension of ['png', 'jpg', 'jpeg', 'webp', 'svg', 'PNG']) {
+      const source = `changeFigure:actor.${extension}${args} -duration=00800 -enterDuration=0 -exitDuration=900 -next=false; 作者\r\nsay:正文;`;
+      const opened = open(source, 1, 0);
+      const figure = target(opened, 'changeFigure');
+      assert.deepEqual(figureState(figure), { editable: true, reason: null,
+        duration: '800', enterDuration: '0', exitDuration: '900', next: false, position, target: nativeTarget });
+      assert.equal(figure.registered, false);
+      assert.equal(opened.source, source);
+      assert.equal(opened.changed, false);
+    }
+  }
+  assert.equal(figureState(target(open('say:正文;', 0, 0), 'say')).editable, false);
+});
+
+test('figure timing adapter preserves target tokens, comments, legacy IDs, BOM and unrelated byte spelling', () => {
+  for (const args of ['-left', '-center = true', '-right=true', '-id=hero -right', '-id=角色.一 -center']) {
+    const source = '\uFEFF; header\r\nfutureFx:before -opaque=1; 保留\r\n; @makenovel-node fig.legacy\r\n'
+      + `changeFigure:  actor.svg  ${args} -duration = 00800 -enterDuration=0600 -exitDuration=0400 -zIndex=003 -next = false;  作者\t; 尾注  \r\n`
+      + 'say:正文; @makenovel-node say\r\nfutureFx:after -opaque=2; 保留\r\n';
+    const opened = open(source, 4, 0);
+    const before = figureState(target(opened, 'changeFigure'));
+    const changed = editFigure(opened, 'fig.legacy', figureInput(opened, { enterDuration: '1200' }));
+    assert.equal(changed.source, source.replace('-enterDuration=0600', '-enterDuration=1200'));
+    const after = figureState(target(changed, 'changeFigure'));
+    assert.equal(after.position, before.position);
+    assert.equal(after.target, before.target);
+    assert.equal(target(changed, 'changeFigure').nodeId, 'fig.legacy');
+    assert.deepEqual(semantics(runtimeParse(changed.source)), semantics(nativeRanges(changed.source)));
+  }
+});
+
+test('figure equivalent timing and center or false omission are exact semantic no-ops', () => {
+  for (const position of ['', ' -center', ' -center=true']) {
+    for (const next of ['', ' -next = false']) {
+      const source = `changeFigure:  actor.svg  ${position} -duration = 00800${next};  作者\nsay:正文;`;
+      const opened = open(source, 1, 0);
+      const id = target(opened, 'changeFigure').nodeId;
+      assert.equal(editFigure(opened, id, figureInput(opened, { duration: '0800' })), opened);
+      assert.equal(edit(opened, id, 'changeFigure:actor.svg -duration=800;'), opened);
+      assert.equal(edit(opened, id, 'changeFigure:actor.svg -duration=800 -center -next=false;'), opened);
+      assert.equal(target(opened, 'changeFigure').registered, false);
+    }
+  }
+});
+
+test('figure empty timing is distinct from zero or explicit defaults and accepts the maximum', () => {
+  const source = 'changeFigure:actor.svg -id=hero -right; 原作者\nsay:正文;';
+  const opened = open(source, 1, 0);
+  const id = target(opened, 'changeFigure').nodeId;
+  assert.equal(directorFigureTransitionMaximum, 2147483647);
+  for (const key of ['duration', 'enterDuration', 'exitDuration']) {
+    for (const value of ['0', '160', '200', String(directorFigureTransitionMaximum)]) {
+      const changed = editFigure(opened, id, figureInput(opened, { [key]: value }));
+      assert.notEqual(changed, opened);
+      assert.equal(figureState(target(changed, 'changeFigure'))[key], value);
+      assert.equal(runtimeParse(changed.source)[0].args.find(arg => arg.key === key).value, Number(value));
+      const restored = editFigure(changed, id, figureInput(changed, { [key]: '' }));
+      assert.equal(restored.source, source);
+      assert.equal(restored.changed, false);
+      assert.equal(target(restored, 'changeFigure').registered, false);
+    }
+  }
+});
+
+test('figure full semantic roundtrip restores exact source and inline legacy or absent identity', () => {
+  for (const raw of [
+    'changeFigure:  actor.svg  -left -duration = 00800; 作者',
+    'changeFigure:actor.svg -id=hero -right -enterDuration=00600 -exitDuration=0400 -next; 作者',
+    'changeFigure:actor.svg -center -duration=0800 -next = false; 作者 ; @makenovel-node fig.inline  ',
+    '; @makenovel-node fig.legacy\r\nchangeFigure:actor.svg -id=hero -duration=0800 -next = true; 作者',
+  ]) {
+    const source = `${raw}\r\nsay:正文;`;
+    const opened = open(source, source.split('\n').length - 1, 0);
+    const original = target(opened, 'changeFigure');
+    const input = figureInput(opened);
+    const changed = editFigure(opened, original.nodeId,
+      { duration: '1400', enterDuration: '1100', exitDuration: '700', next: !input.next });
+    const restored = editFigure(changed, original.nodeId, input);
+    assert.equal(restored.source, source, raw);
+    assert.equal(restored.changed, false, raw);
+    assert.equal(target(restored, 'changeFigure').nodeId, original.nodeId, raw);
+    assert.equal(target(restored, 'changeFigure').registered, original.registered, raw);
+  }
+});
+
+test('restoring figure timing cannot discard native edits to asset ID position or layer', () => {
+  const source = 'changeFigure:  actor.svg  -id=hero -right -duration = 00800 -zIndex=002 -next=false; 作者\nsay:正文;';
+  const opened = open(source, 1, 0);
+  const id = target(opened, 'changeFigure').nodeId;
+  let changed = editFigure(opened, id, figureInput(opened, { duration: '1200', next: true }));
+  changed = edit(changed, id, 'changeFigure:other.svg -id=visitor -left -duration=1200 -zIndex=3 -next;');
+  changed = editFigure(changed, id, figureInput(opened));
+  const figure = target(changed, 'changeFigure');
+  assert.equal(figure.sentence.content, 'other.svg');
+  assert.equal(figureState(figure).target, 'visitor');
+  assert.equal(figureState(figure).position, 'left');
+  assert.equal(figure.sentence.args.find(arg => arg.key === 'zIndex').value, 3);
+  assert.equal(changed.changed, true);
+  const restored = edit(changed, id, 'changeFigure:actor.svg -id=hero -right -duration=800 -zIndex=2;');
+  assert.equal(restored.source, source);
+  assert.equal(restored.changed, false);
+});
+
+test('native figure proposals retain explicit center and false when changing another field', () => {
+  const source = 'changeFigure:actor.svg -center = true -duration=00800 -next = false; 作者\nsay:正文;';
+  const opened = open(source, 1, 0);
+  const id = target(opened, 'changeFigure').nodeId;
+  let changed = editFigure(opened, id, figureInput(opened, { duration: '1200' }));
+  assert.equal(edit(changed, id, 'changeFigure:actor.svg -duration=1200;'), changed);
+  changed = edit(changed, id, 'changeFigure:other.svg\n  -duration=1200;');
+  assert.equal(changed.source, source.replace('actor.svg', 'other.svg').replace('00800', '1200')
+    .replace('; 作者', `; 作者; @makenovel-node ${id}`));
+  assert.equal(figureState(target(changed, 'changeFigure')).target, 'fig-center');
+  const moved = edit(changed, id, 'changeFigure:other.svg -duration=1200 -left;');
+  assert.equal(figureState(target(moved, 'changeFigure')).target, 'fig-left');
+  assert.equal(target(moved, 'changeFigure').sentence.args.some(arg => arg.key === 'center'), false);
+});
+
+test('long folded figure proposals preserve identity targets and false while extra real commands reject', () => {
+  const file = `actor-${'sprite-'.repeat(18)}.svg`;
+  const source = `changeFigure:${file} -id=hero -right -duration=00800 -next = false; 作者\nsay:正文;`;
+  const opened = open(source, 1, 0);
+  const id = target(opened, 'changeFigure').nodeId;
+  const folded = `changeFigure:${file}\n  -id=hero\n  -right\n  -duration=1200; 作者`;
+  assert.ok(nativeRanges(folded).some(item => item.isLineBreakHolder));
+  const changed = edit(opened, id, folded);
+  assert.equal(changed.source, source.replace('-duration=00800', '-duration=1200')
+    .replace('; 作者', `; 作者; @makenovel-node ${id}`));
+  assert.equal(edit(changed, id, folded), changed);
+  assert.equal(edit(opened, id, folded.replace('1200', '800')), opened);
+  for (const extra of ['say:注入;', 'changeFigure:injected.svg;', '; extra comment']) {
+    assert.throws(() => edit(changed, id, `${folded}\n${extra}`), /额外命令/);
+  }
+});
+
+test('figure raw timing rejects malformed numbers and source injection without damaging the draft', () => {
+  const opened = open('changeFigure:actor.svg -id=hero -left -duration=800;\nsay:正文;', 1, 0);
+  const id = target(opened, 'changeFigure').nodeId;
+  const changed = editFigure(opened, id, figureInput(opened, { enterDuration: '1200' }));
+  const before = changed.source;
+  for (const key of ['duration', 'enterDuration', 'exitDuration']) {
+    for (const value of [' ', ' 800', '800 ', '800\n', '-1', '+1', '0.5', '1e3', '0x20', 'NaN',
+      'Infinity', '2147483648', '８００', '800; changeFigure:none', '800\;', '800\u0000', '800\t', '{timer}', true, 800, null]) {
+      assert.throws(() => editFigure(changed, id, figureInput(changed, { [key]: value })), /转场时长/, `${key}: ${String(value)}`);
+      assert.equal(changed.source, before);
+    }
+  }
+  for (const value of [0, 1, 'true', 'false', null, undefined]) {
+    assert.throws(() => editFigure(changed, id, figureInput(changed, { next: value })), /转场时长/);
+  }
+  assert.throws(() => editFigure(changed, id, null), /转场时长/);
+  assert.throws(() => editFigure(changed, 'missing', figureInput(changed)), /仅供参考/);
+  assert.throws(() => editFigure(changed, changed.selectedNodeId, figureInput(changed)), /仅供参考/);
+});
+
+test('advanced figure commands and ambiguous or reserved targets remain read-only for timing', () => {
+  for (const statement of [
+    'changeFigure:none;', 'changeFigure:model.model3.json;', 'changeFigure:actor.gif;',
+    'changeFigure:actor.svg -enter=fade;', 'changeFigure:actor.svg -exit=fade;',
+    'changeFigure:actor.svg -transform={"x":1};', 'changeFigure:actor.svg -continue;',
+    'changeFigure:actor.svg -left -right;', 'changeFigure:actor.svg -center -left;',
+    'changeFigure:actor.svg -left=false;', 'changeFigure:actor.svg -right=1;',
+    'changeFigure:actor.svg -id=bg-main;', 'changeFigure:actor.svg -id=bg-main-off;',
+    'changeFigure:actor.svg -id=fig-center;', 'changeFigure:actor.svg -id=fig-arbitrary;',
+    'changeFigure:actor.svg -duration=-1;', 'changeFigure:actor.svg -duration=0.5;',
+    'changeFigure:actor.svg -duration=true;', 'changeFigure:actor.svg -duration=2147483648;',
+    'changeFigure:actor.svg -next=1;', 'changeFigure:actor.svg -next=FALSE;',
+    'changeFigureDiff:actor.svg -left;',
+  ]) {
+    const opened = open(`${statement}\nsay:正文;`, 1, 0);
+    const figure = opened.nodes.find(node => node.command.startsWith('changeFigure'));
+    assert.ok(figure, statement);
+    assert.equal(figureState(figure).editable, false, statement);
+    assert.ok(figureState(figure).reason, statement);
+    assert.throws(() => editFigure(opened, figure.nodeId,
+      { duration: '500', enterDuration: '', exitDuration: '', next: false }), /仅供参考/, statement);
+    assert.equal(opened.changed, false, statement);
+  }
+});
+
+test('unknown duplicate conditional and multiline figure sources remain collection boundaries', () => {
+  for (const statement of ['changeFigure:actor.svg -when=ready;', 'changeFigure:actor.svg -future=kept;',
+    'changeFigure:actor.svg -duration=200 -duration=300;', 'changeFigure:actor.svg -order=1;',
+    'changeFigure:actor.svg -motion=idle;', 'changeFigure:actor.svg -expression=smile;',
+    'changeFigure:actor.svg -bounds=1,2,3,4;', 'changeFigure:actor.svg -blink={"x":1};',
+    'changeFigure:actor.svg\n  -duration=300;']) {
+    const source = `${statement}\nsay:正文;`;
+    const opened = open(source, source.split('\n').length - 1, 0);
+    assert.equal(target(opened, 'changeFigure'), undefined, statement);
+    assert.equal(opened.source, source, statement);
+  }
+});
+
+test('figure adapter retains escaped native resource tokens and registers only the edited node', () => {
+  const source = 'changeFigure:actor\\;smile.svg -id=hero -right -duration=800; 作者\nchangeBg:day.svg;\nsay:正文;';
+  const opened = open(source, 2, 0);
+  const figure = target(opened, 'changeFigure');
+  const changed = editFigure(opened, figure.nodeId, figureInput(opened, { duration: '1200' }));
+  assert.equal(target(changed, 'changeFigure').sentence.content, figure.sentence.content);
+  assert.equal(changed.source, source.replace('-duration=800;', '-duration=1200;')
+    .replace(' 作者', ` 作者; @makenovel-node ${figure.nodeId}`));
+  assert.equal(changed.nodes.filter(node => node.registered).length, 1);
+  assert.equal(target(changed, 'changeBg').registered, false);
+  assert.equal(target(changed, 'say').registered, false);
+});
+
+test('new figure rows use the same timing contract and retain their reserved ID after timing roundtrip', () => {
+  const source = 'say:正文;';
+  const opened = add(open(source, 0, 0), 'changeFigure:actor.svg -id=hero -right -next=false;');
+  const figure = target(opened, 'changeFigure');
+  const changed = editFigure(opened, figure.nodeId, figureInput(opened, { duration: '1200', exitDuration: '0' }));
+  assert.equal(figureState(target(changed, 'changeFigure')).position, 'right');
+  assert.equal(target(changed, 'changeFigure').origin, 'inserted');
+  const restored = editFigure(changed, figure.nodeId, figureInput(opened));
+  assert.equal(restored.source, opened.source);
+  assert.equal(target(restored, 'changeFigure').nodeId, figure.nodeId);
+  assert.equal(target(restored, 'changeFigure').registered, true);
+  assert.equal(remove(restored, figure.nodeId).source, source);
+});
+
+test('figure timing and dialogue share one atomic save undo transaction with stale source and ABA guards', async () => {
+  const source = '\uFEFF; header\r\nchangeFigure:actor.svg -id=hero -right -duration=00800; 作者\r\n'
+    + 'changeBg:day.svg;\r\nsay:正文;\r\nsay:后继;\r\n';
+  const h = await documentFor(source);
+  const snapshot = h.document.getSnapshot();
+  const opened = open(source, 3, snapshot.historyVersion);
+  const figure = target(opened, 'changeFigure');
+  let changed = editFigure(opened, figure.nodeId,
+    figureInput(opened, { duration: '1400', enterDuration: '1000', exitDuration: '600', next: true }));
+  changed = edit(changed, changed.selectedNodeId, 'say:新对白;');
+  assert.equal(h.document.getSnapshot(), snapshot);
+  assert.equal(h.stored(), null);
+  assert.equal(h.writes.length, 0);
+  assert.throws(() => commit(source.replace('后继', '外部编辑'), snapshot.historyVersion, changed), /改变|过期/);
+  h.document.edit(commit(snapshot.text, snapshot.historyVersion, changed));
+  assert.equal(await h.document.save(), true);
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.writes[0].text, changed.source);
+  h.document.undo();
+  const undone = h.document.getSnapshot();
+  assert.equal(undone.text, source);
+  assert.equal(undone.canUndo, false);
+  assert.throws(() => commit(undone.text, undone.historyVersion, changed), /历史|改变|过期/);
+  h.document.redo();
+  assert.equal(h.document.getSnapshot().text, changed.source);
+});
 
 test('background transition eligibility exposes only native static image settings without registering IDs', () => {
   for (const extension of ['png', 'jpg', 'jpeg', 'webp', 'svg', 'PNG']) {
