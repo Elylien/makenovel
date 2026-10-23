@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { runPreviewStorageTests } from "./preview-storage-suite.mjs";
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const require = createRequire(
   new URL("../../vendor/WebGAL/package.json", import.meta.url)
@@ -24,7 +25,7 @@ const mocks = {
     'export const SCRIPT_CONFIG=[{scriptString:"say",scriptType:0,scriptFunction(){}}]; export const ADD_NEXT_ARG_LIST=[]; export const scriptRegistry={0:SCRIPT_CONFIG[0],11:{scriptFunction(){}}}; export const sceneParser=(rawScene,sceneName,sceneUrl)=>({sceneName,sceneUrl,sentenceList:rawScene.split("\\n").map(content=>({content})),assetsList:[],subSceneList:[]}); export const WebgalParser={parse:sceneParser};',
   "Core/controller/storage/makenovelCompatibility.ts":
     ctx +
-    "export const captureSaveCompatibility=()=>h.storageEnabled?h.metadata:undefined; export const isSaveStorageEnabled=()=>h.storageEnabled; export const getSaveStatus=()=>({scope:{legacyGameKey:h.legacyGameKey}}); export const getSaveStorageEpoch=()=>h.storageEpoch; export const validateForSave=()=>h.validateSave(); export const assertCompatibleSnapshot=s=>h.validateLoad(s); export const reportSaveError=e=>h.errors.push(String(e)); export const waitForRuntimeReady=()=>h.waitRuntimeReady(); export const markPreviewSession=()=>{h.previewMarks++;h.storageEnabled=false;h.storageEpoch++;};",
+    "export const captureSaveCompatibility=()=>h.storageEnabled?h.metadata:undefined; export const isSaveStorageEnabled=()=>h.storageEnabled; export const getSaveStatus=()=>({scope:{legacyGameKey:h.legacyGameKey}}); export const getSaveUnavailableMessage=message=>message; export const getSaveStorageEpoch=()=>h.storageEpoch; export const validateForSave=()=>h.validateSave(); export const assertCompatibleSnapshot=s=>h.validateLoad(s); export const reportSaveError=e=>h.errors.push(String(e)); export const waitForRuntimeReady=()=>h.waitRuntimeReady(); export const markPreviewSession=()=>{h.previewMarks++;h.storageEnabled=false;h.storageEpoch++;};",
   "Core/controller/scene/sceneFetcher.ts":
     ctx + "export const sceneFetcher=url=>h.fetchScene(url);",
   "Core/controller/storage/savesController.ts":
@@ -134,3 +135,6 @@ const result = spawnSync(
 );
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;
+if (process.exitCode === 0) {
+  process.exitCode = await runPreviewStorageTests({ root, source, out, build, mocks });
+}

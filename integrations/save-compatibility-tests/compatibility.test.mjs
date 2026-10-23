@@ -488,14 +488,15 @@ test('author preview latches all storage gates off even after enabling or reinit
   preview.markPreviewSession();
   assert.equal(preview.getSaveStorageEpoch(), epoch + 1);
   assert.equal(preview.getSaveStatus().ready, false);
+  assert.equal(preview.getSaveStatus().preview, true);
   assert.match(preview.getSaveStatus().message, /作者预览/u);
   assert.equal(preview.getVerifiedConfigText(), undefined);
   for (const enable of [false, true, true]) {
     preview.setSaveStorageEnabled(enable);
     assert.equal(preview.isSaveStorageEnabled(), false);
     assert.equal(preview.captureSaveCompatibility(), undefined);
-    await assert.rejects(preview.validateForSave());
-    await assert.rejects(preview.assertCompatibleSnapshot(snapshot(f.manifest)));
+    await assert.rejects(preview.validateForSave(), /作者预览.*刷新游戏/u);
+    await assert.rejects(preview.assertCompatibleSnapshot(snapshot(f.manifest)), /作者预览.*刷新游戏/u);
   }
   // Reinitialization may verify config for playback, but cannot turn this page
   // back into a player-storage session once it accepted author preview input.
@@ -503,6 +504,7 @@ test('author preview latches all storage gates off even after enabling or reinit
   preview.setSaveStorageEnabled(true);
   assert.equal(preview.getVerifiedConfigText(), f.sources['game/config.txt']);
   assert.equal(preview.getSaveStatus().ready, false);
+  assert.equal(preview.getSaveStatus().preview, true);
   assert.match(preview.getSaveStatus().message, /作者预览/u);
   assert.equal(preview.isSaveStorageEnabled(), false);
   assert.equal(preview.captureSaveCompatibility(), undefined);
@@ -527,6 +529,7 @@ test('author preview before or during initialization cannot be overwritten by la
     release(); await initializing;
     preview.setSaveStorageEnabled(true);
     assert.equal(preview.getSaveStatus().ready, false);
+    assert.equal(preview.getSaveStatus().preview, true);
     assert.match(preview.getSaveStatus().message, /作者预览/u);
     assert.equal(preview.getVerifiedConfigText(), f.sources['game/config.txt']);
     assert.equal(preview.isSaveStorageEnabled(), false);

@@ -1,12 +1,16 @@
 # WebGAL 运行时补丁与模板同步
 
-更新：2026-10-08，MakeNovel `0.0.6`。运行时仍锁定 WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`；依赖版本不变。根仓 [清单](../../patches/webgal/manifest.json) 管理顺序补丁：
+更新：2026-10-23，MakeNovel `0.0.14`。运行时仍锁定 WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`；依赖版本不变。根仓 [清单](../../patches/webgal/manifest.json) 管理顺序补丁：
 
 - `0001-fixed-player-viewport.patch`：fixed 根画布，修复 body 滚动带走缩放后的存档菜单；此补丁自身不改存档协议。
 - `0002-versioned-player-saves.patch`：第五轮精确作品版本门禁、初始化前玩家备份、等待原生存储确认、异步恢复预检与界面错误/备份入口。保留原生脚本、槽、舞台、调用栈及执行器。
 - `0003-stage-audio-lifecycle.patch`：第六轮演出、菜单待推进、退场临时对象及音频生命周期修复；在已覆盖的有限演出或不稳定推进状态存在时拒绝普通/快速存档，保留旧槽，要求回到稳定对白后重新保存。
+- `0004-static-image-save-readiness.patch`：静态主图片待加载或加载失败时拒绝保存，防止空容器快照。
+- `0005-author-preview-storage-notice.patch`：作者预览持久标识与明确拒存/拒读说明，不改变隔离门禁或存档格式。
 
-当前清单为 3/3。第三份补丁 SHA-256 为 `7eaa09925ce1516d714d0a418d5f7153f7bcb9d27f4619781e36629b397703f2`；独立重放与开发树均为 `c7acf8bad114dd10bc29800b2af4920884d38c14`。受控构建、模板传播与现场结果见 [第六轮记录](../evidence/2026-10-08-round6.md) 和 [TESTING.md](../TESTING.md)；下文第四轮数字只对应当时的单补丁树。
+当前清单为5/5，完整树 `a0c22cb27d5e4c7d270d39efd34b10f8c6ca32ad`，五补丁独立重放18/18。新补丁SHA256 `5ccd3c3199f69f3d17efa31d6ccc31fb1d449ad7a008ce6feb1710475da7803a`。构建/模板同步和实际GUI见 [第十四轮证据](../evidence/2026-10-23-round14.md)。
+
+历史第六轮清单为3/3。第三份补丁 SHA-256 为 `7eaa09925ce1516d714d0a418d5f7153f7bcb9d27f4619781e36629b397703f2`；独立重放与开发树均为 `c7acf8bad114dd10bc29800b2af4920884d38c14`。受控构建、模板传播与现场结果见 [第六轮记录](../evidence/2026-10-08-round6.md) 和 [TESTING.md](../TESTING.md)；下文第四轮数字只对应当时的单补丁树。
 
 Terre 使用单独的 [补丁链](TERRE_PATCHES.md)。两个 submodule 保持原版 HEAD，已审查修改保留在工作树；不要 reset/clean，也不要把补丁状态误当外部修改。
 

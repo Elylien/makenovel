@@ -1,6 +1,6 @@
 {
   "name": "makenovel",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "private": true,
   "description": "Visual novel authoring toolchain based on verified WebGAL and Terre baselines",
   "license": "MPL-2.0",
@@ -35,6 +35,7 @@
     "test:save-storage": "node integrations/save-storage-tests/run-tests.mjs",
     "game:seal": "pwsh -NoLogo -NoProfile -File scripts/Seal-Game.ps1",
     "test:save-initialization": "node integrations/save-initialization-tests/run-tests.mjs",
+    "test:preview-notice": "node integrations/preview-notice-tests/run-tests.mjs",
     "test:save-ui": "node integrations/runtime-restore-tests/run-ui-tests.mjs",
     "test:menu-lifecycle": "node integrations/menu-lifecycle-tests/run-tests.mjs",
     "test:perform-lifecycle": "node integrations/perform-lifecycle-tests/run-tests.mjs",

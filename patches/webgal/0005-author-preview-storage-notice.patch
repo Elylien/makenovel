@@ -1,0 +1,174 @@
+diff --git a/packages/webgal/src/Core/controller/storage/fastSaveLoad.ts b/packages/webgal/src/Core/controller/storage/fastSaveLoad.ts
+index b84a1dbd779529ac678c7570a03664fbf12fcb7b..c707d1e7e54fed6ba1c2f33b1af308fb55ef67ed 100644
+--- a/packages/webgal/src/Core/controller/storage/fastSaveLoad.ts
++++ b/packages/webgal/src/Core/controller/storage/fastSaveLoad.ts
+@@ -1,4 +1,4 @@
+-import { captureSaveCompatibility, validateForSave, reportSaveError } from './makenovelCompatibility';
++import { captureSaveCompatibility, validateForSave, reportSaveError, getSaveUnavailableMessage } from './makenovelCompatibility';
+ import { webgalStore } from '@/store/store';
+ import { loadGameFromStageData } from '@/Core/controller/storage/loadGame';
+ import { generateCurrentStageData } from '@/Core/controller/storage/saveGame';
+@@ -58,7 +58,7 @@ export async function loadFastSaveGame(): Promise<boolean> {
+   const manager = WebGAL.sceneManager;
+   let epoch: number | undefined;
+   try {
+-    if (!captureSaveCompatibility()) throw new Error('作品版本或玩家备份尚未就绪，暂不能继续游戏。');
++    if (!captureSaveCompatibility()) throw new Error(getSaveUnavailableMessage('作品版本或玩家备份尚未就绪，暂不能继续游戏。'));
+     epoch = manager.beginRestoreRequest();
+     const snapshot = await getFastSaveFromStorage();
+     if (!manager.isSessionCurrent(epoch)) return false;
+diff --git a/packages/webgal/src/Core/controller/storage/makenovelCompatibility.ts b/packages/webgal/src/Core/controller/storage/makenovelCompatibility.ts
+index 92c100bf89702e28e25a2cff1a5a188d05a02f99..147fa1fd5da7dea00050784b19eb6dff2fdd8e5c 100644
+--- a/packages/webgal/src/Core/controller/storage/makenovelCompatibility.ts
++++ b/packages/webgal/src/Core/controller/storage/makenovelCompatibility.ts
+@@ -9,7 +9,7 @@ export type SaveCompatibility = {
+   manifestHash: string;
+ };
+ type Manifest = SaveCompatibility & { files: { path: string; size: number; sha256: string }[] };
+-type Status = { ready: boolean; message: string; error: string; scope?: SaveBackupScope };
++type Status = { preview: boolean; ready: boolean; message: string; error: string; scope?: SaveBackupScope };
+ const HASH = /^[a-f0-9]{64}$/;
+ const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+ let pinned: Manifest | undefined;
+@@ -24,9 +24,15 @@ let finishRuntimeReady: (() => void) | undefined;
+ const runtimeReady = new Promise<void>((resolve) => {
+   finishRuntimeReady = resolve;
+ });
+-let status: Status = { ready: false, message: '正在核对作品版本…', error: '' };
++let status: Status = { preview: false, ready: false, message: '正在核对作品版本…', error: '' };
+ const listeners = new Set<() => void>();
+ export const getSaveStatus = () => status;
++/** Explain the page-scoped preview gate without changing save compatibility. */
++export function getSaveUnavailableMessage(fallback: string): string {
++  return previewLatched
++    ? '当前为作者预览，存档和读档已隔离。测试玩家存档请刷新游戏，从标题正常开始后再操作；不要先执行跳句或实时预览。'
++    : fallback;
++}
+ export const subscribeSaveStatus = (listener: () => void) => {
+   listeners.add(listener);
+   return () => {
+@@ -66,7 +72,7 @@ export function markPreviewSession(): void {
+   pinned = undefined;
+   verifiedConfigText = undefined;
+   bootstrapTexts.clear();
+-  publish({ ready: false, error: '', message: '作者预览模式，不读取或写入玩家进度。' });
++  publish({ preview: true, ready: false, error: '', message: '作者预览模式，不读取或写入玩家进度。测试存档请刷新游戏后从标题正常开始。' });
+ }
+ const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
+ const exact = (v: unknown, keys: string[]) =>
+@@ -235,7 +241,7 @@ export function captureSaveCompatibility(): SaveCompatibility | undefined {
+ async function validateCurrent() {
+   const epoch = storageEpoch;
+   const meta = captureSaveCompatibility();
+-  if (!meta || !pinned) throw new Error('存读档尚不可用，请在系统设置查看版本状态并导出旧数据。');
++  if (!meta || !pinned) throw new Error(getSaveUnavailableMessage('存读档尚不可用，请在系统设置查看版本状态并导出旧数据。'));
+   const live = await readManifest();
+   if (live.manifestHash !== meta.manifestHash || live.projectId !== meta.projectId)
+     throw new Error('作品版本已更换，请重开游戏；当前进度不会套入新剧情。');
+@@ -493,7 +499,7 @@ export async function assertCompatibleSnapshot(
+   snapshot: unknown,
+ ): Promise<{ rawScene: string; sceneSources: Map<string, string> }> {
+   const meta = captureSaveCompatibility();
+-  if (!meta) throw new Error('当前作品不能读取存档。');
++  if (!meta) throw new Error(getSaveUnavailableMessage('当前作品不能读取存档。'));
+   assertSafeData(snapshot);
+   if (!object(snapshot) || !Array.isArray(snapshot.backlog)) throw new Error('存档数据不完整。');
+   assertMetadata(snapshot.makenovel, meta);
+diff --git a/packages/webgal/src/Core/controller/storage/saveGame.ts b/packages/webgal/src/Core/controller/storage/saveGame.ts
+index b0e825eba4c7db77ab3ae56fcb2448ea55fe00d9..890f1c69f36d7bfc169158ff8655a89b27ab5b90 100644
+--- a/packages/webgal/src/Core/controller/storage/saveGame.ts
++++ b/packages/webgal/src/Core/controller/storage/saveGame.ts
+@@ -1,4 +1,4 @@
+-import { captureSaveCompatibility, validateForSave, reportSaveError } from './makenovelCompatibility';
++import { captureSaveCompatibility, validateForSave, reportSaveError, getSaveUnavailableMessage } from './makenovelCompatibility';
+ import { ISaveData } from '@/store/userDataInterface';
+ import cloneDeep from 'lodash/cloneDeep';
+ 
+@@ -48,7 +48,7 @@ export const saveGame = async (index: number): Promise<boolean> => {
+  */
+ export function generateCurrentStageData(index: number, isSavePreviewImage = true) {
+   const compatibility = captureSaveCompatibility();
+-  if (!compatibility) throw new Error('作品版本尚未验证，无法生成存档。');
++  if (!compatibility) throw new Error(getSaveUnavailableMessage('作品版本尚未验证，无法生成存档。'));
+   if (WebGAL.sceneManager.lockSceneWrite) throw new Error('场景切换或读档中，无法生成存档。');
+   const stageState = stageStateManager.getCalculationStageState();
+   if (hasDeferredStoryContinue() || hasPendingStageExits() || stageState.PerformList.some((perform) => !perform.isHoldOn && unstableSaveCommands.has(perform.script.command))) {
+diff --git a/packages/webgal/src/UI/SaveDataTools/SaveDataTools.tsx b/packages/webgal/src/UI/SaveDataTools/SaveDataTools.tsx
+index 00943362a13dd00fcafcae706d6fff57368f975c..4dd3c392ee685317a62218ed342ecefd9732f5c8 100644
+--- a/packages/webgal/src/UI/SaveDataTools/SaveDataTools.tsx
++++ b/packages/webgal/src/UI/SaveDataTools/SaveDataTools.tsx
+@@ -22,14 +22,31 @@ function useSaveStatus() {
+ 
+ export function SaveDataNotice() {
+   const status = useSaveStatus();
+-  if (!status.error) return null;
++  if (!status.error && !status.preview) return null;
+   return (
+-    <aside className="makenovel-save-notice" role="alert" onClick={(event) => event.stopPropagation()}>
+-      <span>{status.error}</span>
+-      <button type="button" onClick={clearSaveError}>
+-        知道了
+-      </button>
+-    </aside>
++    <>
++      {status.preview ? (
++        <aside
++          className="makenovel-preview-status"
++          role="status"
++          aria-label="作者预览状态"
++          onPointerDown={(event) => event.stopPropagation()}
++          onClick={(event) => event.stopPropagation()}
++          onDoubleClick={(event) => event.stopPropagation()}
++        >
++          <strong>作者预览 · 存读档已隔离</strong>
++          <span>测试存档请刷新游戏后，从标题正常开始。</span>
++        </aside>
++      ) : null}
++      {status.error ? (
++        <aside className="makenovel-save-notice" role="alert" onClick={(event) => event.stopPropagation()}>
++          <span>{status.error}</span>
++          <button type="button" onClick={clearSaveError}>
++            知道了
++          </button>
++        </aside>
++      ) : null}
++    </>
+   );
+ }
+ 
+diff --git a/packages/webgal/src/UI/SaveDataTools/saveDataTools.scss b/packages/webgal/src/UI/SaveDataTools/saveDataTools.scss
+index d19b66dcff6c5804365c0256add0a5867ba4b721..826aa3b3dc199200149240bd7755f0a2acbdf293 100644
+--- a/packages/webgal/src/UI/SaveDataTools/saveDataTools.scss
++++ b/packages/webgal/src/UI/SaveDataTools/saveDataTools.scss
+@@ -36,6 +36,31 @@
+     outline-offset: 3px;
+   }
+ }
++.makenovel-preview-status {
++  position: absolute;
++  z-index: 100000;
++  box-sizing: border-box;
++  top: 24px;
++  left: 16px;
++  width: calc(25% - 32px);
++  max-width: 400px;
++  display: flex;
++  flex-direction: column;
++  gap: 4px;
++  padding: 10px 12px;
++  border: 1px solid #55877688;
++  border-radius: 8px;
++  color: #244d43;
++  background: #f3fbf7ed;
++  box-shadow: 0 3px 12px #0001;
++  font: inherit;
++  font-size: 22px;
++  line-height: 1.4;
++  overflow-wrap: anywhere;
++  span {
++    font-size: 18px;
++  }
++}
+ .makenovel-save-notice {
+   position: absolute;
+   z-index: 100000;

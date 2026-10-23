@@ -1,8 +1,25 @@
 # 测试入口与证据
 
-更新：2026-10-09，MakeNovel `0.0.13`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-23，MakeNovel `0.0.14`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-第十三轮静态立绘转场：代码 **653/653** = 作者495（导演125、图形/执行说明118）+七套样片21+runtime菜单/perform/资源/恢复137。独立tsc、受控runtime→Terre构建/共享模板同步、十补丁独立重放18/18、HTTP引擎25/25和服务22/22通过。 真实界面路径及未运行范围见 [第十三轮证据](evidence/2026-10-09-round13.md)。
+## 第十四轮可复查入口
+
+相关代码 **198/198**（兼容34、资源38、恢复70=原66+组合4、预览提示11、存档UI12、菜单15、perform18）；受控runtime→Terre构建通过，运行时五补丁独立重放18/18、HTTP引擎25/25、服务22/22、实际GUI八条路径通过。 作者回归和完整runtime339未重跑。详情见 [第十四轮证据](evidence/2026-10-23-round14.md)。
+
+```powershell
+npm.cmd run test:save-compatibility
+npm.cmd run test:runtime-restore
+npm.cmd run test:preview-notice
+npm.cmd run test:resource-lifecycle
+npm.cmd run test:save-ui
+npm.cmd run test:menu-lifecycle
+npm.cmd run test:perform-lifecycle
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL -ExpectedPatchCount 5 -EvidencePath docs/evidence/local/round14/runtime-independent-replay.json
+```
+
+计数与日志在 `evidence/local/round14/checks-summary.json`；恢复runner两组TAP须求和。GUI实际验证普通读档、作者跳句拒存/拒读、同页标题不解锁、刷新后读回与提示事件隔离。控制台启动错误保留，未报告零错误。
+
+历史第十三轮静态立绘转场：代码 **653/653** = 作者495（导演125、图形/执行说明118）+七套样片21+runtime菜单/perform/资源/恢复137。独立tsc、受控runtime→Terre构建/共享模板同步、十补丁独立重放18/18、HTTP引擎25/25和服务22/22通过。 真实界面路径及未运行范围见 [第十三轮证据](evidence/2026-10-09-round13.md)。
 
 ## 第十三轮可复查入口
 

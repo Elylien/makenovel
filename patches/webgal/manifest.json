@@ -16,6 +16,10 @@
     {
       "file": "0004-static-image-save-readiness.patch",
       "sha256": "26e2a99113bd084c4cefdce1f8bde0088ddb044416488e2deb7885bc23e07b86"
+    },
+    {
+      "file": "0005-author-preview-storage-notice.patch",
+      "sha256": "5ccd3c3199f69f3d17efa31d6ccc31fb1d449ad7a008ce6feb1710475da7803a"
     }
   ]
 }

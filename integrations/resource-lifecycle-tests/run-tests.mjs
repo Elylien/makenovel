@@ -30,7 +30,7 @@ const mocks = {
   'Core/gameScripts/changeBg/setEbg': 'export const setEbg=()=>{};',
   'Core/util/prefetcher/progressPrefetcher': 'export const prefetchCurrentSceneByProgress=()=>{};',
   'Core/controller/gamePlay/nextSentence': 'export const hasDeferredStoryContinue=()=>false;',
-  'Core/controller/storage/makenovelCompatibility': ctx + 'export const captureSaveCompatibility=()=>h.metadata;export const validateForSave=async()=>h.metadata;export const reportSaveError=error=>h.errors.push(String(error));',
+  'Core/controller/storage/makenovelCompatibility': ctx + 'export const getSaveUnavailableMessage=message=>message;export const captureSaveCompatibility=()=>h.metadata;export const validateForSave=async()=>h.metadata;export const reportSaveError=error=>h.errors.push(String(error));',
   'Core/controller/storage/savesController': ctx + 'export const writeSaveSlot=async(index,save)=>{h.writes.push(["save",index,save]);h.slots.set(index,save)};export const writeFastSave=async(save)=>{h.writes.push(["fast",save]);h.fastSlot=save};export const getFastSaveFromStorage=async()=>h.fastSlot;',
   'Core/controller/storage/loadGame': 'export const loadGameFromStageData=async()=>true;',
   'store/store': ctx + 'export const webgalStore={getState:()=>({GUI:{showTitle:false}})};',
