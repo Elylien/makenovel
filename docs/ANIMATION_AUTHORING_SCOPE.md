@@ -2,7 +2,7 @@
 
 记录：2026-10-23。审计基于锁定的 WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`、Terre `cf73dd58535d3ef15bddf0852adee153fa92d7da` 及项目已应用补丁。
 
-**本文是源码审计和后续实现建议。导演面板尚未实现 `setAnimation` 编辑；以下入口、修正和验收矩阵均未由本次审计实现或通过 GUI 验收。** 本轮优先处理作者预览与存读档隔离，独立动画另作单元。沿用原生执行器、动画文件、场景源码和存档，不引入第二套动画运行时。
+**本文保留第十四轮的实现前审计与验收契约。第十五轮已实现其中有限作者入口，实际通过与未运行项目以 [第十五轮证据](evidence/2026-10-26-round15.md) 为准；下文审计本身不授予验收状态。**沿用原生执行器、动画文件、场景源码和存档，不引入第二套动画运行时。
 
 ## 已核对的原生契约
 
@@ -28,7 +28,7 @@
 4. **资源与草稿生命周期。** 不完整选择、原始输入中的分号/换行、动态插值及过期选择器回调不得进入有效草稿。选择资源不应绕过当前作品版本和动画表加载流程；作品文件改变后仍按清单规则封存、重开，再测正常播放。
 5. **替换与恢复。** 目标被关闭或身份改变时，原生 `changeFigure` 会清理其动画；不能通过重排绕过目标创建、关闭或替换顺序。有限动画运行中继续拒存，稳定档依赖最终 effects。keep 沿原生路径恢复时会重建演出，并不保存动画播放相位，不能宣称精确续播。参见 [changeFigure](../vendor/WebGAL/packages/webgal/src/Core/gameScripts/changeFigure.ts)、[saveGame](../vendor/WebGAL/packages/webgal/src/Core/controller/storage/saveGame.ts)、[演出恢复](../vendor/WebGAL/packages/webgal/src/Core/controller/storage/jumpFromBacklog.ts)。
 
-上述问题仍待相应实现和验证；本文不会授予“已解决”状态。
+上述为实现前识别的问题；第十五轮的来源分类、局部写回、后缀处理与生命周期验证结果另见本轮证据。
 
 ## 建议首期范围
 

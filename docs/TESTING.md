@@ -1,8 +1,26 @@
 # 测试入口与证据
 
-更新：2026-10-23，MakeNovel `0.0.14`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-26，MakeNovel `0.0.15`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-## 第十四轮可复查入口
+## 第十五轮可复查入口
+
+代码 **756/756** = 作者 528 + 八套样片 24 + 运行时相关 204；审核修复后最终导演 144、图形输入 132 重跑通过。受控 runtime → Terre 构建、Terre 十一补丁独立重放 18/18、HTTP 25/25、服务 22/22 和保留检查 24/24 通过。十二条实际 GUI 路径及未运行范围见 [第十五轮证据](evidence/2026-10-26-round15.md)。
+
+```powershell
+npm.cmd run test:director
+npm.cmd run test:graph-input
+npm.cmd run test:animation-demo
+npm.cmd run test:perform-lifecycle
+npm.cmd run patch:check
+npm.cmd run patch:runtime:check
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL_Terre -ExpectedPatchCount 11 -EvidencePath docs/evidence/local/round15/terre-independent-replay.json
+node integrations/terre-launcher/verify-editor.mjs
+node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round15
+```
+
+全部本轮入口、退出码和计数在 `evidence/local/round15/checks-summary.json`。不要在 parser 重建时运行依赖测试；重放期间冻结补丁和 manifest。runtime 五补丁本轮反向检查通过，独立重放 18/18 属于第十四轮历史证据。本轮没有新 Windows 包或完整 runtime339 验收。
+
+## 第十四轮可复查入口（历史）
 
 相关代码 **198/198**（兼容34、资源38、恢复70=原66+组合4、预览提示11、存档UI12、菜单15、perform18）；受控runtime→Terre构建通过，运行时五补丁独立重放18/18、HTTP引擎25/25、服务22/22、实际GUI八条路径通过。 作者回归和完整runtime339未重跑。详情见 [第十四轮证据](evidence/2026-10-23-round14.md)。
 

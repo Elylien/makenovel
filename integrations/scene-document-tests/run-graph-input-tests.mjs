@@ -65,6 +65,7 @@ await build({ entryPoints: {
   figure: path.join(source,'GraphicalEditor/SentenceEditor/ChangeFigure.tsx'),
   figureDiff: path.join(source,'GraphicalEditor/SentenceEditor/ChangeFigureDiff.tsx'),
   bg: path.join(source,'GraphicalEditor/SentenceEditor/ChangeBg.tsx'),
+  animation: path.join(source,'GraphicalEditor/SentenceEditor/SetAnimation.tsx'),
   previewRegistry: path.join(source,'SceneDocument/sceneDocumentRegistry.ts'),
 }, outdir: out, outExtension:{'.js':'.mjs'}, bundle:true, platform:'node',format:'esm',target:'node22',define:{'import.meta.env.DEV':'false'},
 plugins:[{name:'graph-event-boundary',setup(api){

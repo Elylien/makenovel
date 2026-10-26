@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 const h = { stage: {}, WebGAL: {} };
 globalThis.__performHarness = h;
-const { PerformController, changeBg, changeFigure } = await import(pathToFileURL(process.env.PERFORM_TEST_BUNDLE));
+const { PerformController, changeBg, changeFigure, setAnimation } = await import(pathToFileURL(process.env.PERFORM_TEST_BUNDLE));
 const script = (continuing = false) => ({ args: continuing ? [{ key: 'continue', value: true }] : [] });
 const perform = (name, overrides = {}) => ({
   performName: name, duration: 1000, isHoldOn: false,
@@ -39,6 +39,10 @@ beforeEach(() => {
     },
     updateEffect(effect) { h.calculation.effects.push(effect); },
     setStage(key, value) { h.calculation[key] = value; },
+    setFreeFigureByKey(figure) {
+      h.calculation.freeFigure = h.calculation.freeFigure.filter(f => f.key !== figure.key);
+      if (figure.name) h.calculation.freeFigure.push(figure);
+    },
     setLive2dMotion() {}, setLive2dExpression() {}, setLive2dBlink() {}, setLive2dFocus() {}, setFigureMetaData() {},
   });
 });
@@ -244,4 +248,89 @@ test('non-force batch removal retains held parallel animation both live and in s
   assert.deepEqual(controller.performList.map(p => p.performName), ['animation-left#held']);
   assert.deepEqual(h.state.map(p => p.id), ['animation-left#held']);
   controller.removeAllPerform();
+}));
+
+// Native setAnimation and PerformController are real; the renderer is a boundary
+// double. These assert timing/effects/lifecycle, not visible interpolation.
+function animationCase(args = []) {
+  const controller = new PerformController();
+  h.WebGAL.gameplay.performController = controller;
+  h.animations.push({ name: 'move', effects: [
+    { position: { x: 0 }, duration: 0, ease: 'linear' },
+    { position: { x: 180 }, duration: 3000, ease: 'linear' },
+  ] });
+  const sentence = { content: 'move', args: [{ key: 'target', value: 'hero' }, ...args] };
+  const p = setAnimation(sentence);
+  controller.arrangeNewPerform(p, sentence);
+  return { controller, p };
+}
+
+for (const next of [false, true]) {
+  test(`native finite animation next=${next} keeps its duration and never adds an end continuation`, () => clocked(clock => {
+    const { controller, p } = animationCase([{ key: 'next', value: next }]);
+    assert.equal(p.duration, 3000);
+    assert.equal(p.isHoldOn, false);
+    assert.equal(p.blockingAuto(), true);
+    assert.equal(h.registered[0].target, 'hero');
+    assert.deepEqual(h.calculation.effects.at(-1).transform.position, { x: 180 });
+    assert.equal(Object.hasOwn(h.calculation.effects.at(-1).transform, 'alpha'), false);
+    clock.tick(2999);
+    assert.equal(controller.hasUnsettledNonHoldPerform(), true);
+    clock.tick(1);
+    assert.equal(controller.hasUnsettledNonHoldPerform(), false);
+    assert.deepEqual(h.removedAnimations, ['hero-move-3000']);
+    assert.equal(h.next, 0);
+  }));
+}
+
+test('early native animation settlement removes its timer and stale completion cannot advance twice', () => clocked(clock => {
+  const { controller } = animationCase([{ key: 'continue', value: true }]);
+  const stale = clock.captured.at(-1);
+  clock.tick(500);
+  controller.settleNonHoldPerforms(true);
+  assert.equal(h.next, 1);
+  assert.equal(controller.performList.length, 0);
+  stale(); clock.tick(5000);
+  assert.equal(h.next, 1);
+  assert.deepEqual(h.removedAnimations, ['hero-move-3000']);
+}));
+
+test('ordinary native animation replaces ordinary and parallel performs only for its target', () => clocked(clock => {
+  const controller = new PerformController(); h.WebGAL.gameplay.performController = controller;
+  controller.arrangeNewPerform(perform('animation-hero'), script());
+  controller.arrangeNewPerform(perform('animation-hero#other'), script());
+  controller.arrangeNewPerform(perform('animation-someone'), script());
+  h.animations.push({ name: 'move', effects: [{ position: { x: 180 }, duration: 3000 }] });
+  const sentence = { content: 'move', args: [{ key: 'target', value: 'hero' }] };
+  controller.arrangeNewPerform(setAnimation(sentence), sentence);
+  assert.deepEqual(h.stopped, ['animation-hero', 'animation-hero#other']);
+  assert.deepEqual(controller.performList.map(p => p.performName), ['animation-someone', 'animation-hero']);
+  controller.removeAllPerform(); clock.tick(5000);
+  assert.equal(controller.performList.length, 0);
+  assert.equal(h.next, 0);
+}));
+
+test('native unknown animation does not register a visual or fabricate an end effect', () => clocked(clock => {
+  const controller = new PerformController(); h.WebGAL.gameplay.performController = controller;
+  const sentence = { content: 'missing', args: [{ key: 'target', value: 'hero' }] };
+  const p = setAnimation(sentence); controller.arrangeNewPerform(p, sentence);
+  assert.equal(p.duration, 0);
+  assert.equal(h.registered.length, 0);
+  assert.equal(h.calculation.effects.length, 0);
+  clock.tick(0);
+  assert.equal(controller.performList.length, 0);
+}));
+
+test('closing a native custom figure cancels its animation and late timer cannot revive it', () => clocked(clock => {
+  h.calculation.freeFigure = [{ key: 'hero', basePosition: 'right', name: 'hero.svg' }];
+  const { controller } = animationCase();
+  const late = clock.captured.at(-1);
+  changeFigure({ content: '', args: [{ key: 'id', value: 'hero' }] });
+  assert.equal(controller.performList.length, 0);
+  assert.equal(h.calculation.freeFigure.some(f => f.key === 'hero'), false);
+  const count = h.registered.length;
+  late(); clock.tick(5000);
+  assert.equal(h.registered.length, count);
+  assert.equal(h.next, 0);
+  assert.deepEqual(h.removedAnimations, ['hero-move-3000']);
 }));

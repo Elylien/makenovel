@@ -25,7 +25,7 @@ await build({
   },
   outdir: out, outExtension: { '.js': '.mjs' }, bundle: true, platform: 'browser', format: 'esm', target: 'es2022',
 });
-const result = spawnSync(process.execPath, ['--test', fileURLToPath(new URL('./director-session.test.mjs', import.meta.url))], {
+const result = spawnSync(process.execPath, ['--test', fileURLToPath(new URL('./director-session.test.mjs', import.meta.url)), fileURLToPath(new URL('./animation.test.mjs', import.meta.url))], {
   stdio: 'inherit', env: { ...process.env, DIRECTOR_SESSION_TEST_BUNDLE: out },
 });
 if (result.error) throw result.error;

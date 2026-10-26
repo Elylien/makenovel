@@ -1,0 +1,658 @@
+diff --git a/packages/origine2/src/locales/en.po b/packages/origine2/src/locales/en.po
+index a7dff073697190c594b24c29d4eac673e62d1dec..4db3836e2cb881ab68240fc49fc9311a1c3be7b9 100644
+--- a/packages/origine2/src/locales/en.po
++++ b/packages/origine2/src/locales/en.po
+@@ -320,6 +320,9 @@ msgstr "Clear with the clear parameter"
+ msgid "使用中的模板："
+ msgstr "Template in use: "
+ 
++msgid "使用左、中、右立绘或背景目标"
++msgstr ""
++
+ msgid "使用引擎内置的特效"
+ msgstr "Use the special effects prepared in engine"
+ 
+@@ -587,6 +590,9 @@ msgstr "Animation name"
+ msgid "动画帧控制"
+ msgstr "Frame control"
+ 
++msgid "动画目标 ID"
++msgstr ""
++
+ msgid "半张嘴"
+ msgstr "Half open mouth"
+ 
+@@ -1730,6 +1736,9 @@ msgstr "Screen"
+ msgid "滤镜"
+ msgstr "Filter"
+ 
++msgid "演出结束后仍需点击继续"
++msgstr ""
++
+ msgid "点击或拖拽文件至此上传"
+ msgstr "Click or drag file to this area to upload"
+ 
+@@ -1847,6 +1856,12 @@ msgstr "Failed to move to Trash"
+ msgid "立即注视"
+ msgstr "Focus instantly"
+ 
++msgid "立即继续"
++msgstr ""
++
++msgid "立即进入后续语句，动画同时进行"
++msgstr ""
++
+ msgid "立绘"
+ msgstr "Figure"
+ 
+diff --git a/packages/origine2/src/locales/ja.po b/packages/origine2/src/locales/ja.po
+index 6647f264a1970c59b28e4b48fa58f1c60d8012d1..7337774533c854b58179b2493f217b83a07bdf2d 100644
+--- a/packages/origine2/src/locales/ja.po
++++ b/packages/origine2/src/locales/ja.po
+@@ -320,6 +320,9 @@ msgstr "clear パラメータで消去"
+ msgid "使用中的模板："
+ msgstr "使用中のテンプレート："
+ 
++msgid "使用左、中、右立绘或背景目标"
++msgstr ""
++
+ msgid "使用引擎内置的特效"
+ msgstr "デフォルトの特殊効果を使用"
+ 
+@@ -587,6 +590,9 @@ msgstr "アニメーション名"
+ msgid "动画帧控制"
+ msgstr "フレームコントロール"
+ 
++msgid "动画目标 ID"
++msgstr ""
++
+ msgid "半张嘴"
+ msgstr "半分開いた口"
+ 
+@@ -1730,6 +1736,9 @@ msgstr "スクリーン"
+ msgid "滤镜"
+ msgstr "フィルター"
+ 
++msgid "演出结束后仍需点击继续"
++msgstr ""
++
+ msgid "点击或拖拽文件至此上传"
+ msgstr "ここまでクリックかドラッグでアップロードします"
+ 
+@@ -1847,6 +1856,12 @@ msgstr "ゴミ箱への移動に失敗しました"
+ msgid "立即注视"
+ msgstr "即座に注視"
+ 
++msgid "立即继续"
++msgstr ""
++
++msgid "立即进入后续语句，动画同时进行"
++msgstr ""
++
+ msgid "立绘"
+ msgstr "Figure"
+ 
+diff --git a/packages/origine2/src/locales/ko.po b/packages/origine2/src/locales/ko.po
+index 17b675cde872aac6528f6291af311e190b6ff31d..7f25a8cf45838166887ce97c3fc12c02770078fc 100644
+--- a/packages/origine2/src/locales/ko.po
++++ b/packages/origine2/src/locales/ko.po
+@@ -320,6 +320,9 @@ msgstr "clear 함수를 사용해 초기화"
+ msgid "使用中的模板："
+ msgstr "사용 중인 템플릿:"
+ 
++msgid "使用左、中、右立绘或背景目标"
++msgstr ""
++
+ msgid "使用引擎内置的特效"
+ msgstr "엔진에 내장된 이펙트 사용"
+ 
+@@ -587,6 +590,9 @@ msgstr "애니메이션 이름"
+ msgid "动画帧控制"
+ msgstr "애니메이션 프레임 제어"
+ 
++msgid "动画目标 ID"
++msgstr ""
++
+ msgid "半张嘴"
+ msgstr "반쯤 벌린 입"
+ 
+@@ -1730,6 +1736,9 @@ msgstr "스크린"
+ msgid "滤镜"
+ msgstr "필터"
+ 
++msgid "演出结束后仍需点击继续"
++msgstr ""
++
+ msgid "点击或拖拽文件至此上传"
+ msgstr "파일을 클릭하거나 여기로 드래그하여 업로드"
+ 
+@@ -1847,6 +1856,12 @@ msgstr "휴지통으로 이동하지 못했습니다"
+ msgid "立即注视"
+ msgstr "즉시 주시"
+ 
++msgid "立即继续"
++msgstr ""
++
++msgid "立即进入后续语句，动画同时进行"
++msgstr ""
++
+ msgid "立绘"
+ msgstr "스탠딩"
+ 
+diff --git a/packages/origine2/src/locales/zhCn.po b/packages/origine2/src/locales/zhCn.po
+index a607eacfd33ecf1b7e58230e0dd71447388c9246..d265582e0532e0872c05838847936352a42129b7 100644
+--- a/packages/origine2/src/locales/zhCn.po
++++ b/packages/origine2/src/locales/zhCn.po
+@@ -320,6 +320,9 @@ msgstr "使用 clear 参数清除"
+ msgid "使用中的模板："
+ msgstr "使用中的模板："
+ 
++msgid "使用左、中、右立绘或背景目标"
++msgstr "使用左、中、右立绘或背景目标"
++
+ msgid "使用引擎内置的特效"
+ msgstr "使用引擎内置的特效"
+ 
+@@ -587,6 +590,9 @@ msgstr "动画名"
+ msgid "动画帧控制"
+ msgstr "动画帧控制"
+ 
++msgid "动画目标 ID"
++msgstr "动画目标 ID"
++
+ msgid "半张嘴"
+ msgstr "半张嘴"
+ 
+@@ -1730,6 +1736,9 @@ msgstr "滤色"
+ msgid "滤镜"
+ msgstr "滤镜"
+ 
++msgid "演出结束后仍需点击继续"
++msgstr "演出结束后仍需点击继续"
++
+ msgid "点击或拖拽文件至此上传"
+ msgstr "点击或拖拽文件至此上传"
+ 
+@@ -1847,6 +1856,12 @@ msgstr "移动到回收站失败"
+ msgid "立即注视"
+ msgstr "立即注视"
+ 
++msgid "立即继续"
++msgstr "立即继续"
++
++msgid "立即进入后续语句，动画同时进行"
++msgstr "立即进入后续语句，动画同时进行"
++
+ msgid "立绘"
+ msgstr "立绘"
+ 
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/SetAnimation.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/SetAnimation.tsx
+index c7b52501c06ce97852df3a404a8eb115d88261c3..638ffd73a73e4060c60f502e55425972a3fecc5a 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/SetAnimation.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/SetAnimation.tsx
+@@ -1,4 +1,6 @@
+ import { ISentenceEditorProps } from "./index";
++import { useEffect, useRef } from "react";
++import type { DirectorAnimationInput } from "../../SceneDocument/directorSession";
+ import styles from "./sentenceEditor.module.scss";
+ import { useValue } from "../../../../hooks/useValue";
+ import { getArgByKey } from "../utils/getArgByKey";
+@@ -14,17 +16,32 @@ import { getTransformFromArgs, isTransformFromDefault, TransformFromOption } fro
+ import { usePresetTargetOptions } from "@/hooks/usePresetTargetOptions";
+ 
+ export default function SetAnimation(props: ISentenceEditorProps) {
+-  const fileName = useValue(props.sentence.content);
+-  const target = useValue(getArgByKey(props.sentence, "target")?.toString() ?? "");
+-  const presetTargets = usePresetTargetOptions();
++  const local = props.animation;
++  const fileName = useValue(local?.animation ?? props.sentence.content);
++  const target = useValue(local?.target ?? getArgByKey(props.sentence, "target")?.toString() ?? "");
++  const allPresetTargets = usePresetTargetOptions();
++  const presetTargets = local ? new Map([...allPresetTargets].filter(([key]) =>
++    ['fig-left', 'fig-center', 'fig-right', 'bg-main'].includes(key))) : allPresetTargets;
+   const isPresetTarget = Array.from(presetTargets.keys()).includes(target.value);
+   const isUsePreset = useValue(isPresetTarget);
+-  const isGoNext = useValue(!!getArgByKey(props.sentence, "next"));
++  const isGoNext = useValue(local?.next ?? !!getArgByKey(props.sentence, "next"));
+   const isFromDefault = useValue(isTransformFromDefault(props.sentence));
+   const keep = useValue(getArgByKey(props.sentence, 'keep') === true);
+   const parallel = useValue(getArgByKey(props.sentence, 'parallel') === true);
+-  
++  const rawDraft = useRef<DirectorAnimationInput>({ animation: fileName.value, target: target.value, next: isGoNext.value });
++  const mounted = useRef(true);
++  const composing = useRef(false);
++  useEffect(() => {
++    mounted.current = true;
++    return () => { mounted.current = false; };
++  }, []);
++
+   const submit = () => {
++    if (!mounted.current || composing.current) return;
++    if (local) {
++      if (local.editable) props.onAnimationSubmit?.({ ...rawDraft.current });
++      return;
++    }
+     const submitString = combineSubmitString(
+       props.sentence.commandRaw,
+       fileName.value,
+@@ -40,15 +57,20 @@ export default function SetAnimation(props: ISentenceEditorProps) {
+     );
+     props.onSubmit(submitString);
+   };
++  if (local && !local.editable) return <CommonTips text={local.reason ?? '此动画保持原文，请在源码中设置。'} />;
+   return <div className={styles.sentenceEditorContent}>
+     <CommonTips text={t`提示：先设置立绘/背景，再应用动画，否则找不到目标。`} />
+-    {/* <CommonTips text={t`选择一个动画文件以应用，其中 animationTable 是动画定义，不要选择。`} /> */}
++    {local && <CommonTips text="选择已有动画资源；时长由动画文件决定。请填写已创建的舞台目标；本面板不会检查目标是否正在舞台上。" />}
++    {local && <CommonTips text="立即继续会让动画与后续对白重叠。关闭后，动画结束不会自动推进；演出中点击会先结算动画。" />}
+     <div className={styles.editItem}>
+       <CommonOptions key="1" title={t`选择动画`}>
+         <>
+           {fileName.value}{"\u00a0"}
+           <ChooseFile title={t`选择动画文件`} basePath={['animation']} selectedFilePath={`${fileName.value}.json`} onChange={(file) => {
+-            fileName.set((file?.name ?? "").replaceAll(".json", ""));
++            if (!mounted.current || !file) return;
++            const animation = file.name.replace(/\.json$/i, "");
++            fileName.set(animation);
++            rawDraft.current = { ...rawDraft.current, animation };
+             submit();
+           }} extNames={extNameMap.get('json')} hiddenFiles={['animationTable.json']} />
+         </>
+@@ -56,7 +78,7 @@ export default function SetAnimation(props: ISentenceEditorProps) {
+       <CommonOptions key="2" title={t`使用预设目标`}>
+         <TerreToggle title="" onChange={(newValue) => {
+           isUsePreset.set(newValue);
+-        }} onText={t`使用预设的作用目标，如果设置了id则不生效`} offText={t`手动输入 ID`}
++        }} onText={local ? t`使用左、中、右立绘或背景目标` : t`使用预设的作用目标，如果设置了id则不生效`} offText={t`手动输入 ID`}
+         isChecked={isUsePreset.value} />
+       </CommonOptions>
+       {isUsePreset.value && <CommonOptions key="3" title={t`选择预设目标`}>
+@@ -64,24 +86,35 @@ export default function SetAnimation(props: ISentenceEditorProps) {
+           options={presetTargets}
+           value={target.value}
+           onValueChange={(newValue) => {
+-            target.set(newValue?.toString() ?? "");
++            const value = newValue?.toString() ?? "";
++            target.set(value);
++            rawDraft.current = { ...rawDraft.current, target: value };
+             submit();
+           }}
+         />
+       </CommonOptions>}
+       {!isUsePreset.value && <CommonOptions key="4" title={t`输入目标 ID`}>
+-        <input value={target.value}
++        <input aria-label={t`动画目标 ID`} value={target.value}
+           onChange={(ev) => {
+             const newValue = ev.target.value;
+             target.set(newValue ?? "");
++            rawDraft.current = { ...rawDraft.current, target: newValue ?? "" };
+           }}
+           onBlur={submit}
++          onCompositionStart={() => { composing.current = true; }}
++          onCompositionEnd={event => {
++            // Read the committed DOM value before a same-turn Apply can blur.
++            const value = event.currentTarget.value;
++            target.set(value);
++            rawDraft.current = { ...rawDraft.current, target: value };
++            composing.current = false;
++          }}
+           className={styles.sayInput}
+           placeholder={t`立绘 ID`}
+           style={{ width: "100%" }}
+         />
+       </CommonOptions>}
+-      <TransformFromOption value={isFromDefault.value} onChange={(value) => {
++      {!local && <><TransformFromOption value={isFromDefault.value} onChange={(value) => {
+         isFromDefault.set(value);
+         submit();
+       }} />
+@@ -97,11 +130,13 @@ export default function SetAnimation(props: ISentenceEditorProps) {
+           submit();
+         }} onText={t`与同目标动画并行`} offText={t`替换同目标动画`} isChecked={parallel.value} />
+       </CommonOptions>
+-      <CommonOptions key="20" title={t`连续执行`}>
++      </>}
++      <CommonOptions key="20" title={local ? t`立即继续` : t`连续执行`}>
+         <TerreToggle title="" onChange={(newValue) => {
+           isGoNext.set(newValue);
++          rawDraft.current = { ...rawDraft.current, next: newValue };
+           submit();
+-        }} onText={t`本句执行后执行下一句`} offText={t`本句执行后等待`} isChecked={isGoNext.value} />
++        }} onText={local ? t`立即进入后续语句，动画同时进行` : t`本句执行后执行下一句`} offText={local ? t`演出结束后仍需点击继续` : t`本句执行后等待`} isChecked={isGoNext.value} />
+       </CommonOptions>
+       {props.extraOptions}
+     </div>
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
+index 84455aace565ab735af2fcac1034006ab1378164..87950b7981148344a3883aafc1da15ddd793a2d5 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/index.tsx
+@@ -55,7 +55,7 @@ import Wait from "@/pages/editor/GraphicalEditor/SentenceEditor/Wait";
+ import BasicCommands from "@/pages/editor/GraphicalEditor/SentenceEditor/BasicCommands";
+ import { t } from "@lingui/macro";
+ 
+-import type { DirectorBackgroundTransitionInput, DirectorBackgroundTransitionState, DirectorFigureTransitionInput, DirectorFigureTransitionState } from '../../SceneDocument/directorSession';
++import type { DirectorAnimationInput, DirectorAnimationState, DirectorBackgroundTransitionInput, DirectorBackgroundTransitionState, DirectorFigureTransitionInput, DirectorFigureTransitionState } from '../../SceneDocument/directorSession';
+ 
+ export interface ISentenceEditorProps {
+   sentence: ISentence;
+@@ -71,6 +71,9 @@ export interface ISentenceEditorProps {
+   /** Validate raw local timing buffers before the native serializer sees them. */
+   figureTransition?: DirectorFigureTransitionState;
+   onFigureTransitionSubmit?: (input: DirectorFigureTransitionInput) => boolean;
++  /** Local finite animation fields bypass native normalization and wrapping. */
++  animation?: DirectorAnimationState;
++  onAnimationSubmit?: (input: DirectorAnimationInput) => boolean;
+   backgroundTransition?: DirectorBackgroundTransitionState;
+   onBackgroundTransitionSubmit?: (input: DirectorBackgroundTransitionInput) => boolean;
+ }
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
+index 764f98ae8a629afe750207ccc9562b108ecbf8fd..6eb4a784a9eda0cd30d0a0177bc9ec0d464fe80b 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/components/DirectorPanel.tsx
+@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
+ import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle } from '@fluentui/react-components';
+ import { sentenceEditorConfig } from '../SentenceEditor';
+ import { getArgByKey } from '../utils/getArgByKey';
+-import { addDirectorSessionNode, removeDirectorSessionNode, deleteDirectorSessionNode, moveDirectorSessionNode, directorStructuralActions, directorWaitState, editDirectorWait, directorFigureTransitionState, editDirectorFigureTransition, directorBackgroundTransitionState, editDirectorBackgroundTransition, type DirectorBackgroundTransitionInput, editDirectorSession, commitDirectorSession, type DirectorSession, type DirectorSessionNode, type DirectorSourceFact } from '../../SceneDocument/directorSession';
++import { addDirectorSessionNode, removeDirectorSessionNode, deleteDirectorSessionNode, moveDirectorSessionNode, directorStructuralActions, directorWaitState, editDirectorWait, directorAnimationState, editDirectorAnimation, type DirectorAnimationInput, directorFigureTransitionState, editDirectorFigureTransition, directorBackgroundTransitionState, editDirectorBackgroundTransition, type DirectorBackgroundTransitionInput, editDirectorSession, commitDirectorSession, type DirectorSession, type DirectorSessionNode, type DirectorSourceFact } from '../../SceneDocument/directorSession';
+ import { directorExecutionNote } from '../../SceneDocument/directorTiming';
+ import type { SceneDocument } from '../../SceneDocument/sceneDocument';
+ import { createDirectorSourceNavigation, type DirectorSourceNavigation } from '../../SceneDocument/directorNavigation';
+@@ -51,6 +51,7 @@ function rowTitle(node: DirectorSessionNode) {
+   case 'bgm': return '背景音乐';
+   case 'playEffect': return '效果音';
+   case 'wait': return '等待演出';
++  case 'setAnimation': return `独立动画 · ${getArgByKey(sentence, 'target')}`;
+   default: return node.role === 'dialogue' ? '对白与语音' : '源码注释';
+   }
+ }
+@@ -64,6 +65,7 @@ function rowSummary(node: DirectorSessionNode) {
+     const wait = directorWaitState(node);
+     return wait.editable ? `${wait.duration} 毫秒 · ${wait.nobreak ? '禁止跳过' : '允许点击或快进跳过'}` : node.sentence.content;
+   }
++  if (node.command === 'setAnimation') return `${node.sentence.content} · ${directorAnimationState(node).next ? '立即继续' : '等待点击继续'}`;
+   if (node.role === 'comment') return node.raw.trim() || '空行';
+   return node.sentence.content === 'none' || !node.sentence.content ? '关闭 / 清除' : node.sentence.content;
+ }
+@@ -149,7 +151,7 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+     row?.scrollIntoView({ block: 'nearest' });
+   }, [session]);
+ 
+-  const updateNode = (nodeId: string, replacement: string | { duration: string; nobreak: boolean } | DirectorBackgroundTransitionInput) => {
++  const updateNode = (nodeId: string, replacement: string | { duration: string; nobreak: boolean } | DirectorBackgroundTransitionInput | DirectorAnimationInput) => {
+     // A removed row may still emit blur/cleanup work. Its identity must not
+     // migrate to the line which moved into that position, or leave a ghost error.
+     const node = sessionRef.current.nodes.find(item => item.nodeId === nodeId);
+@@ -157,7 +159,8 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+     try {
+       const next = typeof replacement === 'string'
+         ? editDirectorSession(sessionRef.current, nodeId, node.origin === 'inserted' || node.role === 'wait' ? singleNativeProposal(replacement) : replacement)
+-        : 'nobreak' in replacement ? editDirectorWait(sessionRef.current, nodeId, replacement)
++        : 'animation' in replacement ? editDirectorAnimation(sessionRef.current, nodeId, replacement)
++          : 'nobreak' in replacement ? editDirectorWait(sessionRef.current, nodeId, replacement)
+           : node.command === 'changeFigure' ? editDirectorFigureTransition(sessionRef.current, nodeId, replacement)
+             : editDirectorBackgroundTransition(sessionRef.current, nodeId, replacement);
+       setLocalSession(next);
+@@ -396,7 +399,7 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+         <DialogTitle>舞台与声音</DialogTitle>
+         <div className={styles.heading}>
+           <p className={styles.dialogue} title={selected.sentence.content}>{selected.sentence.content || '（空白对白）'}</p>
+-          <p className={styles.explanation}>集中编辑本句前的 {editableCount} 项设置与本句语音。可移除设置或交换相邻舞台命令；等待可改时长与跳过方式；排序不能跨越等待、独立注释或对白。</p>
++          <p className={styles.explanation}>集中编辑本句前的 {editableCount} 项设置与本句语音。可移除设置或交换相邻舞台命令；等待可改时长与跳过方式；独立动画可改资源、目标与立即继续；排序不能跨越动画、等待、独立注释或对白。</p>
+           <p className={styles.hint}>面板打开期间不能执行到此句或修改舞台预览。应用只进入场景草稿；保存后再预览。Ctrl+S 同样只应用到草稿。</p>
+         </div>
+         <DialogContent className={styles.content}>
+@@ -454,12 +457,13 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+           {session.nodes.map(node => {
+             const Editor = editorByCommand.get(node.sentence.command);
+             const controlEpoch = controlEpochs[node.nodeId] ?? 0;
+-            const structure = node.role === 'stage' ? directorStructuralActions(session, node.nodeId) : null;
++            const structure = node.role === 'stage' && node.command !== 'setAnimation' ? directorStructuralActions(session, node.nodeId) : null;
+             const reviewing = deleteReview?.nodeId === node.nodeId ? deleteReview : null;
+             const addition = node.origin === 'inserted' ? additions.find(item => item.command === node.command) : undefined;
+             if (!node.editable) return <div key={node.nodeId} className={styles.readOnly}>
+               <span>{rowTitle(node)}</span><small>{rowSummary(node)}
+                 {node.role === 'wait' && <><br />{directorWaitState(node).reason} 保留原文，请在源码中设置。</>}
++                {node.command === 'setAnimation' && <><br />{directorAnimationState(node).reason} 保留原文，请在源码中设置。</>}
+               </small>
+             </div>;
+             return <details key={node.nodeId} ref={element => {
+@@ -485,6 +489,11 @@ export function DirectorPanel({ initialSession, document, targetPath, onClose, o
+                 </div>}
+                 {Editor && <Editor key={`${node.nodeId}:${controlEpoch}`} sentence={node.sentence} index={node.startLine} targetPath={targetPath}
+                   disableEffectEditor
++                  animation={node.command === 'setAnimation' ? directorAnimationState(node) : undefined}
++                  onAnimationSubmit={node.command === 'setAnimation' ? input => {
++                    if ((controlEpochsRef.current[node.nodeId] ?? 0) !== controlEpoch) return false;
++                    return updateNode(node.nodeId, input);
++                  } : undefined}
+                   figureTransition={node.command === 'changeFigure' ? directorFigureTransitionState(node) : undefined}
+                   onFigureTransitionSubmit={node.command === 'changeFigure' ? input => {
+                     if ((controlEpochsRef.current[node.nodeId] ?? 0) !== controlEpoch) return false;
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts b/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
+index 8603a1177042752a2d71b4e92affcf3eacd7742f..5a6dea33048208594ad47acc980325ef886cf645 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
++++ b/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
+@@ -16,6 +16,8 @@ export interface DirectorSessionNode {
+   readonly originallyRegistered: boolean;
+   readonly registered: boolean;
+   readonly editable: boolean;
++  /** A known source declaration can keep an otherwise finite animation read-only. */
++  readonly readonlyReason?: string;
+   readonly role: 'dialogue' | 'stage' | 'wait' | 'comment';
+ }
+ 
+@@ -90,6 +92,15 @@ export interface DirectorFigureTransitionState extends DirectorFigureTransitionI
+   /** Native target key, not an assertion that the target is currently on stage. */
+   readonly target: string;
+ }
++export interface DirectorAnimationInput {
++  readonly animation: string;
++  readonly target: string;
++  readonly next: boolean;
++}
++export interface DirectorAnimationState extends DirectorAnimationInput {
++  readonly editable: boolean;
++  readonly reason: string | null;
++}
+ export const directorBackgroundTransitionMaximum = 2147483647;
+ export const directorFigureTransitionMaximum = directorBackgroundTransitionMaximum;
+ const backgroundDurationKeys = ['duration', 'enterDuration', 'exitDuration'] as const;
+@@ -199,6 +210,47 @@ export function directorFigureTransitionState(node: DirectorSessionNode): Direct
+     reason: state.reason ?? '该立绘超出本面板支持的单行范围，请使用原有编辑方式。' };
+ }
+ 
++const animationArguments = new Set(['target', 'next', 'keep', 'parallel', 'transformFrom']);
++const animationTargets = new Set(['fig-left', 'fig-center', 'fig-right', 'bg-main']);
++const animationInputReason = '请选择完整的静态动画，并填写左、中、右立绘、背景或自定义 ID；不能包含动态值、换行或额外参数。';
++
++function staticAnimationTarget(value: unknown): value is string {
++  return typeof value === 'string' && value.length > 0 && !/[\s{};\\\u0000-\u001f\u007f\uFEFF]/.test(value)
++    && (animationTargets.has(value) || !/^(?:fig-|bg-|stage-|default_id(?:$|-))/.test(value));
++}
++
++function animationState(sentence: ISentence): DirectorAnimationState {
++  const argument = (key: string) => sentence.args.find(arg => arg.key === key)?.value;
++  const target = argument('target');
++  const next = argument('next');
++  const supportedArgs = sentence.args.every(arg => animationArguments.has(arg.key))
++    && new Set(sentence.args.map(arg => arg.key)).size === sentence.args.length;
++  const staticResource = sentence.content.length > 0 && sentence.content === sentence.content.trim()
++    && !/[{}\\\u0000-\u001f\u007f\uFEFF]/.test(sentence.content) && !sentence.content.includes(' -')
++    && !/(?:^|\/)animationTable$/i.test(sentence.content);
++  const reason = sentence.commandRaw !== 'setAnimation' ? '该行不是独立动画命令。'
++    : !staticResource || !staticAnimationTarget(target) ? animationInputReason
++      : !supportedArgs ? '含条件、完成后继续、旧变换参数或未知参数的动画保持原文，请使用原有编辑方式。'
++        : ['keep', 'parallel'].some(key => argument(key) !== undefined && argument(key) !== false)
++          || (argument('transformFrom') !== undefined && argument('transformFrom') !== 'current')
++          ? '此处仅编辑有限动画；跨句保留、并行和默认变换请使用原有编辑方式。'
++          : next !== undefined && typeof next !== 'boolean' ? '立即继续参数必须为布尔值；此处保留原文。' : null;
++  return { editable: reason === null, reason, animation: sentence.content,
++    target: typeof target === 'string' ? target : '', next: next === true };
++}
++
++/** Source configuration only: it does not infer target existence or animation pose. */
++export function directorAnimationState(node: DirectorSessionNode): DirectorAnimationState {
++  const state = animationState(node.sentence);
++  return node.origin === 'existing' && node.role === 'stage' && node.editable ? state : { ...state,
++    editable: false, reason: state.reason ?? node.readonlyReason ?? '仅已有的单行有限动画支持本面板编辑。' };
++}
++
++function sameAnimationSemantics(left: ISentence, right: ISentence) {
++  const a = animationState(left), b = animationState(right);
++  return a.editable && b.editable && a.animation === b.animation && a.target === b.target && a.next === b.next;
++}
++
+ function sameFigureSemantics(left: ISentence, right: ISentence) {
+   if (!figureTransitionState(left).editable || !figureTransitionState(right).editable
+     || left.commandRaw !== right.commandRaw || left.content !== right.content) return false;
+@@ -256,7 +308,8 @@ function isSimpleDialogue(block: SceneBlock, sentence: ISentence) {
+ 
+ function acceptedStage(block: SceneBlock, sentence: ISentence) {
+   return block.kind === 'command' && block.graphicalEditable && block.startLine === block.endLine
+-    && !hasArgument(sentence, conditional) && (stageCommands.has(block.command ?? '') || block.command === 'wait');
++    && !hasArgument(sentence, conditional) && (stageCommands.has(block.command ?? '') || block.command === 'wait'
++      || (block.command === 'setAnimation' && animationState(sentence).editable));
+ }
+ 
+ function checkedAnalysis(source: string) {
+@@ -293,7 +346,7 @@ function sourceInheritance(source: string, nodes: readonly DirectorSessionNode[]
+       boundary = { startLine: block.startLine - 1, command: block.command ?? sentence?.commandRaw ?? 'unknown', reason: '遇到不能证明线性来源的语句，已停止向前查找。' };
+       break;
+     }
+-    if (isSimpleDialogue(block, sentence) || block.command === 'wait') continue;
++    if (isSimpleDialogue(block, sentence) || block.command === 'wait' || block.command === 'setAnimation') continue;
+     const command = block.command!;
+     const target = command === 'changeBg' ? 'background' : command === 'bgm' ? 'bgm'
+       : command === 'playEffect' ? `effect:${String(sentence.args.find(arg => arg.key === 'id')?.value ?? '') || 'default'}`
+@@ -316,6 +369,29 @@ function sourceInheritance(source: string, nodes: readonly DirectorSessionNode[]
+   return { background: facts.get('background') ?? unseen('background'), bgm: facts.get('bgm') ?? unseen('bgm'), figures, effects, boundary };
+ }
+ 
++/** Classify only the latest provable source declaration before this animation. */
++function animationTargetSourceReason(source: string, startLine: number, target: string): string | null {
++  // sourceInheritance uses lexical animation eligibility only, so this lookup
++  // cannot recurse into the node's source-dependent editing gate.
++  const inheritance = sourceInheritance(source, [], startLine);
++  const sourceTarget = animationTargets.has(target) ? `position:${target.slice(4)}` : `id:${target}`;
++  const fact = target === 'bg-main' ? inheritance.background
++    : inheritance.figures.find(item => item.target === sourceTarget);
++  // Unknown targets, branch boundaries and explicit closes are not evidence of
++  // a model. A source fact also never proves that its target exists at runtime.
++  if (fact?.status !== 'source' || !fact.content || !['changeFigure', 'changeBg'].includes(fact.command ?? '')
++    || imageFile.test(fact.content)) return null;
++  return '此目标的最近源码声明使用模型或非静态素材，独立动画保持只读；请使用原有编辑方式。';
++}
++
++function withAnimationSourceBoundary(source: string, node: DirectorSessionNode): DirectorSessionNode {
++  if (node.command !== 'setAnimation') return node;
++  const state = animationState(node.sentence);
++  const reason = state.editable ? animationTargetSourceReason(source, node.startLine, state.target) : state.reason;
++  return { ...node, editable: node.origin === 'existing' && node.role === 'stage' && reason === null,
++    readonlyReason: reason ?? undefined };
++}
++
+ /**
+  * Collect only the immediately preceding linear native commands. This is a
+  * source group, not an inferred stage snapshot or a cross-branch reconstruction.
+@@ -362,7 +438,7 @@ export function createDirectorSession(source: string, startLine: number, history
+       originallyRegistered: !!node?.nodeId, registered: !!node?.nodeId,
+       editable: role === 'dialogue' || role === 'stage' || (role === 'wait' && acceptedWait(block, sentence)), role,
+     };
+-  });
++  }).map(node => withAnimationSourceBoundary(source, node));
+   return { expectedSource: source, historyVersion, source, selectedNodeId: nodes[nodes.length - 1].nodeId, nodes, changed: false,
+     inheritance: sourceInheritance(source, nodes, startLine) };
+ }
+@@ -391,7 +467,7 @@ function refreshNodes(session: DirectorSession, source: string): DirectorSession
+     }
+     if (node.origin === 'inserted') validateInsertedStage(block, sentence);
+     return { ...node, sentence, raw: block.raw, registered: !!identified };
+-  });
++  }).map(node => withAnimationSourceBoundary(source, node));
+   return { ...session, source, nodes, changed: source !== session.expectedSource,
+     inheritance: sourceInheritance(source, nodes, nodes.find(node => node.nodeId === session.selectedNodeId)!.startLine) };
+ }
+@@ -399,7 +475,25 @@ function refreshNodes(session: DirectorSession, source: string): DirectorSession
+ /** Immutable local edit, using the existing native serializer/token projection. */
+ export function editDirectorSession(session: DirectorSession, nodeId: string, replacement: string): DirectorSession {
+   const selected = session.nodes.find(node => node.nodeId === nodeId);
+-  if (!selected?.editable) throw new Error('该行仅供参考，不能在导演面板修改。');
++  if (!selected?.editable) throw new Error(selected?.readonlyReason ?? '该行仅供参考，不能在导演面板修改。');
++  if (selected.command === 'setAnimation') {
++    if (!directorAnimationState(selected).editable) throw new Error('该动画仅供参考，请使用原有编辑方式。');
++    if (/[\u0000-\u0009\u000b-\u000c\u000e-\u001f\u007f\uFEFF]/.test(replacement)) throw new Error(animationInputReason);
++    const proposal = nativeRanges(replacement).filter(item => !item.isLineBreakHolder);
++    if (proposal.length !== 1) throw new Error('动画修改必须保持一条完整语句，不能包含额外命令。');
++    const desired = proposal[0];
++    const desiredState = animationState(desired);
++    if (!desiredState.editable) throw new Error(desiredState.reason!);
++    const sourceReason = animationTargetSourceReason(session.source, selected.startLine, desiredState.target);
++    if (sourceReason) throw new Error(sourceReason);
++    if (sameAnimationSemantics(selected.sentence, desired)) return session;
++    // The native form may omit explicit false/current tokens. These parameters
++    // cannot change in the finite editor; preserve their original spellings.
++    const values = new Map(selected.sentence.args.map(arg => [arg.key, arg.value]));
++    values.set('target', desiredState.target);
++    if (animationState(selected.sentence).next !== desiredState.next) values.set('next', desiredState.next);
++    replacement = backgroundProposal(backgroundProposalHead(replacement), values);
++  }
+   if (selected.command === 'changeBg' && directorBackgroundTransitionState(selected).editable) {
+     // Native controls fold long proposals across continuation lines. Their
+     // holders are not commands; an additional real statement must still fail.
+@@ -510,13 +604,14 @@ export function editDirectorSession(session: DirectorSession, nodeId: string, re
+       source = restored;
+     }
+   }
+-  if ((selected.command === 'changeBg' || selected.command === 'changeFigure') && selected.origin === 'existing') {
++  if (['changeBg', 'changeFigure', 'setAnimation'].includes(selected.command) && selected.origin === 'existing') {
+     const editedNode = inspectSceneIdentity(source, nativeRanges(source)).nodes.find(node => node.nodeId === nodeId)!;
+     const sentence = nativeRanges(source).find(item => item.startLine === editedNode.startLine && !item.isLineBreakHolder)!;
+     const original = nativeRanges(selected.originalRaw).find(item => !item.isLineBreakHolder)!;
+     // Restoring timing alone must not discard changes to an image, target,
+     // base position or any other native parameter.
+-    const sameSemantics = selected.command === 'changeFigure' ? sameFigureSemantics : sameBackgroundSemantics;
++    const sameSemantics = selected.command === 'setAnimation' ? sameAnimationSemantics
++      : selected.command === 'changeFigure' ? sameFigureSemantics : sameBackgroundSemantics;
+     if (sameSemantics(sentence, original)) {
+       const beforeRanges = nativeRanges(source);
+       const restored = applySourceChanges(source, [{ start: editedNode.start, end: editedNode.end,
+@@ -604,6 +699,29 @@ export function editDirectorFigureTransition(session: DirectorSession, nodeId: s
+   return editDirectorSession(session, nodeId, backgroundProposal(backgroundProposalHead(node.raw), values));
+ }
+ 
++/** Raw buffers must be checked before the native parser can truncate a delimiter. */
++export function editDirectorAnimation(session: DirectorSession, nodeId: string, input: DirectorAnimationInput): DirectorSession {
++  const node = session.nodes.find(item => item.nodeId === nodeId);
++  if (!node || !directorAnimationState(node).editable) throw new Error(node?.readonlyReason ?? '仅已有的单行有限动画支持本面板编辑。');
++  if (!input || typeof input.animation !== 'string' || typeof input.next !== 'boolean' || !staticAnimationTarget(input.target)
++    || !input.animation || input.animation !== input.animation.trim()
++    || /[{}\u0000-\u001f\u007f\uFEFF]/.test(input.animation) || input.animation.includes(' -')) {
++    throw new Error(animationInputReason);
++  }
++  const current = directorAnimationState(node);
++  const unchangedResource = input.animation === current.animation;
++  // Existing decoded semicolons keep their source token. New ChooseFile names
++  // may contain native \; escapes; a bare semicolon is an incomplete raw input.
++  if (!unchangedResource && (/(?<!\\);/.test(input.animation) || /\\(?!;)/.test(input.animation))) {
++    throw new Error(animationInputReason);
++  }
++  const values = new Map(node.sentence.args.map(arg => [arg.key, arg.value]));
++  values.set('target', input.target);
++  if (input.next !== current.next) values.set('next', input.next);
++  const head = unchangedResource ? backgroundProposalHead(node.raw) : `setAnimation:${input.animation}`;
++  return editDirectorSession(session, nodeId, backgroundProposal(head, values));
++}
++
+ /** Add one complete native command immediately before this session's dialogue. */
+ export function addDirectorSessionNode(session: DirectorSession, statement: string): DirectorSession {
+   if (/[\r\n\uFEFF]/.test(statement)) throw new Error('一次只能新增一条完整的单行命令。');
+@@ -683,7 +801,7 @@ function structuralContext(session: DirectorSession): StructuralContext {
+ function structuralTarget(session: DirectorSession, nodeId: string) {
+   const node = session.nodes.find(item => item.nodeId === nodeId);
+   if (!node || !node.editable || node.role !== 'stage' || !stageCommands.has(node.command)) {
+-    throw new Error('只能删除或调整本组支持的舞台与声音设置；对白、等待和注释保持原位。');
++    throw new Error('只能删除或调整本组支持的舞台与声音设置；对白、动画、等待和注释保持原位。');
+   }
+   if ([node.sentence.content, ...node.sentence.args.map(arg => String(arg.value))].some(value => /[{}]/.test(value))
+     || node.sentence.args.some(arg => arg.key === 'continue')) {

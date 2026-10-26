@@ -12,6 +12,7 @@ const { default: Figure } = await load('figure');
 const { default: FigureDiff } = await load('figureDiff');
 const { default: Bg } = await load('bg');
 const { default: Wait } = await load('wait');
+const { default: Animation } = await load('animation');
 const { createDirectorSession } = await load('directorSession');
 const { SceneDocument } = await load('document');
 const registry = await load('previewRegistry');
@@ -1140,4 +1141,184 @@ test('removed figure rows cannot return through late timing or native asset call
   button(h.render(),'应用到草稿').props.onClick();await flush();
   assert.equal(h.closed,1);assert.doesNotMatch(h.document.getSnapshot().text,/changeFigure:/);
   h.hooks.unmount();h.document.undo();assert.equal(h.document.getSnapshot().text,initial);
+});
+
+const animationSource='\uFEFFchangeFigure:lin.svg -id=hero -right -next; figure note @makenovel-node figure\r\n'
+  +'setAnimation:move-right -target=hero -keep=false -parallel=false -transformFrom=current -next=false; animation note @makenovel-node animation\r\n'
+  +'say:当前句; dialogue note @makenovel-node line\r\n';
+function mountAnimation(h) {
+  const hooks=new Hooks();let tree;
+  const render=()=>{tree=hooks.render(Animation,form(h.render(),'setAnimation').props);hooks.commit();return tree;};
+  render();return {hooks,render,get tree(){return tree;}};
+}
+const animationInput=tree=>collect(tree,node=>node.type==='input'&&node.props['aria-label']==='动画目标 ID')[0];
+const animationPicker=tree=>collect(tree,node=>node.type==='choose-file')[0];
+const animationNext=tree=>collect(tree,node=>node.type==='option'&&node.props.title==='立即继续')[0].props.children;
+const animationMode=tree=>collect(tree,node=>node.type==='option'&&node.props.title==='使用预设目标')[0].props.children;
+function typeAnimationTarget(mounted,value) {
+  animationInput(mounted.tree).props.onChange({target:{value}});mounted.render();
+}
+
+test('finite animation form exposes resource, four preset targets and next without advanced or structural actions',async()=>{
+  const h=await harness(animationSource,2),mounted=mountAnimation(h);
+  assert.equal(form(h.tree,'setAnimation').props.animation.editable,true);
+  assert.equal(collect(mounted.tree,node=>node.type==='option'&&['跨语句动画','并行动画'].includes(node.props.title)).length,0);
+  assert.equal(collect(h.tree,node=>node.type==='button'&&node.props['aria-label']?.includes('独立动画')).length,0);
+  assert.equal(animationNext(mounted.tree).props.isChecked,false);
+  animationMode(mounted.tree).props.onChange(true);mounted.render();
+  const options=collect(mounted.tree,node=>node.type==='wheel')[0].props.options;
+  assert.deepEqual([...options.keys()],['fig-left','fig-center','fig-right','bg-main']);
+  assert.match(collect(mounted.tree,node=>node.type==='tips').map(node=>node.props.text).join(' '),/时长由动画文件决定.*立即继续/s);
+  mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('real animation picker strips only the final case-insensitive JSON suffix in local and native forms',async()=>{
+  for(const [name,expected] of [['move-left.json','move-left'],['nested.json/move.json-side.json','nested.json/move.json-side'],['upper.JSON','upper']]) {
+    const h=await harness(animationSource,2),mounted=mountAnimation(h);
+    animationPicker(mounted.tree).props.onChange({name});mounted.render();
+    assert.equal(form(h.render(),'setAnimation').props.sentence.content,expected);
+    assert.equal(sentenceArg(form(h.render(),'setAnimation').props.sentence,'next'),false);
+    assert.equal(h.document.getSnapshot().text,animationSource);
+    mounted.hooks.unmount();h.hooks.unmount();
+    const hooks=new Hooks(),submitted=[];
+    const props={sentence:{commandRaw:'setAnimation',content:'old',args:[{key:'target',value:'fig-left'}]},onSubmit:text=>submitted.push(text)};
+    const tree=hooks.render(Animation,props);hooks.commit();animationPicker(tree).props.onChange({name});
+    assert.equal(submitted.length,1);assert.ok(submitted[0].startsWith(`setAnimation:${expected}`));hooks.unmount();
+  }
+});
+
+test('animation chooser cancellation and unmounted callbacks do not create a draft',async()=>{
+  const h=await harness(animationSource,2),mounted=mountAnimation(h),picker=animationPicker(mounted.tree);
+  picker.props.onChange(null);assert.equal(form(h.render(),'setAnimation').props.sentence.content,'move-right');
+  mounted.hooks.unmount();picker.props.onChange({name:'late.json'});
+  assert.equal(form(h.render(),'setAnimation').props.sentence.content,'move-right');assert.equal(h.document.getSnapshot().text,animationSource);
+  h.hooks.unmount();
+});
+
+test('animation resource target next and dialogue apply in one undo transaction then save and reopen',async()=>{
+  const h=await harness(animationSource,2),mounted=mountAnimation(h),version=h.document.getSnapshot().historyVersion;
+  typeAnimationTarget(mounted,'second-hero');animationInput(mounted.tree).props.onBlur();
+  animationPicker(mounted.tree).props.onChange({name:'nested.json/move.json-side.json'});mounted.render();
+  animationNext(mounted.tree).props.onChange(true);mounted.render();
+  form(h.render(),'say').props.onSubmit('say:修改后的对白;');
+  assert.equal(h.document.getSnapshot().text,animationSource);assert.equal(h.writes,0);
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  const edited=h.document.getSnapshot().text;
+  assert.equal(h.closed,1);assert.equal(h.document.getSnapshot().historyVersion,version+1);
+  assert.match(edited,/setAnimation:nested\.json\/move\.json-side -target=second-hero/);
+  assert.match(edited,/-keep=false -parallel=false -transformFrom=current/);
+  assert.match(edited,/animation note @makenovel-node animation\r\n/);assert.match(edited,/修改后的对白/);assert.equal(edited.charCodeAt(0),0xFEFF);
+  h.document.undo();assert.equal(h.document.getSnapshot().text,animationSource);assert.equal(h.document.getSnapshot().canUndo,false);
+  h.document.redo();assert.equal(h.document.getSnapshot().text,edited);
+  await h.document.save();assert.equal(h.writes,1);
+  const reopened=createDirectorSession(h.document.getSnapshot().text,2,h.document.getSnapshot().historyVersion).nodes.find(node=>node.command==='setAnimation');
+  assert.equal(reopened.sentence.content,'nested.json/move.json-side');assert.equal(sentenceArg(reopened.sentence,'target'),'second-hero');assert.equal(sentenceArg(reopened.sentence,'next'),true);
+  mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('animation next and resource round trips restore exact explicit false/current source bytes',async()=>{
+  const h=await harness(animationSource,2),mounted=mountAnimation(h);
+  animationNext(mounted.tree).props.onChange(true);mounted.render();animationNext(mounted.tree).props.onChange(false);mounted.render();
+  animationPicker(mounted.tree).props.onChange({name:'other.json'});mounted.render();animationPicker(mounted.tree).props.onChange({name:'move-right.json'});mounted.render();
+  assert.equal(alerts(h.render()),'');button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,1);assert.equal(h.document.getSnapshot().text,animationSource);assert.equal(h.document.getSnapshot().canUndo,false);
+  mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('invalid raw animation target cannot be hidden by asset or next controls and blocks the entire batch',async()=>{
+  for(const invalid of ['', 'hero; say:injected', 'hero\nnext', '{hero}', 'stage-main', 'hero -next']) {
+    const h=await harness(animationSource,2),mounted=mountAnimation(h);
+    typeAnimationTarget(mounted,invalid);animationInput(mounted.tree).props.onBlur();
+    animationPicker(mounted.tree).props.onChange({name:'move-left.json'});mounted.render();animationNext(mounted.tree).props.onChange(true);mounted.render();
+    assert.notEqual(alerts(h.render()),'',invalid);assert.equal(form(h.render(),'setAnimation').props.sentence.content,'move-right',invalid);
+    form(h.render(),'say').props.onSubmit('say:有效对白;');button(h.render(),'应用到草稿').props.onClick();await flush();
+    assert.equal(h.closed,0,invalid);assert.equal(h.document.getSnapshot().text,animationSource,invalid);
+    typeAnimationTarget(mounted,'fixed-hero');animationInput(mounted.tree).props.onBlur();mounted.render();
+    assert.equal(alerts(h.render()),'');button(h.render(),'应用到草稿').props.onClick();await flush();
+    assert.equal(h.closed,1);assert.match(h.document.getSnapshot().text,/-target=fixed-hero/);assert.match(h.document.getSnapshot().text,/setAnimation:move-left/);
+    mounted.hooks.unmount();h.hooks.unmount();
+  }
+});
+
+test('invalid animation resource raw callbacks cannot truncate into a successful script',async()=>{
+  for(const name of ['bad\nname.json','bad\rname.json','bad; say:injected.json','{dynamic}.json','bad\uFEFFname.json']) {
+    const h=await harness(animationSource,2),mounted=mountAnimation(h);
+    animationPicker(mounted.tree).props.onChange({name});mounted.render();
+    assert.notEqual(alerts(h.render()),'',name);assert.equal(form(h.render(),'setAnimation').props.sentence.content,'move-right',name);
+    button(h.render(),'应用到草稿').props.onClick();await flush();assert.equal(h.closed,0);assert.equal(h.document.getSnapshot().text,animationSource);
+    animationPicker(mounted.tree).props.onChange({name:'fixed.json'});mounted.render();assert.equal(alerts(h.render()),'');
+    mounted.hooks.unmount();h.hooks.unmount();
+  }
+});
+
+test('an older animation picker callback uses the latest target and next buffers',async()=>{
+  const h=await harness(animationSource,2),mounted=mountAnimation(h),oldPicker=animationPicker(mounted.tree);
+  typeAnimationTarget(mounted,'latest-hero');animationInput(mounted.tree).props.onBlur();mounted.render();
+  animationNext(mounted.tree).props.onChange(true);mounted.render();oldPicker.props.onChange({name:'late-resource.json'});mounted.render();
+  const current=form(h.render(),'setAnimation').props.sentence;
+  assert.equal(current.content,'late-resource');assert.equal(sentenceArg(current,'target'),'latest-hero');assert.equal(sentenceArg(current,'next'),true);
+  assert.equal(h.document.getSnapshot().text,animationSource);mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('animation IME buffers defer blur and apply until composition completes',async()=>{
+  const h=await harness(animationSource,2),mounted=mountAnimation(h);
+  surface(h.tree).props.onCompositionStartCapture();animationInput(mounted.tree).props.onCompositionStart();
+  typeAnimationTarget(mounted,'中文角色');animationInput(mounted.tree).props.onBlur();
+  assert.equal(sentenceArg(form(h.render(),'setAnimation').props.sentence,'target'),'hero');
+  button(h.render(),'应用到草稿').props.onClick();await flush();assert.equal(h.closed,0);assert.equal(h.document.getSnapshot().text,animationSource);
+  animationInput(mounted.tree).props.onCompositionEnd({currentTarget:{value:'中文角色'}});surface(h.render()).props.onCompositionEndCapture();await flush();
+  const active=new HTMLInputElement();active.blur=()=>animationInput(mounted.tree).props.onBlur();globalThis.document.activeElement=active;
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,1);assert.match(h.document.getSnapshot().text,/-target=中文角色/);mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('cancelled animation transactions reject late adapters and native picker submissions',async()=>{
+  const h=await harness(animationSource,2),mounted=mountAnimation(h),late=form(h.tree,'setAnimation').props,picker=animationPicker(mounted.tree);
+  button(h.tree,'取消').props.onClick();assert.equal(h.closed,1);
+  assert.equal(late.onAnimationSubmit({animation:'late',target:'late-target',next:true}),false);
+  late.onSubmit('setAnimation:late -target=late-target -next;');picker.props.onChange({name:'late.json'});await flush();
+  assert.equal(h.document.getSnapshot().text,animationSource);assert.equal(h.document.getSnapshot().canUndo,false);
+  mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('external scene revision rejects a valid animation batch without discarding its local fields',async()=>{
+  const h=await harness(animationSource,2),mounted=mountAnimation(h);
+  animationPicker(mounted.tree).props.onChange({name:'move-left.json'});mounted.render();
+  h.document.edit(animationSource.replace('当前句','外部对白'));button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,0);assert.match(h.document.getSnapshot().text,/外部对白/);assert.match(alerts(h.render()),/主文档已改变/);
+  assert.equal(form(h.render(),'setAnimation').props.sentence.content,'move-left');mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('unsupported animation forms stay collection boundaries without opening limited controls',async()=>{
+  for(const args of ['-keep','-parallel','-continue','-writeDefault=false','-transformFrom=default','-target=stage-main']) {
+    const initial=`changeFigure:lin.svg -id=hero;\r\nsetAnimation:move-right -target=hero ${args}; advanced note\r\nsay:当前句;`;
+    const h=await harness(initial,2);
+    assert.equal(form(h.tree,'setAnimation'),undefined,args);assert.equal(form(h.tree,'changeFigure'),undefined,args);
+    assert.equal(h.document.getSnapshot().text,initial);h.hooks.unmount();
+  }
+});
+
+test('animation escaped filename edits preserve source tokens and exact no-op round trips',async()=>{
+  const initial=animationSource.replace('move-right','move\\;right'),h=await harness(initial,2),mounted=mountAnimation(h);
+  assert.equal(form(h.tree,'setAnimation').props.sentence.content,'move;right');
+  animationNext(mounted.tree).props.onChange(true);mounted.render();
+  assert.equal(form(h.render(),'setAnimation').props.sentence.content,'move;right');
+  animationPicker(mounted.tree).props.onChange({name:'nested.json/move\\;left.JSON'});mounted.render();
+  assert.equal(form(h.render(),'setAnimation').props.sentence.content,'nested.json/move;left');assert.equal(alerts(h.render()),'');
+  animationPicker(mounted.tree).props.onChange({name:'move\\;right.json'});mounted.render();
+  animationNext(mounted.tree).props.onChange(false);mounted.render();
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,1);assert.equal(h.document.getSnapshot().text,initial);assert.equal(h.document.getSnapshot().canUndo,false);
+  mounted.hooks.unmount();h.hooks.unmount();
+});
+
+test('animation compositionend final DOM value reaches Apply before another React render',async()=>{
+  const h=await harness(animationSource,2),mounted=mountAnimation(h),input=animationInput(mounted.tree);
+  surface(h.tree).props.onCompositionStartCapture();input.props.onCompositionStart();
+  input.props.onChange({target:{value:'zhong'}});
+  input.props.onCompositionEnd({currentTarget:{value:'中文目标'}});surface(h.tree).props.onCompositionEndCapture();await flush();
+  const active=new HTMLInputElement();active.blur=()=>input.props.onBlur();globalThis.document.activeElement=active;
+  button(h.render(),'应用到草稿').props.onClick();await flush();
+  assert.equal(h.closed,1);assert.match(h.document.getSnapshot().text,/-target=中文目标/);assert.doesNotMatch(h.document.getSnapshot().text,/-target=zhong/);
+  mounted.hooks.unmount();h.hooks.unmount();
 });

@@ -40,6 +40,10 @@
     {
       "file": "0010-director-figure-transition.patch",
       "sha256": "5e3ba82f9b9e2245634803837ea9dbe8e882da5f9cfb672e3129cb1c6fc4ea29"
+    },
+    {
+      "file": "0011-director-finite-animation.patch",
+      "sha256": "5eef4d6325a523a4df649f331502af2c6455bc90eea3a2a100fbcfe49dbf0c0c"
     }
   ]
 }

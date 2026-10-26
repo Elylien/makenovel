@@ -209,3 +209,11 @@ pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.p
 新增原始时长适配、严格单位置和 ID 范围、显式 center/next=false 保留、完整语义无操作及恢复；首次位置同步初始化，原生 center→left/right 提交清除旧 center。复用局部草稿与原生运行时，不修改锁文件、后端、引擎或存档格式。
 
 独立重放和构建后最终核验见 [第十三轮证据](../evidence/2026-10-09-round13.md)。运行重放时不得重新导出补丁或修改 manifest。
+
+## 第十五轮有限动画补丁
+
+`0.0.15` 保留前十份补丁原字节，追加 `0011-director-finite-animation.patch`。增量基树 `23c07e4ee8229c7d413493128420e745c1d10865`，SHA256 `5eef4d6325a523a4df649f331502af2c6455bc90eea3a2a100fbcfe49dbf0c0c`，38618 字节，十一补丁完整树 `f1dbce8b346b235e96da095beee935341c77aa40`。
+
+覆盖 SetAnimation、SentenceEditor props、DirectorPanel、directorSession 和四份 locale。已有有限动画的资源/目标/next 复用原生控件与局部写回；已知模型只读，动画为结构边界，旧/动态/高级参数不做静默迁移。五个新消息 ID 随构建提取；非中文翻译待补。没有运行时新补丁或依赖升级。
+
+最终十一补丁独立重放 18/18，真实 index/开发树保持；构建后反向检查 11/11。细分测试与实际 GUI 见 [第十五轮证据](../evidence/2026-10-26-round15.md)。下一增量应以上述十一补丁完整树为基准。
