@@ -1,8 +1,43 @@
 # 测试入口与证据
 
-更新：2026-10-26，MakeNovel `0.0.15`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-27，MakeNovel `0.0.16`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-## 第十五轮可复查入口
+## 第十六轮可复查入口
+
+本轮聚焦十三入口 **355/355**，没有重跑全部作者回归或完整上游 runtime339。受控 runtime 构建 73.898s、Terre 构建 167.796s 均通过；runtime 六补丁独立重放 18/18，runtime 6/6 与 Terre 11/11 最终补丁检查通过。实际旧版复现、新版播放与恢复路径见 [第十六轮证据](evidence/2026-10-26-round16.md)。
+
+| 入口 | 通过/总数 |
+| --- | --- |
+| manifest / save-backup / save-compatibility | 33/33、35/35、34/34 |
+| save-storage / save-initialization | 35/35、16/16 |
+| runtime-restore | 87/87 |
+| save-ui / preview-notice | 12/12、11/11 |
+| menu-lifecycle / perform-lifecycle / resource-lifecycle | 15/15、24/24、38/38 |
+| playback-modes / playback-demo | 12/12、3/3 |
+
+```powershell
+npm.cmd run test:manifest
+npm.cmd run test:save-backup
+npm.cmd run test:save-compatibility
+npm.cmd run test:save-storage
+npm.cmd run test:save-initialization
+npm.cmd run test:runtime-restore
+npm.cmd run test:save-ui
+npm.cmd run test:preview-notice
+npm.cmd run test:menu-lifecycle
+npm.cmd run test:perform-lifecycle
+npm.cmd run test:resource-lifecycle
+npm.cmd run test:playback-modes
+npm.cmd run test:playback-demo
+npm.cmd run patch:runtime:check
+npm.cmd run patch:check
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL -ExpectedPatchCount 6 -EvidencePath docs/evidence/local/round16/runtime-independent-replay.json
+node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round16
+```
+
+恢复入口比第十五轮新增 17 项。播放组合测试使用真实原生自动、快进、下一句、PerformController 与有限动画代码，计时器和渲染为测试边界；不以代码计时替代可见运动。GUI 已验证菜单中动画继续但不跨句、稳定点解锁、快存/历史/流程图稳定恢复、动画历史重播、手动关闭自动后停止、已读快进停在未读处，以及刷新后节点与快存恢复。主动快存拒绝保留旧 READY 槽；永久错误、取消及并发范围按代码证据记账。真实中文 IME、新 Windows 离线包、强杀/断电和全部播放矩阵未运行。
+
+## 第十五轮可复查入口（历史）
 
 代码 **756/756** = 作者 528 + 八套样片 24 + 运行时相关 204；审核修复后最终导演 144、图形输入 132 重跑通过。受控 runtime → Terre 构建、Terre 十一补丁独立重放 18/18、HTTP 25/25、服务 22/22 和保留检查 24/24 通过。十二条实际 GUI 路径及未运行范围见 [第十五轮证据](evidence/2026-10-26-round15.md)。
 

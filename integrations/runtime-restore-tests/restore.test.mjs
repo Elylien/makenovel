@@ -1029,3 +1029,187 @@ test("flowchart persistence cannot publish after storage disable/re-enable ABA",
   assert.equal(flow.isUnlocked("main", "node"), false);
   assert.deepEqual(written, ["fixture-flowchart-main-node"]);
 });
+
+
+test("first flowchart dialogue retries at a later stable commit after a finite animation", async () => {
+  const flow = new runtime.FlowchartManager(h.WebGAL.sceneManager);
+  await flow.init("fixture", true);
+  flow.waitForCurrentSceneDialog();
+  h.currentStage.PerformList = [{ id: "animation-fig-left", isHoldOn: false,
+    script: { command: runtime.commandType.setAnimation, content: "move-left", args: [] } }];
+  flow.requestUnlockCurrentScene();
+  flow.unlockPendingCurrentScene();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(flow.isUnlocked("main", "node"), false);
+  assert.deepEqual(h.writes, []);
+  h.currentStage.PerformList = [];
+  h.currentStage.showText = "later stable dialogue";
+  flow.requestUnlockCurrentScene();
+  flow.unlockPendingCurrentScene();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(flow.isUnlocked("main", "node"), true);
+  const stored = h.writes.find(([key]) => key === "fixture-flowchart-main-node")[1];
+  assert.equal(stored.nowStageState.showText, "later stable dialogue");
+  assert.deepEqual(stored.nowStageState.PerformList, []);
+  assert.deepEqual(h.errors, []);
+});
+
+
+const flushFlowchart = () => new Promise(resolve => setImmediate(resolve));
+async function waitingFlowchart() {
+  const flow = new runtime.FlowchartManager(h.WebGAL.sceneManager);
+  await flow.init("fixture", true);
+  flow.waitForCurrentSceneDialog();
+  flow.requestUnlockCurrentScene();
+  return flow;
+}
+
+test("pending primary image and covered continuation defer flowchart quietly until a safe commit", async () => {
+  const flow = await waitingFlowchart();
+  const image = { primaryImageLoad: { status: "pending" } };
+  h.WebGAL.gameplay.pixiStage.getAllStageObj = () => [image];
+  flow.unlockPendingCurrentScene(); flow.unlockPendingCurrentScene();
+  await flushFlowchart();
+  assert.deepEqual(h.errors, []); assert.deepEqual(h.writes, []);
+  image.primaryImageLoad.status = "ready";
+  h.deferredStory = true;
+  flow.unlockPendingCurrentScene();
+  await flushFlowchart();
+  assert.deepEqual(h.errors, []); assert.deepEqual(h.writes, []);
+  h.deferredStory = false;
+  flow.unlockPendingCurrentScene();
+  await flushFlowchart();
+  assert.equal(flow.isUnlocked("main", "node"), true);
+  assert.equal(h.writes.filter(([key]) => key === "fixture-flowchart-main-node").length, 1);
+});
+
+test("unsettled exit object defers flowchart without queuing an explicit player save", async () => {
+  const flow = await waitingFlowchart();
+  const old = { key: "departing", uuid: "old" };
+  runtime.scheduleStageExit({ getStageObjByKey: () => old, removeAnimation() {}, removeStageObjectByKey() {} }, old, "exit", 8000);
+  try {
+    flow.unlockPendingCurrentScene();
+    await flushFlowchart();
+    assert.deepEqual(h.errors, []); assert.deepEqual(h.writes, []);
+    assert.equal(await runtime.saveGame(2), false);
+    assert.equal(await runtime.fastSaveGame(), false);
+    assert.match(h.errors.join("\n"), /演出.*结束/);
+  } finally { runtime.finishStageExits(); }
+  flow.unlockPendingCurrentScene();
+  await flushFlowchart();
+  assert.equal(flow.isUnlocked("main", "node"), true);
+  assert.equal(h.writes.some(([key]) => key === "save" || key === "fast"), false);
+});
+
+test("failed image consumes automatic flowchart request once and never bypasses the image gate", async () => {
+  const flow = await waitingFlowchart();
+  const image = { primaryImageLoad: { status: "failed" } };
+  h.WebGAL.gameplay.pixiStage.getAllStageObj = () => [image];
+  flow.unlockPendingCurrentScene(); flow.unlockPendingCurrentScene();
+  await flushFlowchart();
+  assert.equal(h.errors.length, 1); assert.match(h.errors[0], /图片资源加载失败/);
+  assert.deepEqual(h.writes, []);
+  image.primaryImageLoad.status = "ready";
+  flow.requestUnlockCurrentScene(); flow.unlockPendingCurrentScene();
+  await flushFlowchart();
+  assert.deepEqual(h.writes, []); assert.equal(h.errors.length, 1);
+  assert.equal(flow.isUnlocked("main", "node"), false);
+});
+
+for (const failure of ["version validation", "persistence"]) {
+  test(`automatic flowchart ${failure} failure reports once without blind retry`, async () => {
+    const flow = await waitingFlowchart();
+    if (failure === "version validation") h.validateSave = async () => { throw Error("fixture permanent failure"); };
+    else h.storage.setItem = async () => { throw Error("fixture permanent failure"); };
+    flow.unlockPendingCurrentScene();
+    await flushFlowchart();
+    flow.requestUnlockCurrentScene(); flow.unlockPendingCurrentScene();
+    await flushFlowchart();
+    assert.equal(h.errors.length, 1); assert.match(h.errors[0], /fixture permanent failure/);
+    assert.deepEqual(h.writes, []); assert.equal(flow.isUnlocked("main", "node"), false);
+  });
+}
+
+for (const invalidation of ["new session", "same-name scene replacement", "scene identity", "game namespace", "storage ABA", "reinitialization"]) {
+  test(`deferred first flowchart request cannot survive ${invalidation}`, async () => {
+    const flow = await waitingFlowchart();
+    h.deferredStory = true;
+    flow.unlockPendingCurrentScene();
+    if (invalidation === "new session") h.WebGAL.sceneManager.invalidateSession();
+    if (invalidation === "same-name scene replacement") h.WebGAL.sceneManager.sceneData.currentScene = scene();
+    if (invalidation === "scene identity") h.WebGAL.sceneManager.sceneData.currentScene.sceneUrl = "./game/scene/other.txt";
+    if (invalidation === "game namespace") h.WebGAL.gameKey = "new-game";
+    if (invalidation === "storage ABA") { h.storageEnabled = false; h.storageEpoch++; h.storageEnabled = true; h.storageEpoch++; }
+    if (invalidation === "reinitialization") await flow.init("fixture", true);
+    h.deferredStory = false;
+    flow.requestUnlockCurrentScene(); flow.unlockPendingCurrentScene();
+    await flushFlowchart();
+    assert.deepEqual(h.writes, []); assert.deepEqual(h.errors, []);
+    assert.equal(flow.isUnlocked("main", "node"), false);
+  });
+}
+
+test("first dialogue while flowchart init is awaiting progress is retained until init completes", async () => {
+  const wait = deferred();
+  h.storage.getItem = async () => wait.promise;
+  const flow = new runtime.FlowchartManager(h.WebGAL.sceneManager);
+  const initialized = flow.init("fixture", true);
+  flow.waitForCurrentSceneDialog(); flow.requestUnlockCurrentScene();
+  flow.unlockPendingCurrentScene();
+  assert.equal(flow.hasFlowchart(), false); assert.deepEqual(h.writes, []);
+  wait.resolve(null); await initialized; await flushFlowchart();
+  assert.equal(flow.isUnlocked("main", "node"), true);
+  assert.equal(h.writes.filter(([key]) => key === "fixture-flowchart-main-node").length, 1);
+});
+
+test("duplicate safe commits cannot enqueue first flowchart snapshot twice", async () => {
+  const flow = await waitingFlowchart();
+  const wait = deferred();
+  let validations = 0;
+  h.validateSave = async () => { validations++; return wait.promise; };
+  flow.unlockPendingCurrentScene();
+  flow.requestUnlockCurrentScene(); flow.unlockPendingCurrentScene();
+  assert.equal(validations, 1);
+  wait.resolve(metadata); await flushFlowchart();
+  assert.equal(flow.isUnlocked("main", "node"), true);
+  assert.equal(h.writes.filter(([key]) => key === "fixture-flowchart-main-node").length, 1);
+});
+
+test("first flowchart snapshot validation finishing after same-session scene replacement is discarded", async () => {
+  const flow = await waitingFlowchart();
+  const wait = deferred();
+  h.validateSave = async () => wait.promise;
+  flow.unlockPendingCurrentScene();
+  h.WebGAL.sceneManager.sceneData.currentScene = scene();
+  wait.resolve(metadata); await flushFlowchart();
+  assert.deepEqual(h.writes, []); assert.equal(flow.isUnlocked("main", "node"), false);
+});
+
+test("first flowchart snapshot write finishing after scene replacement cannot publish progress", async () => {
+  const flow = await waitingFlowchart();
+  const wait = deferred();
+  h.storage.setItem = async (key, value) => { h.writes.push([key, clone(value)]); return wait.promise; };
+  flow.unlockPendingCurrentScene(); await flushFlowchart();
+  assert.equal(h.writes.length, 1);
+  h.WebGAL.sceneManager.sceneData.currentScene = scene();
+  wait.resolve(null); await flushFlowchart();
+  assert.equal(h.writes.length, 1); assert.equal(flow.isUnlocked("main", "node"), false);
+});
+
+
+test("clearing flowchart progress cancels an earlier deferred unlock but allows a new scene entry", async () => {
+  const flow = await waitingFlowchart();
+  h.deferredStory = true;
+  flow.unlockPendingCurrentScene();
+  await flow.clearProgress();
+  h.deferredStory = false;
+  flow.requestUnlockCurrentScene(); flow.unlockPendingCurrentScene();
+  await flushFlowchart();
+  assert.equal(flow.isUnlocked("main", "node"), false);
+  assert.deepEqual(h.writes, []);
+  flow.waitForCurrentSceneDialog(); flow.requestUnlockCurrentScene();
+  flow.unlockPendingCurrentScene();
+  await flushFlowchart();
+  assert.equal(flow.isUnlocked("main", "node"), true);
+  assert.equal(h.writes.filter(([key]) => key === "fixture-flowchart-main-node").length, 1);
+});

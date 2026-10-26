@@ -1,14 +1,15 @@
 # WebGAL 运行时补丁与模板同步
 
-更新：2026-10-23，MakeNovel `0.0.14`。运行时仍锁定 WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`；依赖版本不变。根仓 [清单](../../patches/webgal/manifest.json) 管理顺序补丁：
+更新：2026-10-27，MakeNovel `0.0.16`。运行时仍锁定 WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`；依赖版本不变。根仓 [清单](../../patches/webgal/manifest.json) 管理顺序补丁：
 
 - `0001-fixed-player-viewport.patch`：fixed 根画布，修复 body 滚动带走缩放后的存档菜单；此补丁自身不改存档协议。
 - `0002-versioned-player-saves.patch`：第五轮精确作品版本门禁、初始化前玩家备份、等待原生存储确认、异步恢复预检与界面错误/备份入口。保留原生脚本、槽、舞台、调用栈及执行器。
 - `0003-stage-audio-lifecycle.patch`：第六轮演出、菜单待推进、退场临时对象及音频生命周期修复；在已覆盖的有限演出或不稳定推进状态存在时拒绝普通/快速存档，保留旧槽，要求回到稳定对白后重新保存。
 - `0004-static-image-save-readiness.patch`：静态主图片待加载或加载失败时拒绝保存，防止空容器快照。
 - `0005-author-preview-storage-notice.patch`：作者预览持久标识与明确拒存/拒读说明，不改变隔离门禁或存档格式。
+- `0006-deferred-flowchart-unlock.patch`：章节首对白遇到瞬态快照门禁时保留解锁请求，到下一安全原生提交重试；取消过时/已清除请求，玩家主动存档拒绝规则不变。
 
-当前清单为5/5，完整树 `a0c22cb27d5e4c7d270d39efd34b10f8c6ca32ad`，五补丁独立重放18/18。新补丁SHA256 `5ccd3c3199f69f3d17efa31d6ccc31fb1d449ad7a008ce6feb1710475da7803a`。构建/模板同步和实际GUI见 [第十四轮证据](../evidence/2026-10-23-round14.md)。
+当前清单为6/6，完整树 `c81482167623cae5204a999f720ae6877be0f4ac`，六补丁独立重放18/18。0006 SHA256 `9977e84d68d9593df0d5bf83e0bb18880bbfd526f5e3328319ed2c1d8fc3d11c`，10502字节；增量基树为第十四/十五轮五补丁树 `a0c22cb27d5e4c7d270d39efd34b10f8c6ca32ad`。受控构建、模板同步、聚焦355项和实际GUI见 [第十六轮证据](../evidence/2026-10-26-round16.md)。
 
 历史第六轮清单为3/3。第三份补丁 SHA-256 为 `7eaa09925ce1516d714d0a418d5f7153f7bcb9d27f4619781e36629b397703f2`；独立重放与开发树均为 `c7acf8bad114dd10bc29800b2af4920884d38c14`。受控构建、模板传播与现场结果见 [第六轮记录](../evidence/2026-10-08-round6.md) 和 [TESTING.md](../TESTING.md)；下文第四轮数字只对应当时的单补丁树。
 
@@ -140,3 +141,16 @@ if ($LASTEXITCODE -ne 0) { throw 'Runtime independent replay failed' }
 ```
 
 上表最终 SHA 已在无 hardlinks/alternates 的独立 clone 完成 **18/18**，报告中的完整 tree 与开发树一致；不是沿用 SVG 桥接前的旧报告。检查包含四份顺序应用、幂等、完整树匹配、临时 index 逆序回到原版、开发工作树与两个真实 index 字节不变。源码重放不会自行改写共享模板或作品目录；本轮另完成受控构建、模板同步与实际 HTTP 摘要核对。Terre 最终导演补丁也按自身独立链完成 18/18，见 [补丁测试说明](../../integrations/patch-tests/README.md)。
+
+
+## 第十六轮流程图请求重试边界
+
+`saveGame`提供与显式存档共用的只读快照就绪检查，流程图保留瞬态请求到下一原生安全提交。请求绑定场景对象/key、会话、gameKey、storage epoch及初始化范围；先消费再异步保存，清除进度取消等待，永久错误一次。没有新增玩家存档请求队列，不改保存格式。
+
+动画结束本身不会主动重试，单句场景可能没有后续提交；已开始存储写入不能回滚。异步结果检查只限制后续写入与内存发布。稳定历史/流程图/快存恢复的GUI证据和运动历史重播边界分别记录，不将重播说成相位续播。
+
+```powershell
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -ExpectedPatchCount 6 -EvidencePath docs/evidence/local/round16/runtime-independent-replay.json
+```
+
+最终重放18/18和runtime6/6反向检查均通过，旧1–5补丁原字节不变。下一增量0007从本页当前六补丁完整树导出。

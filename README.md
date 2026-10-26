@@ -2,7 +2,7 @@
 
 面向 Windows 的视觉小说创作工具链：传统玩家体验、人工导演模式，以及共享同一份源码的 AI 创作接口。
 
-**当前版本 0.0.15：已有有限动画可在导演面板中编辑资源、静态目标和“立即继续”，与对白一起应用及撤销。** 保留原生脚本、执行器、精确版本存档和玩家备份。代码 756/756、受控构建、十一补丁重放及有限 GUI 路径通过，详见 [当前状态](docs/PROJECT_STATUS.md) 和 [第十五轮证据](docs/evidence/2026-10-26-round15.md)。完整 G1/G2、Windows 离线与正式发行仍未整体验收。
+**当前版本 0.0.16：流程图首节点遇到有限演出或图片加载时，会保留解锁请求，在后续安全提交点重试。** 保留原生脚本、执行器、导演编辑和精确版本存档；主动保存仍会拒绝未完成演出。聚焦回归 355/355、受控构建和运行时六补丁重放通过，实际菜单、自动/快进及历史/流程图恢复结果见 [当前状态](docs/PROJECT_STATUS.md) 和 [第十六轮证据](docs/evidence/2026-10-26-round16.md)。完整 G1/G2、当前 Windows 离线包与正式发行仍未整体验收。
 
 ## 开始
 
@@ -134,6 +134,16 @@ npm.cmd run test:animation-demo
 
 目标已存在时拒绝覆盖；改稿后需显式更新作品清单并从标题正常开始。见 [动画样片说明](integrations/animation-demo/README.md)。
 
+第十六轮播放与恢复样片通过原生场景切换，在章节首对白叠加八秒动画，提供稳定点、关闭人物、手动继续及自动/快进停靠段：
+
+```powershell
+npm.cmd run demo:playback -- --output .local/editor-profile/games/makenovel-round16
+npm.cmd run test:playback-demo
+npm.cmd run test:playback-modes
+```
+
+目标已存在时拒绝覆盖。流程节点在后续安全剧情提交时重试解锁，动画结束本身不会自动解锁；没有后续安全提交的单句场景可能仍锁定。主动存档仍须在稳定点重新操作。稳定历史/流程图快照恢复终态；返回动画中的历史记录会从初态重播，不是精确相位续播。详细路径见 [播放样片说明](integrations/playback-demo/README.md)。
+
 ## 导出 Windows 开发包
 
 完成编辑器构建后，使用实际作品目录运行：
@@ -144,7 +154,7 @@ npm.cmd run game:export -- -GamePath '.local/editor-profile/games/你的作品�
 
 入口调用原 Terre 导出服务，将包含 Electron 的未签名包放入 `.local/exports/`；首次构建壳需要下载依赖。玩家直接运行生成的 EXE，无需 Node/Yarn。当前开发包保留默认 Electron 图标/元数据，尚不是签名安装发行版。
 
-第七轮新包已在本机 Windows 11 x64 验证关闭项目开发服务后的导演改稿显示、坏图普通/快速拒存与旧槽保护、换回正常背景后的保存恢复，以及正常退出重启读档。具体过程见 [第七轮记录](docs/evidence/2026-10-08-round7.md)。全机断网、干净机器和全部存档边界尚未验收；导出边界见 [Windows 导出说明](integrations/windows-export/README.md)。
+第七轮新包的历史证据已在本机 Windows 11 x64 验证关闭项目开发服务后的导演改稿显示、坏图普通/快速拒存与旧槽保护、换回正常背景后的保存恢复，以及正常退出重启读档。具体过程见 [第七轮记录](docs/evidence/2026-10-08-round7.md)。当前 0.0.16 尚未导出并验收新包；下一单元将检查当前包在关闭开发服务后的正常退出重启。全机断网、干净机器和全部存档边界尚未验收；导出边界见 [Windows 导出说明](integrations/windows-export/README.md)。
 
 ## 项目导航
 

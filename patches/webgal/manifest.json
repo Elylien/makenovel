@@ -20,6 +20,10 @@
     {
       "file": "0005-author-preview-storage-notice.patch",
       "sha256": "5ccd3c3199f69f3d17efa31d6ccc31fb1d449ad7a008ce6feb1710475da7803a"
+    },
+    {
+      "file": "0006-deferred-flowchart-unlock.patch",
+      "sha256": "9977e84d68d9593df0d5bf83e0bb18880bbfd526f5e3328319ed2c1d8fc3d11c"
     }
   ]
 }

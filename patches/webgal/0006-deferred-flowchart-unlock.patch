@@ -1,0 +1,213 @@
+diff --git a/packages/webgal/src/Core/Modules/flowchart.ts b/packages/webgal/src/Core/Modules/flowchart.ts
+index ca1bdf48ed3bce07138dfd75be6f083c0f2466fe..1d01cbbb2a7fe2152b5d1fb60cb59eccb4bec817 100644
+--- a/packages/webgal/src/Core/Modules/flowchart.ts
++++ b/packages/webgal/src/Core/Modules/flowchart.ts
+@@ -1,5 +1,5 @@
+ import { WebGAL } from '@/Core/WebGAL';
+-import { generateCurrentStageData } from '@/Core/controller/storage/saveGame';
++import { generateCurrentStageData, getVisualSnapshotReadiness } from '@/Core/controller/storage/saveGame';
+ import {
+   validateForSave,
+   reportSaveError,
+@@ -44,6 +44,15 @@ export interface IFlowchartData {
+ 
+ const FLOWCHART_UPDATED_EVENT = 'webgal-flowchart-updated';
+ 
++interface SceneUnlockRequest {
++  scene: object;
++  sceneKey: string;
++  sessionEpoch: number;
++  gameKey: string;
++  storageEpoch: number;
++  scopeVersion: number;
++}
++
+ export class FlowchartManager {
+   public enabled = false;
+   private gameKey = '';
+@@ -51,7 +60,7 @@ export class FlowchartManager {
+   private unlocked = new Set<string>();
+   private snapshots = new Map<string, ISaveData>();
+   private pendingUnlockCurrentScene = false;
+-  private waitingUnlockSceneKey = '';
++  private waitingSceneUnlock: SceneUnlockRequest | undefined;
+   private snapshotSequence = 0;
+   private latestSnapshot = new Map<string, number>();
+   private persistTask: Promise<void> = Promise.resolve();
+@@ -78,6 +87,7 @@ export class FlowchartManager {
+ 
+   public async init(gameKey: string, enabled: boolean) {
+     this.scopeVersion += 1;
++    this.cancelPendingSceneUnlock();
+     this.gameKey = gameKey;
+     this.enabled = enabled;
+     this.data = { flowcharts: [] };
+@@ -124,21 +134,57 @@ export class FlowchartManager {
+     return this.unlocked.has(this.nodeKey(flowchartId, nodeId));
+   }
+ 
++  private isSceneUnlockCurrent() {
++    const request = this.waitingSceneUnlock;
++    return request !== undefined &&
++      request.scene === this.sceneManager.sceneData.currentScene &&
++      request.sceneKey === this.currentSceneKey() &&
++      this.sceneManager.isSessionCurrent(request.sessionEpoch) &&
++      request.gameKey === this.gameKey && request.gameKey === WebGAL.gameKey &&
++      request.storageEpoch === getSaveStorageEpoch() &&
++      request.scopeVersion === this.scopeVersion && isSaveStorageEnabled();
++  }
++
++  public cancelPendingSceneUnlock() {
++    this.pendingUnlockCurrentScene = false;
++    this.waitingSceneUnlock = undefined;
++  }
++
+   public requestUnlockCurrentScene() {
+-    if (this.currentSceneKey() !== this.waitingUnlockSceneKey) return;
++    if (!this.isSceneUnlockCurrent()) {
++      this.cancelPendingSceneUnlock();
++      return;
++    }
+     this.pendingUnlockCurrentScene = true;
+   }
+ 
+   public unlockPendingCurrentScene() {
+-    if (!this.pendingUnlockCurrentScene || !this.hasFlowchart()) return;
+-    this.pendingUnlockCurrentScene = false;
+-    this.waitingUnlockSceneKey = '';
+-    this.unlockCurrentScene(true);
++    if (!this.pendingUnlockCurrentScene) return;
++    if (!this.isSceneUnlockCurrent()) {
++      this.cancelPendingSceneUnlock();
++      return;
++    }
++    // init may still be loading its definition, or a scene operation may be finishing.
++    if (!this.hasFlowchart() || this.sceneManager.lockSceneWrite) return;
++    const readiness = getVisualSnapshotReadiness();
++    // Retry only on a later native commit. Explicit player saves are never queued.
++    if (!readiness.ready && readiness.transient) return;
++    // Consume before async validation/persistence: duplicate commits cannot enqueue it twice.
++    // Permanent failures use the original save gate and report once, without blind retries.
++    this.cancelPendingSceneUnlock();
++    void this.unlockCurrentScene(true);
+   }
+ 
+   public waitForCurrentSceneDialog() {
+     this.pendingUnlockCurrentScene = false;
+-    this.waitingUnlockSceneKey = this.currentSceneKey();
++    this.waitingSceneUnlock = {
++      scene: this.sceneManager.sceneData.currentScene,
++      sceneKey: this.currentSceneKey(),
++      sessionEpoch: this.sceneManager.getSessionEpoch(),
++      gameKey: this.gameKey,
++      storageEpoch: getSaveStorageEpoch(),
++      scopeVersion: this.scopeVersion,
++    };
+   }
+ 
+   public async loadSnapshot(flowchartId: string, nodeId: string) {
+@@ -159,6 +205,7 @@ export class FlowchartManager {
+   public async clearProgress() {
+     try {
+       const scope = this.captureStorageScope();
++      this.cancelPendingSceneUnlock();
+       this.latestSnapshot.clear();
+       await this.persistTask.catch(() => {});
+       if (!this.isStorageScopeCurrent(scope)) throw new Error('流程图所属作品已切换，没有继续清理。');
+@@ -191,6 +238,7 @@ export class FlowchartManager {
+     if (matched.length === 0) return;
+     if (this.sceneManager.lockSceneWrite) return;
+     const epoch = this.sceneManager.getSessionEpoch();
++    const scene = this.sceneManager.sceneData.currentScene;
+     const sequence = ++this.snapshotSequence;
+     for (const { flowchart, node } of matched) this.latestSnapshot.set(this.nodeKey(flowchart.id, node.id), sequence);
+     let snapshot: ISaveData;
+@@ -203,9 +251,11 @@ export class FlowchartManager {
+       reportSaveError(error);
+       return;
+     }
+-    if (!this.sceneManager.isSessionCurrent(epoch) || !this.isStorageScopeCurrent(scope)) return;
++    const isCurrent = () => this.sceneManager.isSessionCurrent(epoch) &&
++      this.sceneManager.sceneData.currentScene === scene && this.isStorageScopeCurrent(scope);
++    if (!isCurrent()) return;
+     const persist = async () => {
+-      if (!this.sceneManager.isSessionCurrent(epoch) || !this.isStorageScopeCurrent(scope)) return;
++      if (!isCurrent()) return;
+       const targets = matched.filter(({ flowchart, node }) => {
+         const key = this.nodeKey(flowchart.id, node.id);
+         return this.latestSnapshot.get(key) === sequence && (!this.unlocked.has(key) || refreshSnapshot);
+@@ -214,12 +264,12 @@ export class FlowchartManager {
+       const nextUnlocked = new Set(this.unlocked);
+       for (const { flowchart, node } of targets) {
+         await localforage.setItem(`${scope.gameKey}-flowchart-${this.nodeKey(flowchart.id, node.id)}`, snapshot);
+-        if (!this.isStorageScopeCurrent(scope)) return;
++        if (!isCurrent()) return;
+         nextUnlocked.add(this.nodeKey(flowchart.id, node.id));
+       }
+       const changed = nextUnlocked.size !== this.unlocked.size;
+       if (changed) await localforage.setItem(`${scope.gameKey}-flowchart`, [...nextUnlocked]);
+-      if (!this.isStorageScopeCurrent(scope)) return;
++      if (!isCurrent()) return;
+       // Publish only after all writes have succeeded; orphan snapshots remain exportable on failure.
+       this.unlocked = nextUnlocked;
+       for (const { flowchart, node } of targets) this.snapshots.set(this.nodeKey(flowchart.id, node.id), snapshot);
+diff --git a/packages/webgal/src/Core/controller/storage/saveGame.ts b/packages/webgal/src/Core/controller/storage/saveGame.ts
+index 890f1c69f36d7bfc169158ff8655a89b27ab5b90..a2a68db73e9e6a542d0351080add6842106109f7 100644
+--- a/packages/webgal/src/Core/controller/storage/saveGame.ts
++++ b/packages/webgal/src/Core/controller/storage/saveGame.ts
+@@ -18,6 +18,32 @@ const unstableSaveCommands = new Set([
+   commandType.setComplexAnimation, commandType.wait,
+ ]);
+ 
++export type VisualSnapshotReadiness =
++  | { ready: true }
++  | { ready: false; transient: boolean; message: string };
++
++/** Read-only visual gate shared by explicit saves and first-scene flowchart unlocks. */
++export function getVisualSnapshotReadiness(): VisualSnapshotReadiness {
++  const stageState = stageStateManager.getCalculationStageState();
++  if (hasDeferredStoryContinue() || hasPendingStageExits() || stageState.PerformList.some((perform) => !perform.isHoldOn && unstableSaveCommands.has(perform.script.command))) {
++    return { ready: false, transient: true,
++      message: '当前演出尚未结束或正在等待继续，请返回剧情，在演出结束后的对白处保存。此次没有覆盖存档。' };
++  }
++  // A finished perform does not prove its primary image finished loading/preparing.
++  const imageLoads = (WebGAL.gameplay.pixiStage?.getAllStageObj() ?? [])
++    .filter((object) => !object.isExiting)
++    .map((object) => object.primaryImageLoad?.status);
++  if (imageLoads.includes('failed')) {
++    return { ready: false, transient: false,
++      message: '舞台图片资源加载失败，无法保存。请检查资源后重新打开作品。此次没有覆盖存档。' };
++  }
++  if (imageLoads.includes('pending')) {
++    return { ready: false, transient: true,
++      message: '舞台图片资源仍在加载，请等待图片显示后再保存。此次没有覆盖存档。' };
++  }
++  return { ready: true };
++}
++
+ /**
+  * 保存游戏
+  * @param index 游戏的档位
+@@ -51,20 +77,8 @@ export function generateCurrentStageData(index: number, isSavePreviewImage = tru
+   if (!compatibility) throw new Error(getSaveUnavailableMessage('作品版本尚未验证，无法生成存档。'));
+   if (WebGAL.sceneManager.lockSceneWrite) throw new Error('场景切换或读档中，无法生成存档。');
+   const stageState = stageStateManager.getCalculationStageState();
+-  if (hasDeferredStoryContinue() || hasPendingStageExits() || stageState.PerformList.some((perform) => !perform.isHoldOn && unstableSaveCommands.has(perform.script.command))) {
+-    throw new Error('当前演出尚未结束或正在等待继续，请返回剧情，在演出结束后的对白处保存。此次没有覆盖存档。');
+-  }
+-  // Perform duration can finish before image loading or GPU preparation. A blank
+-  // container is not a stable visual checkpoint even when the script is at dialogue.
+-  const imageLoads = (WebGAL.gameplay.pixiStage?.getAllStageObj() ?? [])
+-    .filter((object) => !object.isExiting)
+-    .map((object) => object.primaryImageLoad?.status);
+-  if (imageLoads.includes('failed')) {
+-    throw new Error('舞台图片资源加载失败，无法保存。请检查资源后重新打开作品。此次没有覆盖存档。');
+-  }
+-  if (imageLoads.includes('pending')) {
+-    throw new Error('舞台图片资源仍在加载，请等待图片显示后再保存。此次没有覆盖存档。');
+-  }
++  const readiness = getVisualSnapshotReadiness();
++  if (!readiness.ready) throw new Error(readiness.message);
+   const saveBacklog = cloneDeep(WebGAL.backlogManager.getBacklog());
+ 
+   /**
