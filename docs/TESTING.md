@@ -1,8 +1,61 @@
 # 测试入口与证据
 
-更新：2026-10-27，MakeNovel `0.0.17`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-27，MakeNovel `0.0.18`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-## 第十七轮可复查入口
+## 第十八轮可复查入口
+
+本轮合并单对白流程图就绪、文本/语音收藏、筛选与试听、备份/清理接线。十五个代码入口 **451/451**，逐份TAP与 `evidence/local/round18/checks-summary.json` 的计数一致，全部退出0；构建、补丁重放、HTTP文件核对和GUI步骤不加入代码总数。没有重跑完整作者工作流或全部历史入口。
+
+| 入口 | 通过/总数 |
+| --- | --- |
+| player-library-demo / flowchart-readiness | 3/3、20/20 |
+| favorites / favorites-ui | 55/55、33/33 |
+| save-backup / save-compatibility | 36/36、42/42 |
+| runtime-restore | 87/87（83+4） |
+| save-ui / save-storage / save-initialization | 12/12、35/35、16/16 |
+| menu-lifecycle / perform-lifecycle | 15/15、24/24 |
+| resource-lifecycle / audio-lifecycle / playback-modes | 38/38、23/23、12/12 |
+
+```powershell
+npm.cmd run test:player-library-demo
+npm.cmd run test:flowchart-readiness
+npm.cmd run test:favorites
+npm.cmd run test:favorites-ui
+npm.cmd run test:save-backup
+npm.cmd run test:save-compatibility
+npm.cmd run test:runtime-restore
+npm.cmd run test:save-ui
+npm.cmd run test:save-storage
+npm.cmd run test:save-initialization
+npm.cmd run test:menu-lifecycle
+npm.cmd run test:perform-lifecycle
+npm.cmd run test:resource-lifecycle
+npm.cmd run test:audio-lifecycle
+npm.cmd run test:playback-modes
+```
+
+先停止受控编辑器，再顺序运行 `baseline:build` → `editor:build`；本轮分别 **77.618s / 183.199s**、退出0。运行时收据记录25个引擎文件，编辑器构建后同步并保留模板game。runtime七补丁独立重放 **18/18**，重放/开发前后完整树均为 `cfcb56adef2eff807372ad3de7beaaccf3f24e0c`；最终runtime 7/7与Terre 11/11反向检查通过。新作品经实际共享路由返回的引擎摘要 **25/25**、服务访问边界 **22/22**、保留报告 **441项**通过，均单独记账。
+
+```powershell
+npm.cmd run baseline:build
+npm.cmd run editor:build
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL -ExpectedPatchCount 7 -EvidencePath docs/evidence/local/round18/runtime-independent-replay.json
+node integrations/terre-launcher/verify-editor.mjs
+```
+
+| 本轮真实浏览器路径 | 实际结果与范围 |
+| --- | --- |
+| 单对白解锁 | 旧引擎READY图片已就绪仍锁定的缺陷已复现；新引擎READY主图就绪和MOTION八秒有限动画自然结束后，各自在同一句解锁，没有推进到下一对白 |
+| 收藏与输入 | TEXT添加→取消→空列表→重加，另存VOICE-A/B、BROKEN、NO-ID，共5条；缺ID明确标注当前版本位置。搜索“羽”只剩B，Enter保持搜索/面板且不推进；搜索输入内Escape原生清空查询，面板保持。仅语音筛选3条，旧到新顺序A/B/BROKEN |
+| 试听与失败 | 正常试听自然结束/手动停止回到空闲；原剧情语音在试听时保持播放且临时静音，停止恢复未静音，时间0→0.594179→0.874544。坏WAV显示失败并保留文字。媒体状态不代表人工听感验收 |
+| 旧快档与刷新 | END快读收藏创建之前的READY，5条均保留；刷新→进入播放器→继续游戏回READY→收藏，TEXT/VOICE-A/B/BROKEN/NO-ID五条文本标记与条目数量保持 |
+| 控制台 | 有界捕获覆盖旧版复现、新构建及刷新阶段，共21条warn、0条error级记录，仍有Live2D库/插件加载失败和Pixi重复纹理警告；不宣称零告警或完整日志无错误 |
+
+GUI记录为 `browser-acceptance.json` 中1项旧版复现和13项通过，配套截图01—10及音频状态JSON见 [第十八轮证据](evidence/2026-10-27-round18.md)。重复添加去重、多标签并发、预览/epoch失效、备份及清理失败边界主要由代码验证；未授予这些路径新的实际浏览器全矩阵通过。
+
+本轮没有新Windows EXE导出或窗口验收，也未运行真实中文IME、人工听感、全机断网、干净机器、强杀/断电、完整作者回归、性能/大收藏负载或全屏/DPI矩阵。第十七轮Windows结论仍只属于当轮0.0.17包。
+
+## 第十七轮可复查入口（历史）
 
 导出核验 **16/16** 通过，使用真实 ASAR 和原生 manifest 替换方法，覆盖共享模板陈旧、文件增删/改字节、非预期 manifest 变化、末端副本损坏、来源中途变化、自带引擎及缓存壳变化。自带入口仍要求 manifest.json，缺失明确拒绝。普通作品的来源检查依次覆盖当前审核源码/dist 收据、实际共享模板、最终复制完成的 ASAR；不以中间产物代替末端包。
 

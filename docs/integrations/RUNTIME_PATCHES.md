@@ -1,6 +1,6 @@
 # WebGAL 运行时补丁与模板同步
 
-更新：2026-10-27，MakeNovel `0.0.16`。运行时仍锁定 WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`；依赖版本不变。根仓 [清单](../../patches/webgal/manifest.json) 管理顺序补丁：
+更新：2026-10-27，MakeNovel `0.0.18`。运行时仍锁定 WebGAL `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`；依赖版本不变。根仓 [清单](../../patches/webgal/manifest.json) 管理顺序补丁：
 
 - `0001-fixed-player-viewport.patch`：fixed 根画布，修复 body 滚动带走缩放后的存档菜单；此补丁自身不改存档协议。
 - `0002-versioned-player-saves.patch`：第五轮精确作品版本门禁、初始化前玩家备份、等待原生存储确认、异步恢复预检与界面错误/备份入口。保留原生脚本、槽、舞台、调用栈及执行器。
@@ -8,12 +8,32 @@
 - `0004-static-image-save-readiness.patch`：静态主图片待加载或加载失败时拒绝保存，防止空容器快照。
 - `0005-author-preview-storage-notice.patch`：作者预览持久标识与明确拒存/拒读说明，不改变隔离门禁或存档格式。
 - `0006-deferred-flowchart-unlock.patch`：章节首对白遇到瞬态快照门禁时保留解锁请求，到下一安全原生提交重试；取消过时/已清除请求，玩家主动存档拒绝规则不变。
+- `0007-player-library-and-readiness.patch`：单对白就绪事件重试、独立文本/语音收藏、列表与受控试听、收藏备份和清理接线；来源字段见下节。
 
-当前清单为6/6，完整树 `c81482167623cae5204a999f720ae6877be0f4ac`，六补丁独立重放18/18。0006 SHA256 `9977e84d68d9593df0d5bf83e0bb18880bbfd526f5e3328319ed2c1d8fc3d11c`，10502字节；增量基树为第十四/十五轮五补丁树 `a0c22cb27d5e4c7d270d39efd34b10f8c6ca32ad`。受控构建、模板同步、聚焦355项和实际GUI见 [第十六轮证据](../evidence/2026-10-26-round16.md)。
+第十六轮已核验清单为6/6（第十七轮复用），完整树 `c81482167623cae5204a999f720ae6877be0f4ac`，六补丁独立重放18/18。0006 SHA256 `9977e84d68d9593df0d5bf83e0bb18880bbfd526f5e3328319ed2c1d8fc3d11c`，10502字节；增量基树为第十四/十五轮五补丁树 `a0c22cb27d5e4c7d270d39efd34b10f8c6ca32ad`。受控构建、模板同步、聚焦355项和实际GUI见 [第十六轮证据](../evidence/2026-10-26-round16.md)。
 
 历史第六轮清单为3/3。第三份补丁 SHA-256 为 `7eaa09925ce1516d714d0a418d5f7153f7bcb9d27f4619781e36629b397703f2`；独立重放与开发树均为 `c7acf8bad114dd10bc29800b2af4920884d38c14`。受控构建、模板传播与现场结果见 [第六轮记录](../evidence/2026-10-08-round6.md) 和 [TESTING.md](../TESTING.md)；下文第四轮数字只对应当时的单补丁树。
 
 Terre 使用单独的 [补丁链](TERRE_PATCHES.md)。两个 submodule 保持原版 HEAD，已审查修改保留在工作树；不要 reset/clean，也不要把补丁状态误当外部修改。
+
+## 第十八轮单对白就绪与玩家收藏
+
+本轮源码增量已导出为 `0007-player-library-and-readiness.patch`，基树为六补丁完整树 `c81482167623cae5204a999f720ae6877be0f4ac`；前六份补丁原字节保持。清单现登记7份补丁；0007包含16个vendor源码文件、60343字节，SHA256为 `6679062bf1bc118d7ad84b1d66cb103128e15c99a0f4e24fec1111bcea17f3d4`，完整树为 `cfcb56adef2eff807372ad3de7beaaccf3f24e0c`。补丁导出与字段登记不等于独立重放或运行验收，后续结果不能用旧六补丁记录代替。
+
+- 流程图首对白请求增加原生就绪信号：stage commit、当前主图 ready/failed、退场清理、场景操作开始/结束和会话失效。仅待处理请求订阅，微任务合并后重新检查原有场景/会话/存储身份与快照门禁；开始换场的信号发出时锁已经生效，不能提前解锁。消费或取消即退订，不依赖下一句、定时轮询或玩家保存队列。
+- 历史面板新增对白收藏/取消和收藏列表，支持搜索、语音筛选、时间排序、文本快照及可选语音试听。收藏使用独立精确版本键，保留原生槽、backlog、执行器与存档兼容常量；不提供收藏跳转剧情或跨版本迁移。
+- 收藏修改在同源 Web Lock 内重读并串行写入，成功确认后公布；无 Web Locks 的环境保持只读，空列表清理可无写返回。预览、未知版本、损坏记录和过时会话拒绝写入。备份归属规则纳入各版本收藏键，系统“清空全部”先确认收藏清理成功。
+- 试听先取得已核验音频字节，再播放受控 Blob URL。剧情语音临时静音且继续原生计时，停止试听恢复原 muted 值；试听不暂停、重新播放或卸载原生语音演出。场景/会话/预览边界、失焦、隐藏和面板退出释放试听与临时静音。
+
+N1 组合回归初始16项在旧代码为7通过/9失败；补齐同步批、取消和换场开始边界后，最终20/20通过。该入口组合真实 FlowchartManager、SceneManager、StageStateManager、PerformController、Pixi 主图挂载和退出清理；渲染/网络/持久化为边界替身。本节尚不登记第十八轮新构建、共享模板传播、独立重放、新版浏览器或 Windows 验收通过，最终结果由 [TESTING](../TESTING.md) 和本轮证据记录。
+
+```powershell
+node integrations/flowchart-readiness-tests/run-tests.mjs
+node integrations/favorites-tests/run-tests.mjs
+node integrations/favorites-ui-tests/run-tests.mjs
+```
+
+收藏数据与备份边界见 [存档说明](../SAVE_COMPATIBILITY.md)，就绪事件和试听规则见 [舞台契约](../STAGE_LIFECYCLE.md)。
 
 ## 第五轮玩家兼容与备份顺序
 
@@ -143,14 +163,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Runtime independent replay failed' }
 上表最终 SHA 已在无 hardlinks/alternates 的独立 clone 完成 **18/18**，报告中的完整 tree 与开发树一致；不是沿用 SVG 桥接前的旧报告。检查包含四份顺序应用、幂等、完整树匹配、临时 index 逆序回到原版、开发工作树与两个真实 index 字节不变。源码重放不会自行改写共享模板或作品目录；本轮另完成受控构建、模板同步与实际 HTTP 摘要核对。Terre 最终导演补丁也按自身独立链完成 18/18，见 [补丁测试说明](../../integrations/patch-tests/README.md)。
 
 
-## 第十六轮流程图请求重试边界
+## 第十六轮流程图请求重试边界（历史）
 
 `saveGame`提供与显式存档共用的只读快照就绪检查，流程图保留瞬态请求到下一原生安全提交。请求绑定场景对象/key、会话、gameKey、storage epoch及初始化范围；先消费再异步保存，清除进度取消等待，永久错误一次。没有新增玩家存档请求队列，不改保存格式。
 
-动画结束本身不会主动重试，单句场景可能没有后续提交；已开始存储写入不能回滚。异步结果检查只限制后续写入与内存发布。稳定历史/流程图/快存恢复的GUI证据和运动历史重播边界分别记录，不将重播说成相位续播。
+该轮动画结束本身不会主动重试，单句场景可能没有后续提交；此缺口由上文第十八轮原生就绪事件处理。已开始存储写入不能回滚。异步结果检查只限制后续写入与内存发布。稳定历史/流程图/快存恢复的GUI证据和运动历史重播边界分别记录，不将重播说成相位续播。
 
 ```powershell
 pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -ExpectedPatchCount 6 -EvidencePath docs/evidence/local/round16/runtime-independent-replay.json
 ```
 
-最终重放18/18和runtime6/6反向检查均通过，旧1–5补丁原字节不变。下一增量0007从本页当前六补丁完整树导出。
+最终重放18/18和runtime6/6反向检查均通过，旧1–5补丁原字节不变。本轮0007以该六补丁完整树为增量基线，来源字段见上文第十八轮条目。

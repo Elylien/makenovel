@@ -24,6 +24,10 @@
     {
       "file": "0006-deferred-flowchart-unlock.patch",
       "sha256": "9977e84d68d9593df0d5bf83e0bb18880bbfd526f5e3328319ed2c1d8fc3d11c"
+    },
+    {
+      "file": "0007-player-library-and-readiness.patch",
+      "sha256": "6679062bf1bc118d7ad84b1d66cb103128e15c99a0f4e24fec1111bcea17f3d4"
     }
   ]
 }

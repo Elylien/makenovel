@@ -1,0 +1,1152 @@
+diff --git a/packages/webgal/src/Core/Modules/flowchart.ts b/packages/webgal/src/Core/Modules/flowchart.ts
+index 1d01cbbb2a7fe2152b5d1fb60cb59eccb4bec817..c7b399f36e7ea987457573531e66a072bfcf7d24 100644
+--- a/packages/webgal/src/Core/Modules/flowchart.ts
++++ b/packages/webgal/src/Core/Modules/flowchart.ts
+@@ -1,4 +1,5 @@
+ import { WebGAL } from '@/Core/WebGAL';
++import { subscribeVisualReadiness } from '@/Core/Modules/visualReadiness';
+ import { generateCurrentStageData, getVisualSnapshotReadiness } from '@/Core/controller/storage/saveGame';
+ import {
+   validateForSave,
+@@ -61,6 +62,8 @@ export class FlowchartManager {
+   private snapshots = new Map<string, ISaveData>();
+   private pendingUnlockCurrentScene = false;
+   private waitingSceneUnlock: SceneUnlockRequest | undefined;
++  private unsubscribeReadiness: (() => void) | undefined;
++  private queuedReadinessRequest: SceneUnlockRequest | undefined;
+   private snapshotSequence = 0;
+   private latestSnapshot = new Map<string, number>();
+   private persistTask: Promise<void> = Promise.resolve();
+@@ -148,6 +151,24 @@ export class FlowchartManager {
+   public cancelPendingSceneUnlock() {
+     this.pendingUnlockCurrentScene = false;
+     this.waitingSceneUnlock = undefined;
++    this.queuedReadinessRequest = undefined;
++    this.unsubscribeReadiness?.();
++    this.unsubscribeReadiness = undefined;
++  }
++
++  private watchVisualReadiness() {
++    this.unsubscribeReadiness ??= subscribeVisualReadiness(() => {
++      const request = this.waitingSceneUnlock;
++      if (!this.pendingUnlockCurrentScene || !request || this.queuedReadinessRequest === request) return;
++      this.queuedReadinessRequest = request;
++      // A native commit can still be starting performs or setting up image requests.
++      // Inspect only after the synchronous batch; a canceled callback cannot consume a newer request.
++      queueMicrotask(() => {
++        if (this.queuedReadinessRequest === request) this.queuedReadinessRequest = undefined;
++        if (this.waitingSceneUnlock !== request) return;
++        this.unlockPendingCurrentScene();
++      });
++    });
+   }
+ 
+   public requestUnlockCurrentScene() {
+@@ -156,6 +177,7 @@ export class FlowchartManager {
+       return;
+     }
+     this.pendingUnlockCurrentScene = true;
++    this.watchVisualReadiness();
+   }
+ 
+   public unlockPendingCurrentScene() {
+@@ -167,7 +189,7 @@ export class FlowchartManager {
+     // init may still be loading its definition, or a scene operation may be finishing.
+     if (!this.hasFlowchart() || this.sceneManager.lockSceneWrite) return;
+     const readiness = getVisualSnapshotReadiness();
+-    // Retry only on a later native commit. Explicit player saves are never queued.
++    // Retry on a native commit or a resource/lifecycle readiness signal. Player saves are never queued.
+     if (!readiness.ready && readiness.transient) return;
+     // Consume before async validation/persistence: duplicate commits cannot enqueue it twice.
+     // Permanent failures use the original save gate and report once, without blind retries.
+@@ -176,7 +198,7 @@ export class FlowchartManager {
+   }
+ 
+   public waitForCurrentSceneDialog() {
+-    this.pendingUnlockCurrentScene = false;
++    this.cancelPendingSceneUnlock();
+     this.waitingSceneUnlock = {
+       scene: this.sceneManager.sceneData.currentScene,
+       sceneKey: this.currentSceneKey(),
+diff --git a/packages/webgal/src/Core/Modules/scene.ts b/packages/webgal/src/Core/Modules/scene.ts
+index 9f8ca005fef5cbeeba3aab14b16f8f739d08147d..6a4c8f99693b24db0a6f498d5f7789ee8d36fb76 100644
+--- a/packages/webgal/src/Core/Modules/scene.ts
++++ b/packages/webgal/src/Core/Modules/scene.ts
+@@ -1,6 +1,7 @@
+ import { ISceneData } from '@/Core/controller/scene/sceneInterface';
+ import { IGameVar } from '@/Core/Modules/stage/stageInterface';
+ import cloneDeep from 'lodash/cloneDeep';
++import { notifyVisualReadiness } from '@/Core/Modules/visualReadiness';
+ 
+ /**
+  * 场景栈的深度上限，防止 callScene 无限递归
+@@ -47,6 +48,7 @@ export class SceneManager {
+     this.operation = null;
+     this.lockSceneWrite = false;
+     this.sceneWritePromise = null;
++    notifyVisualReadiness();
+     return this.sessionEpoch;
+   }
+ 
+@@ -69,6 +71,7 @@ export class SceneManager {
+   public beginSceneWrite() {
+     this.operation = 'scene';
+     this.lockSceneWrite = true;
++    notifyVisualReadiness();
+     return this.sessionEpoch;
+   }
+ 
+@@ -77,6 +80,7 @@ export class SceneManager {
+     this.operation = null;
+     this.lockSceneWrite = false;
+     this.sceneWritePromise = null;
++    notifyVisualReadiness();
+   }
+ 
+   public resetScene() {
+diff --git a/packages/webgal/src/Core/Modules/stage/stageStateManager.ts b/packages/webgal/src/Core/Modules/stage/stageStateManager.ts
+index 783d8201cace2116bb8c0907f10ef3fd5da74451..0ea0d80bc0ee7c5c36057fed34c9ddb250026fb3 100644
+--- a/packages/webgal/src/Core/Modules/stage/stageStateManager.ts
++++ b/packages/webgal/src/Core/Modules/stage/stageStateManager.ts
+@@ -1,4 +1,5 @@
+ import cloneDeep from 'lodash/cloneDeep';
++import { notifyVisualReadiness } from '@/Core/Modules/visualReadiness';
+ import { WebGAL } from '@/Core/WebGAL';
+ import { isUndefined, omitBy } from 'lodash';
+ import { commandType } from '@/Core/controller/scene/sceneInterface';
+@@ -388,6 +389,7 @@ export class StageStateManager {
+     if (resolvedOptions.notifyReact) {
+       this.notify();
+     }
++    notifyVisualReadiness();
+   }
+ 
+   public applyCommittedPixiEffects() {
+diff --git a/packages/webgal/src/Core/Modules/visualReadiness.ts b/packages/webgal/src/Core/Modules/visualReadiness.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e6a8b2f51000237e76dab67b70ddb5bab9cfa794
+--- /dev/null
++++ b/packages/webgal/src/Core/Modules/visualReadiness.ts
+@@ -0,0 +1,12 @@
++type ReadinessListener = () => void;
++const listeners = new Set<ReadinessListener>();
++
++/** Native lifecycle signals are hints only: consumers must recheck their own scope and save gate. */
++export function subscribeVisualReadiness(listener: ReadinessListener) {
++  listeners.add(listener);
++  return () => { listeners.delete(listener); };
++}
++
++export function notifyVisualReadiness() {
++  for (const listener of [...listeners]) listener();
++}
+diff --git a/packages/webgal/src/Core/controller/stage/pixi/PixiController.ts b/packages/webgal/src/Core/controller/stage/pixi/PixiController.ts
+index 9cc8bec1277b5d56771809155c4728e9a421d90c..54c750e1d132cc00073b0f0ba7d5b2510861aaf0 100644
+--- a/packages/webgal/src/Core/controller/stage/pixi/PixiController.ts
++++ b/packages/webgal/src/Core/controller/stage/pixi/PixiController.ts
+@@ -24,6 +24,7 @@ import { ResourceRequest } from './assets/resourceTypes';
+ import { stageStateManager } from '@/Core/Modules/stage/stageStateManager';
+ import { queryStageObjectReferenceBox, type QueryTargetReferenceBoxResult } from './referenceBox';
+ import { assignPixiTransform } from './stageEffectTransform';
++import { notifyVisualReadiness } from '@/Core/Modules/visualReadiness';
+ 
+ export interface IAnimationObject {
+   setStartState: Function;
+@@ -1058,7 +1059,10 @@ export default class PixiStage {
+       this.getStageObjByUuid(stageUuid) === object && (!imageLoad || object.primaryImageLoad === imageLoad);
+     const mount = () => (isCurrent() ? setup() : undefined);
+     const settleImage = (status: 'ready' | 'failed') => {
+-      if (imageLoad && isCurrent()) imageLoad.status = status;
++      if (imageLoad && isCurrent()) {
++        imageLoad.status = status;
++        notifyVisualReadiness();
++      }
+     };
+     try {
+       const operation =
+diff --git a/packages/webgal/src/Core/controller/stage/pixi/stageExitLifecycle.ts b/packages/webgal/src/Core/controller/stage/pixi/stageExitLifecycle.ts
+index 68b4df5a3afb416af4f331364fa91d521cff1845..68c40c504328b5f53663b698804e2af2a008ec89 100644
+--- a/packages/webgal/src/Core/controller/stage/pixi/stageExitLifecycle.ts
++++ b/packages/webgal/src/Core/controller/stage/pixi/stageExitLifecycle.ts
+@@ -1,4 +1,5 @@
+ import type PixiStage from './PixiController';
++import { notifyVisualReadiness } from '@/Core/Modules/visualReadiness';
+ import type { IStageObject } from './PixiController';
+ 
+ type ExitStage = Pick<PixiStage, 'removeAnimation' | 'getStageObjByKey' | 'removeStageObjectByKey'>;
+@@ -13,12 +14,16 @@ export function scheduleStageExit(stage: ExitStage, object: IStageObject, animat
+     finished = true;
+     clearTimeout(timer);
+     exits.delete(finish);
+-    // A canceled/late callback must never delete a replacement with the same key.
+-    if (stage.getStageObjByKey(key) !== object) return;
+     try {
+-      stage.removeAnimation(animationKey);
++      // A canceled/late callback must never delete a replacement with the same key.
++      if (stage.getStageObjByKey(key) !== object) return;
++      try {
++        stage.removeAnimation(animationKey);
++      } finally {
++        if (stage.getStageObjByKey(key) === object) stage.removeStageObjectByKey(key);
++      }
+     } finally {
+-      if (stage.getStageObjByKey(key) === object) stage.removeStageObjectByKey(key);
++      notifyVisualReadiness();
+     }
+   };
+   const timer = setTimeout(finish, Math.max(0, duration));
+diff --git a/packages/webgal/src/Core/controller/storage/makenovelCompatibility.ts b/packages/webgal/src/Core/controller/storage/makenovelCompatibility.ts
+index 147fa1fd5da7dea00050784b19eb6dff2fdd8e5c..d85dfce300fddae76e2dd43eb542acf34f0cd2cb 100644
+--- a/packages/webgal/src/Core/controller/storage/makenovelCompatibility.ts
++++ b/packages/webgal/src/Core/controller/storage/makenovelCompatibility.ts
+@@ -255,6 +255,29 @@ async function validateCurrent() {
+ export async function validateForSave(): Promise<SaveCompatibility> {
+   return (await validateCurrent()).meta;
+ }
++/** Return the checked bytes, so voice audition cannot refetch a changed resource
++ * after preflight. This does not execute a scene or alter player progress. */
++export async function readVerifiedVocalAsset(path: string): Promise<Uint8Array> {
++  const epoch = storageEpoch;
++  const expected = captureSaveCompatibility();
++  if (!expected || !pinned) throw new Error(getSaveUnavailableMessage('作品版本尚未通过核对，不能试听收藏语音。'));
++  if (!safePath(path) || !/^game\/vocal\/.+\.(?:wav|ogg|mp3|m4a|aac|flac|opus|webm)$/i.test(path))
++    throw new Error('收藏语音必须是本作品内支持的音频文件。');
++  const file = pinned.files.find(file => file.path === path);
++  if (!file) throw new Error('收藏语音未登记在当前作品版本中，文字快照仍保留。');
++  if (file.size > 32 * 1024 * 1024) throw new Error('收藏语音超过32 MiB试听上限，文字快照仍保留。');
++  const { meta } = await validateCurrent();
++  if (meta.manifestHash !== expected.manifestHash || meta.projectId !== expected.projectId)
++    throw new Error('试听期间作品版本已改变。');
++  const bytes = await readBytes(path);
++  if (bytes.length !== file.size || (await sha256(bytes)) !== file.sha256)
++    throw new Error('收藏语音内容已经改变，已停止试听并保留文字快照。');
++  const live = await readManifest();
++  if (live.manifestHash !== expected.manifestHash || live.projectId !== expected.projectId ||
++      epoch !== storageEpoch || !isSaveStorageEnabled() || pinned?.manifestHash !== expected.manifestHash)
++    throw new Error('试听期间作品版本或玩家存储会话已改变。');
++  return bytes;
++}
+ function assertMetadata(value: unknown, meta: SaveCompatibility) {
+   if (
+     !exact(value, Object.keys(meta)) ||
+diff --git a/packages/webgal/src/Core/controller/storage/makenovelFavorites.ts b/packages/webgal/src/Core/controller/storage/makenovelFavorites.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0c9438491491929236665b4f058fcf39c1399496
+--- /dev/null
++++ b/packages/webgal/src/Core/controller/storage/makenovelFavorites.ts
+@@ -0,0 +1,291 @@
++import localforage from 'localforage';
++import cloneDeep from 'lodash/cloneDeep';
++import SceneParser from 'webgal-parser';
++import { WebGAL } from '@/Core/WebGAL';
++import type { IBacklogItem } from '@/Core/Modules/backlog';
++import { commandType } from '@/Core/controller/scene/sceneInterface';
++import { ADD_NEXT_ARG_LIST, SCRIPT_CONFIG } from '@/Core/parser/sceneParser';
++import { assetSetter } from '@/Core/util/gameAssetsAccess/assetSetter';
++import {
++  assertCompatibleSnapshot, captureSaveCompatibility, getSaveStorageEpoch,
++  getSaveUnavailableMessage, isSaveStorageEnabled, reportSaveError, sha256,
++  readVerifiedVocalAsset,
++  type SaveCompatibility,
++} from './makenovelCompatibility';
++
++/** A text/voice snapshot, never a restorable scene or an executable script. */
++export interface FavoriteEntry {
++  id: string;
++  nodeId?: string;
++  identity: 'node' | 'revision-position';
++  sceneUrl: string;
++  sceneName: string;
++  sentenceIndex: number;
++  text: string;
++  speaker: string;
++  voice: string;
++  voiceUnavailable?: string;
++  createdAt: string;
++  manifestHash: string;
++}
++type Envelope = { format: 'makenovel-favorites'; schemaVersion: 1; namespace: string; entries: FavoriteEntry[] };
++type Context = { namespace: string; epoch: number; meta: SaveCompatibility };
++const HASH = /^[a-f0-9]{64}$/;
++const NODE_ID = /^[A-Za-z][A-Za-z0-9._:-]{0,95}$/;
++const MARKER = /@makenovel-node ([A-Za-z][A-Za-z0-9._:-]{0,95})\s*$/;
++const MAX_ENTRIES = 2000;
++const MAX_CHARS = 8 * 1024 * 1024;
++const queues = new Map<string, Promise<unknown>>();
++const listeners = new Set<() => void>();
++
++export function subscribeFavorites(listener: () => void) {
++  listeners.add(listener);
++  return () => { listeners.delete(listener); };
++}
++function notify() {
++  listeners.forEach(listener => {
++    // A broken subscriber cannot turn an acknowledged storage write into a failure.
++    try { listener(); } catch { /* Its UI owner handles rendering errors independently. */ }
++  });
++}
++function sameMeta(left: SaveCompatibility | undefined, right: SaveCompatibility) {
++  return left && ['schemaVersion', 'projectId', 'gameKey', 'runtimeCompatibilityId', 'manifestHash']
++    .every(key => left[key as keyof SaveCompatibility] === right[key as keyof SaveCompatibility]);
++}
++function assertContext(context: Context) {
++  if (!isSaveStorageEnabled() || context.epoch !== getSaveStorageEpoch() || context.namespace !== WebGAL.gameKey ||
++      context.namespace !== `makenovel-v1:${context.meta.projectId}:${context.meta.manifestHash}` ||
++      !sameMeta(captureSaveCompatibility(), context.meta)) {
++    throw new Error(getSaveUnavailableMessage('收藏暂不可用，或作品版本/玩家存储会话已改变。原有收藏已保留。'));
++  }
++}
++function captureContext(): Context {
++  const meta = captureSaveCompatibility();
++  if (!meta) throw new Error(getSaveUnavailableMessage('作品尚未通过版本核对，暂不能读取或修改收藏。'));
++  const context = { namespace: WebGAL.gameKey, epoch: getSaveStorageEpoch(), meta };
++  assertContext(context);
++  return context;
++}
++function observed<T>(operation: () => Promise<T>): Promise<T> {
++  const promise = operation();
++  void promise.catch(reportSaveError);
++  return promise;
++}
++function enqueue<T>(context: Context, operation: () => Promise<T>): Promise<T> {
++  const key = `${context.namespace}-favorites`;
++  const next = (queues.get(key) ?? Promise.resolve()).catch(() => {}).then(async () => {
++    const run = async () => { assertContext(context); return operation(); };
++    // The same-origin Web Lock coordinates other tabs. Without it only read/no-op
++    // operations are allowed; write() explicitly refuses changes in older hosts.
++    if (typeof navigator !== 'undefined' && navigator.locks) {
++      return navigator.locks.request(`makenovel-favorites:${key}`, run);
++    }
++    return run();
++  });
++  queues.set(key, next);
++  void next.finally(() => { if (queues.get(key) === next) queues.delete(key); }).catch(() => {});
++  return next;
++}
++function plain(value: unknown): value is Record<string, unknown> {
++  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
++  const prototype = Object.getPrototypeOf(value);
++  return (prototype === null || prototype === Object.prototype) && Reflect.ownKeys(value).every(key =>
++    typeof key === 'string' && Object.hasOwn(Object.getOwnPropertyDescriptor(value, key)!, 'value'));
++}
++function exact(value: Record<string, unknown>, required: string[], optional: string[] = []) {
++  return required.every(key => Object.hasOwn(value, key)) && Object.keys(value).every(key => required.includes(key) || optional.includes(key));
++}
++function boundedString(value: unknown, max: number): value is string {
++  return typeof value === 'string' && value.length <= max && !/[\u0000\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value);
++}
++function gamePath(value: string, kind: 'scene' | 'vocal'): string {
++  if (!value || value.includes('\\')) throw new Error('收藏引用的作品路径无效。');
++  const root = new URL('.', document.baseURI);
++  const url = new URL(value, root);
++  if (url.protocol !== root.protocol || url.origin !== root.origin || url.host !== root.host || url.search || url.hash ||
++      !url.pathname.startsWith(root.pathname)) throw new Error('收藏资源不属于当前作品。');
++  const path = decodeURIComponent(url.pathname.slice(root.pathname.length));
++  if (!path.startsWith(`game/${kind}/`) || path.split('/').some(part => !part || part === '.' || part === '..' ||
++      /[<>:"/\\|?*\u0000-\u001f\u007f]/u.test(part) || /[. ]$/u.test(part))) throw new Error('收藏引用的作品路径无效。');
++  return path.split('/').map(encodeURIComponent).join('/');
++}
++function voiceSnapshot(value: string) {
++  if (!value) return { voice: '' };
++  try { return { voice: gamePath(value, 'vocal') }; }
++  catch { return { voice: '', voiceUnavailable: '语音不在当前作品的本地资源范围，已仅保存文字。' }; }
++}
++function projection(item: IBacklogItem) {
++  if (!item || !item.saveScene || !item.currentStageState || !Number.isSafeInteger(item.saveScene.currentSentenceId) ||
++      item.saveScene.currentSentenceId < 1 || !boundedString(item.saveScene.sceneName, 1024) ||
++      !boundedString(item.currentStageState.showText, 32768) || !item.currentStageState.showText.trim() ||
++      !boundedString(item.currentStageState.showName, 1024) || !boundedString(item.currentStageState.vocal, 4096)) {
++    throw new Error('这条历史记录没有可收藏的完整对白。');
++  }
++  return {
++    sceneUrl: gamePath(item.saveScene.sceneUrl, 'scene'), sceneName: item.saveScene.sceneName,
++    sentenceIndex: item.saveScene.currentSentenceId - 1, text: item.currentStageState.showText,
++    speaker: item.currentStageState.showName, ...voiceSnapshot(item.currentStageState.vocal),
++  };
++}
++/** Match the rendered snapshot, not line number or text alone. No stable ID is invented. */
++export function favoriteIdForBacklog(item: IBacklogItem, entries: readonly FavoriteEntry[]): string | undefined {
++  try {
++    const meta = captureSaveCompatibility();
++    if (!meta || !sameMeta(item.makenovel, meta)) return undefined;
++    const value = projection(item);
++    return entries.find(entry => entry.manifestHash === meta.manifestHash &&
++      entry.sceneUrl === value.sceneUrl && entry.sentenceIndex === value.sentenceIndex &&
++      entry.text === value.text && entry.speaker === value.speaker && entry.voice === value.voice &&
++      entry.voiceUnavailable === value.voiceUnavailable)?.id;
++  } catch { return undefined; }
++}
++export function isBacklogFavorite(item: IBacklogItem, entries: readonly FavoriteEntry[]): boolean {
++  return favoriteIdForBacklog(item, entries) !== undefined;
++}
++function validateEnvelope(value: unknown, context: Context): FavoriteEntry[] {
++  const invalid = () => { throw new Error('收藏数据损坏、格式未知或版本不匹配；没有覆盖原数据，请先导出玩家备份。'); };
++  if (value === null) return [];
++  if (!plain(value) || !exact(value, ['format', 'schemaVersion', 'namespace', 'entries']) ||
++      value.format !== 'makenovel-favorites' || value.schemaVersion !== 1 || value.namespace !== context.namespace ||
++      !Array.isArray(value.entries) || value.entries.length > MAX_ENTRIES) return invalid();
++  const ids = new Set<string>();
++  for (const entry of Array.from(value.entries)) {
++    if (!plain(entry) || !exact(entry,
++      ['id', 'identity', 'sceneUrl', 'sceneName', 'sentenceIndex', 'text', 'speaker', 'voice', 'createdAt', 'manifestHash'],
++      ['nodeId', 'voiceUnavailable']) ||
++      typeof entry.id !== 'string' || !HASH.test(entry.id) || ids.has(entry.id) ||
++      (entry.identity !== 'node' && entry.identity !== 'revision-position') ||
++      (entry.identity === 'node' ? typeof entry.nodeId !== 'string' || !NODE_ID.test(entry.nodeId) : entry.nodeId !== undefined) ||
++      !boundedString(entry.sceneUrl, 4096) || !boundedString(entry.sceneName, 1024) ||
++      !Number.isSafeInteger(entry.sentenceIndex) || (entry.sentenceIndex as number) < 0 ||
++      !boundedString(entry.text, 32768) || !entry.text.trim() || !boundedString(entry.speaker, 1024) ||
++      !boundedString(entry.voice, 4096) ||
++      (entry.voiceUnavailable !== undefined && (!boundedString(entry.voiceUnavailable, 1024) || entry.voice !== '')) ||
++      !boundedString(entry.createdAt, 32) || !Number.isFinite(Date.parse(entry.createdAt)) ||
++      new Date(entry.createdAt).toISOString() !== entry.createdAt || entry.manifestHash !== context.meta.manifestHash) return invalid();
++    try {
++      if (gamePath(entry.sceneUrl, 'scene') !== entry.sceneUrl ||
++          (entry.voice && gamePath(entry.voice, 'vocal') !== entry.voice)) return invalid();
++    } catch { return invalid(); }
++    ids.add(entry.id);
++  }
++  if (JSON.stringify(value).length > MAX_CHARS) return invalid();
++  return cloneDeep(value.entries as FavoriteEntry[]);
++}
++async function read(context: Context): Promise<FavoriteEntry[]> {
++  assertContext(context);
++  const value = await localforage.getItem(`${context.namespace}-favorites`);
++  assertContext(context);
++  return validateEnvelope(value, context);
++}
++async function write(context: Context, entries: FavoriteEntry[]) {
++  const envelope: Envelope = { format: 'makenovel-favorites', schemaVersion: 1, namespace: context.namespace, entries };
++  validateEnvelope(envelope, context);
++  assertContext(context);
++  if (typeof navigator === 'undefined' || !navigator.locks) {
++    throw new Error('当前运行环境不支持安全的跨窗口收藏写入；收藏保持只读，原数据没有修改。');
++  }
++  await localforage.setItem(`${context.namespace}-favorites`, envelope);
++  // An already-started storage write cannot be rolled back after a preview/session change.
++  // Never announce success or inject its old context into the new UI session.
++  assertContext(context);
++  notify();
++  return cloneDeep(entries);
++}
++function sourceNodeId(raw: string, sentences: ReturnType<SceneParser['parse']>['sentenceList'], index: number) {
++  const lines = raw.replace(/^\uFEFF/, '').split(/\r?\n/);
++  const ids = new Map<number, string>();
++  for (const sentence of sentences) {
++    if (sentence.isLineBreakHolder || sentence.command === commandType.comment) continue;
++    const inline = sentence.inlineComment.includes('@makenovel-node')
++      ? MARKER.exec(sentence.inlineComment) : null;
++    const previous = sentences[sentence.startLine - 1];
++    const standalone = previous?.command === commandType.comment && !previous.isLineBreakHolder
++      ? /^\s*;\s*@makenovel-node ([A-Za-z][A-Za-z0-9._:-]{0,95})\s*$/.exec(lines[sentence.startLine - 1]) : null;
++    if (inline && !standalone && sentence.inlineComment.split('@makenovel-node').length === 2 &&
++        MARKER.exec(lines[sentence.endLine])?.[1] === inline[1] &&
++        !(sentence.startLine !== sentence.endLine && /^\s*;\s*@makenovel-node /.test(lines[sentence.endLine]))) {
++      ids.set(sentence.startLine, inline[1]);
++    } else if (standalone && !sentence.inlineComment.includes('@makenovel-node')) ids.set(sentence.startLine, standalone[1]);
++  }
++  const id = ids.get(index);
++  const mentions = Array.from(raw.matchAll(/@makenovel-node ([A-Za-z][A-Za-z0-9._:-]{0,95})(?=\s|$)/g));
++  return id && [...ids.values()].filter(value => value === id).length === 1 &&
++    mentions.filter(match => match[1] === id).length === 1 ? id : undefined;
++}
++async function createEntry(item: IBacklogItem, context: Context): Promise<FavoriteEntry> {
++  if (!sameMeta(item.makenovel, context.meta)) throw new Error('历史对白来自其他版本或作者预览，不能写入当前收藏。');
++  const value = projection(item);
++  const { rawScene } = await assertCompatibleSnapshot({
++    makenovel: item.makenovel, nowStageState: item.currentStageState, sceneData: item.saveScene, backlog: [],
++  });
++  assertContext(context);
++  // Native parser only: no prefetch, command execution, variable changes, seek or restore.
++  const parser = new SceneParser(undefined, assetSetter, ADD_NEXT_ARG_LIST, SCRIPT_CONFIG);
++  const scene = parser.parse(rawScene, item.saveScene.sceneName, item.saveScene.sceneUrl);
++  const sentence = scene.sentenceList[value.sentenceIndex];
++  if (!sentence || sentence.command !== commandType.say || sentence.isLineBreakHolder) {
++    throw new Error('历史对白的位置已失效；没有按相同文字猜测收藏身份。');
++  }
++  const nodeId = sourceNodeId(rawScene, scene.sentenceList, value.sentenceIndex);
++  const identity = nodeId ? 'node' : 'revision-position';
++  const id = await sha256(new TextEncoder().encode(JSON.stringify([
++    context.namespace, value.sceneUrl, nodeId ?? value.sentenceIndex, value.speaker, value.text,
++    value.voice, value.voiceUnavailable ?? '',
++  ])));
++  assertContext(context);
++  return { id, identity, ...(nodeId ? { nodeId } : {}), ...value, createdAt: new Date().toISOString(), manifestHash: context.meta.manifestHash };
++}
++export function loadFavorites(): Promise<FavoriteEntry[]> {
++  return observed(async () => { const context = captureContext(); return enqueue(context, () => read(context)); });
++}
++export function favoriteBacklog(item: IBacklogItem): Promise<FavoriteEntry[]> {
++  return observed(async () => {
++    const context = captureContext();
++    const snapshot = cloneDeep(item);
++    return enqueue(context, async () => {
++      const entries = await read(context);
++      const entry = await createEntry(snapshot, context);
++      if (entries.some(value => value.id === entry.id)) return entries;
++      if (entries.length >= MAX_ENTRIES) throw new Error('收藏已达2000条，请先导出备份并移除不需要的条目。');
++      return write(context, [...entries, entry]);
++    });
++  });
++}
++export function removeFavorite(id: string): Promise<FavoriteEntry[]> {
++  return observed(async () => {
++    const context = captureContext();
++    if (typeof id !== 'string' || !HASH.test(id)) throw new Error('收藏条目标识无效。');
++    return enqueue(context, async () => {
++      const entries = await read(context);
++      const remaining = entries.filter(entry => entry.id !== id);
++      return remaining.length === entries.length ? entries : write(context, remaining);
++    });
++  });
++}
++export function clearFavorites(): Promise<FavoriteEntry[]> {
++  return observed(async () => {
++    const context = captureContext();
++    return enqueue(context, async () => {
++      const entries = await read(context);
++      return entries.length ? write(context, []) : entries;
++    });
++  });
++}
++
++/** The caller owns this object URL and must revoke it on stop/error/cancel. */
++export function verifyFavoriteVoice(entry: FavoriteEntry): Promise<string> {
++  return observed(async () => {
++    const context = captureContext();
++    const snapshot = cloneDeep(entry);
++    validateEnvelope({format:'makenovel-favorites',schemaVersion:1,namespace:context.namespace,entries:[snapshot]},context);
++    if (!snapshot.voice) throw new Error(snapshot.voiceUnavailable ?? '这条收藏没有语音。');
++    const path = decodeURIComponent(gamePath(snapshot.voice, 'vocal'));
++    const bytes = await readVerifiedVocalAsset(path);
++    assertContext(context);
++    const type: Record<string,string> = {wav:'audio/wav',ogg:'audio/ogg',mp3:'audio/mpeg',m4a:'audio/mp4',
++      aac:'audio/aac',flac:'audio/flac',opus:'audio/ogg',webm:'audio/webm'};
++    const extension = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
++    return URL.createObjectURL(new Blob([bytes as BlobPart],{type:type[extension] ?? 'application/octet-stream'}));
++  });
++}
+diff --git a/packages/webgal/src/Core/controller/storage/saveBackup.ts b/packages/webgal/src/Core/controller/storage/saveBackup.ts
+index e6df7218c036589432da15bf93ad54116eba0d68..c314676e13ab77f36426df5036ac63a208291e6b 100644
+--- a/packages/webgal/src/Core/controller/storage/saveBackup.ts
++++ b/packages/webgal/src/Core/controller/storage/saveBackup.ts
+@@ -116,7 +116,7 @@ function preservedScope(key: string, archive: unknown, scope: SaveBackupScope):
+ }
+ 
+ function ownsNamespaceKey(key: string, namespace: string) {
+-  if (key === namespace || key === `${namespace}-saves-fast` || key === `${namespace}-flowchart`) return true;
++  if (key === namespace || key === `${namespace}-saves-fast` || key === `${namespace}-flowchart` || key === `${namespace}-favorites`) return true;
+   const suffix = key.slice(namespace.length);
+   return key.startsWith(namespace) && (/^-saves\d+$/.test(suffix) || /^-flowchart-.+$/s.test(suffix));
+ }
+diff --git a/packages/webgal/src/UI/Backlog/Backlog.tsx b/packages/webgal/src/UI/Backlog/Backlog.tsx
+index a4e0d4ec01e05abd2a93161ee9dc17b0604e7f78..8bb2cbdeace9c9b3f0261ec2c797f0fd85f379db 100644
+--- a/packages/webgal/src/UI/Backlog/Backlog.tsx
++++ b/packages/webgal/src/UI/Backlog/Backlog.tsx
+@@ -11,6 +11,9 @@ import { compileSentence, EnhancedNode } from '@/Stage/TextBox/TextBox';
+ import useSoundEffect from '@/hooks/useSoundEffect';
+ import { WebGAL } from '@/Core/WebGAL';
+ import { stopAuto } from '@/Core/controller/gamePlay/autoPlay';
++import { Favorites } from '@/UI/Favorites/Favorites';
++import { useFavorites } from '@/UI/Favorites/useFavorites';
++import { favoriteIdForBacklog } from '@/Core/controller/storage/makenovelFavorites';
+ 
+ export const Backlog = () => {
+   const t = useTrans('gaming.');
+@@ -18,6 +21,8 @@ export const Backlog = () => {
+   const { playSeEnter, playSeClick } = useSoundEffect();
+   const GUIStore = useSelector((state: RootState) => state.GUI);
+   const isBacklogOpen = GUIStore.showBacklog;
++  const [favoritesOpen, setFavoritesOpen] = useState(false);
++  const favorites = useFavorites(isBacklogOpen);
+   const dispatch = useDispatch();
+   const iconSize = '0.8em';
+   const [indexHide, setIndexHide] = useState(false);
+@@ -63,6 +68,7 @@ export const Backlog = () => {
+     for (let i = 0; i < Math.min(current_backlog_len, limit); i++) {
+       const indexOfBacklog = current_backlog_len - i - 1;
+       const backlogItem = WebGAL.backlogManager.getBacklog()[indexOfBacklog];
++      const favoriteId = favoriteIdForBacklog(backlogItem, favorites.entries);
+       const showTextArray = compileSentence(backlogItem.currentStageState.showText, 3, true, false);
+       const showTextArray2 = showTextArray.map((line) => {
+         return line.map((c) => {
+@@ -112,6 +118,11 @@ export const Backlog = () => {
+         >
+           <div className={styles.backlog_func_area}>
+             <div className={styles.backlog_item_button_list}>
++              <button type="button" className={styles.favorite_button}
++                aria-pressed={!!favoriteId} disabled={!favorites.available || favorites.busy || favorites.loading}
++                onClick={(event) => { event.stopPropagation(); void favorites.toggle(backlogItem); }}>
++                {favoriteId ? '已收藏' : '收藏'}
++              </button>
+               <div
+                 onClick={(e) => {
+                   playSeClick();
+@@ -174,7 +185,7 @@ export const Backlog = () => {
+   }, [
+     WebGAL.backlogManager.getBacklog()[WebGAL.backlogManager.getBacklog().length - 1]?.saveScene?.currentSentenceId ??
+       0,
+-    limit,
++    limit, favorites.entries, favorites.available, favorites.busy, favorites.loading,
+   ]);
+   useEffect(() => {
+     /* 切换为展示历史记录时触发 */
+@@ -216,6 +227,19 @@ export const Backlog = () => {
+           ${GUIStore.showBacklog ? styles.Backlog_main : styles.Backlog_main_out}
+           ${indexHide ? styles.Backlog_main_out_IndexHide : ''}
+           `}
++          onClick={(event) => event.stopPropagation()}
++          onPointerDown={(event) => event.stopPropagation()}
++          onDoubleClick={(event) => event.stopPropagation()}
++          onKeyDown={(event) => {
++            event.stopPropagation();
++            if (event.key !== 'Escape' || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
++            const target = event.target as HTMLElement;
++            if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
++            event.preventDefault();
++            dispatch(setVisibility({ component: 'showBacklog', visibility: false }));
++            dispatch(setVisibility({ component: 'showTextBox', visibility: true }));
++          }}
++          onKeyUp={(event) => event.stopPropagation()}
+         >
+           <div className={styles.backlog_top}>
+             <CloseSmall
+@@ -237,10 +261,22 @@ export const Backlog = () => {
+                 logger.info('Rua! Testing');
+               }}
+             >
+-              {t('buttons.backlog')}
++              {favoritesOpen ? '收藏' : t('buttons.backlog')}
+             </div>
++            <nav className={styles.backlog_tabs} aria-label="历史与收藏">
++              <button type="button" aria-pressed={!favoritesOpen} onClick={() => setFavoritesOpen(false)}>历史记录</button>
++              <button type="button" aria-pressed={favoritesOpen} onClick={() => setFavoritesOpen(true)}>收藏列表</button>
++            </nav>
+           </div>
+-          {GUIStore.showBacklog && (
++          {isBacklogOpen && !favoritesOpen && <div className={styles.favorite_status}>
++            <span role="status">{favorites.loading ? '正在读取收藏…' : favorites.busy ? '正在保存收藏…' : favorites.notice}</span>
++            {favorites.error && <span role="alert">{favorites.error}
++              <button type="button" disabled={favorites.busy || favorites.loading} onClick={() => void favorites.refresh()}>重新读取</button>
++            </span>}
++          </div>}
++          {isBacklogOpen && favoritesOpen && <Favorites controller={favorites}
++            active={isBacklogOpen && !GUIStore.showTitle && !GUIStore.showMenuPanel && !GUIStore.showFlowchart && !GUIStore.showGlobalDialog && !GUIStore.showPanicOverlay && !GUIStore.showExtra} />}
++          {GUIStore.showBacklog && !favoritesOpen && (
+             <div className={`${styles.backlog_content} ${isDisableScroll ? styles.Backlog_main_DisableScroll : ''}`}>
+               {backlogList}
+             </div>
+diff --git a/packages/webgal/src/UI/Backlog/backlog.module.scss b/packages/webgal/src/UI/Backlog/backlog.module.scss
+index 228ebc4402954e7980c1fba40a1c9eae5b9e701c..6a2c1997e46ae3bfdbcc57e625079a1f0f55ae13 100644
+--- a/packages/webgal/src/UI/Backlog/backlog.module.scss
++++ b/packages/webgal/src/UI/Backlog/backlog.module.scss
+@@ -219,3 +219,27 @@
+     background-color: rgba(255, 255, 255, 0.2);
+   }
+ }
++
++// Collection controls share the native history overlay and never replace its
++// restore action. The status row leaves room above the scrollable history.
++.backlog_tabs { display: flex; align-items: center; gap: .6em; margin: 0 6% 0 auto; }
++.backlog_tabs button, .favorite_button, .favorite_status button {
++  border: 1px solid #ffffff50; background: #18242fe6; color: white;
++  border-radius: .35em; cursor: pointer; font: inherit; padding: .35em .65em;
++}
++.backlog_tabs button { font-size: 140%; }
++.backlog_tabs button[aria-pressed="true"], .favorite_button[aria-pressed="true"] {
++  color: #17232d; background: #b8e0ee;
++}
++.favorite_button { font-size: .65em; white-space: nowrap; }
++.favorite_button:disabled, .favorite_status button:disabled { opacity: .5; cursor: wait; }
++.backlog_tabs button:focus-visible, .favorite_button:focus-visible, .favorite_status button:focus-visible {
++  outline: 2px solid #b8e0ee; outline-offset: 3px;
++}
++.favorite_status { margin: .6em 6%; color: #c6e9f6; min-height: 1.5em; font-size: 115%; }
++.favorite_status [role="alert"] { color: #ffd6bd; }
++.favorite_status button { margin-left: .6em; }
++.backlog_content { top: 21%; height: 75%; padding-inline: 5%; }
++.backlog_func_area { width: 35%; max-width: 35%; min-width: 35%; }
++.backlog_item_content { width: 65%; }
++.backlog_item_button_element { padding-inline: .45em; margin-left: .3em; }
+diff --git a/packages/webgal/src/UI/Favorites/Favorites.tsx b/packages/webgal/src/UI/Favorites/Favorites.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..c4b84a79d372c2e29a28c7012724b805135a44f0
+--- /dev/null
++++ b/packages/webgal/src/UI/Favorites/Favorites.tsx
+@@ -0,0 +1,179 @@
++import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
++import { webgalStore } from '@/store/store';
++import { subscribeSaveStatus } from '@/Core/controller/storage/makenovelCompatibility';
++import { verifyFavoriteVoice, type FavoriteEntry } from '@/Core/controller/storage/makenovelFavorites';
++import { WebGAL } from '@/Core/WebGAL';
++import { subscribeVisualReadiness } from '@/Core/Modules/visualReadiness';
++import { compileSentence } from '@/Stage/TextBox/TextBox';
++import { FavoriteVoicePlayer } from './favoriteVoice';
++import { favoriteContext, type FavoritesController } from './useFavorites';
++import styles from './favorites.module.scss';
++
++export function selectFavorites(entries: FavoriteEntry[], query: string, voiced: boolean, oldest: boolean) {
++  const needle = query.trim().toLocaleLowerCase();
++  return entries.filter((entry) => (!voiced || !!entry.voice) && (!needle ||
++    `${entry.speaker}\n${entry.text}\n${entry.sceneName}`.toLocaleLowerCase().includes(needle)))
++    .sort((a, b) => (oldest ? 1 : -1) * a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
++}
++
++function Snapshot({ text }: { text: string }) {
++  return <>{compileSentence(text, 3, true, false).map((line, index) =>
++    <div key={index}>{line.map((part, i) => <Fragment key={i}>{part.reactNode}</Fragment>)}</div>)}</>;
++}
++
++export function Favorites({ controller, active }: { controller: FavoritesController; active: boolean }) {
++  const [query, setQuery] = useState('');
++  const [voiced, setVoiced] = useState(false);
++  const [oldest, setOldest] = useState(false);
++  const [limit, setLimit] = useState(40);
++  const [playing, setPlaying] = useState('');
++  const [checking, setChecking] = useState('');
++  const [voiceError, setVoiceError] = useState('');
++  const player = useRef<FavoriteVoicePlayer>();
++  const auditionRequest = useRef(0);
++  const alive = useRef(false);
++  const isActive = useRef(active);
++  isActive.current = active;
++  const voiceContext = useRef<() => string>(() => '');
++  const shown = useMemo(() => selectFavorites(controller.entries, query, voiced, oldest),
++    [controller.entries, query, voiced, oldest]);
++
++  useEffect(() => {
++    let mounted = true;
++    alive.current = true;
++    let scene = WebGAL.sceneManager.sceneData.currentScene;
++    let sceneRevision = 0;
++    voiceContext.current = () => {
++      const current = WebGAL.sceneManager.sceneData.currentScene;
++      if (scene !== current) { scene = current; ++sceneRevision; }
++      return `${favoriteContext()}:${WebGAL.sceneManager.getSessionEpoch()}:${sceneRevision}:${WebGAL.sceneManager.lockSceneWrite}`;
++    };
++    const voice = new FavoriteVoicePlayer({
++      createAudio: (url) => new Audio(url),
++      releaseAudioUrl: (url) => URL.revokeObjectURL(url),
++      currentVoice: () => document.getElementById('currentVocal') as HTMLAudioElement | null,
++      stopHistory: () => document.querySelectorAll<HTMLAudioElement>('[id^="backlog_audio_play_element_"]').forEach((audio) => {
++        audio.pause();
++        audio.currentTime = 0;
++      }),
++      volume: () => {
++        const options = webgalStore.getState().userData.optionData;
++        return options.volumeMain * options.vocalVolume / 10000;
++      },
++      context: () => voiceContext.current(),
++      onState: (id, error) => { if (mounted) { setPlaying(id); setVoiceError(error); } },
++    });
++    player.current = voice;
++    let context = voiceContext.current();
++    const checkContext = () => {
++      if (context === voiceContext.current()) return;
++      context = voiceContext.current();
++      ++auditionRequest.current;
++      voice.dispose();
++      setPlaying('');
++      setChecking('');
++      setVoiceError('');
++    };
++    const unsubscribe = subscribeSaveStatus(checkContext);
++    const unsubscribeReadiness = subscribeVisualReadiness(checkContext);
++    const stopOnBlur = () => { ++auditionRequest.current; setChecking(''); voice.stop(); };
++    const stopOnHidden = () => { if (document.hidden) stopOnBlur(); };
++    const stopOnNativeVoice = (event: Event) => {
++      if ((event.target as HTMLElement | null)?.id === 'currentVocal') stopOnBlur();
++    };
++    document.addEventListener('visibilitychange', stopOnHidden);
++    document.addEventListener('play', stopOnNativeVoice, true);
++    window.addEventListener('blur', stopOnBlur);
++    return () => {
++      mounted = false;
++      alive.current = false;
++      ++auditionRequest.current;
++      unsubscribe();
++      unsubscribeReadiness();
++      document.removeEventListener('visibilitychange', stopOnHidden);
++      document.removeEventListener('play', stopOnNativeVoice, true);
++      window.removeEventListener('blur', stopOnBlur);
++      voice.dispose();
++      player.current = undefined;
++    };
++  }, []);
++
++  useEffect(() => { if (!active) { ++auditionRequest.current; setChecking(''); player.current?.stop(); } }, [active]);
++  useEffect(() => {
++    if ((playing && !shown.some((entry) => entry.id === playing)) || (checking && !shown.some((entry) => entry.id === checking))) {
++      ++auditionRequest.current; setChecking(''); player.current?.stop();
++    }
++  }, [shown, playing, checking]);
++  useEffect(() => { setLimit(40); }, [query, voiced, oldest]);
++
++  const audition = async (entry: FavoriteEntry) => {
++    const request = ++auditionRequest.current;
++    player.current?.stop();
++    if (playing === entry.id || checking === entry.id) { setChecking(''); return; }
++    const context = voiceContext.current();
++    const current = () => alive.current && isActive.current && request === auditionRequest.current && context === voiceContext.current();
++    setChecking(entry.id);
++    setVoiceError('');
++    try {
++      const url = await verifyFavoriteVoice(entry);
++      if (!current()) { URL.revokeObjectURL(url); return; }
++      await player.current?.play(entry.id, url);
++    } catch (cause) {
++      if (current()) setVoiceError(cause instanceof Error ? cause.message : '语音核验失败，文本收藏仍保留。');
++    } finally { if (current()) setChecking(''); }
++  };
++
++  return <section className={styles.panel} aria-label="收藏列表"
++    onKeyDown={(event) => {
++      // Let the parent history overlay handle Escape outside an editable control.
++      if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 &&
++        !(event.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return;
++      event.stopPropagation();
++    }} onKeyUp={(event) => event.stopPropagation()}
++    onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
++    <div className={styles.tools}>
++      <label className={styles.search}>搜索收藏
++        <input type="search" value={query} placeholder="台词、角色或场景"
++          onChange={(event) => setQuery(event.target.value)} />
++      </label>
++      <label className={styles.filter}><input type="checkbox" checked={voiced}
++        onChange={(event) => setVoiced(event.target.checked)} />仅有语音</label>
++      <label className={styles.sort}>排列
++        <select value={oldest ? 'oldest' : 'newest'} onChange={(event) => setOldest(event.target.value === 'oldest')}>
++          <option value="newest">最近收藏优先</option><option value="oldest">最早收藏优先</option>
++        </select>
++      </label>
++    </div>
++    <div className={styles.description}>收藏保留当前版本的台词与语音，不随读档回退。试听期间剧情语音静音并继续播放，停止后恢复声音。</div>
++    <div className={styles.status} role="status" aria-live="polite">
++      {controller.loading ? '正在读取收藏…' : controller.busy ? '正在保存…' : !controller.available ? '收藏暂时不可用' : controller.notice || `共 ${shown.length} 条收藏`}
++    </div>
++    {controller.error && <div role="alert" className={styles.error}>{controller.error}
++      <button type="button" onClick={() => void controller.refresh()} disabled={controller.loading || controller.busy}>重新读取</button>
++    </div>}
++    {voiceError && <div role="alert" className={styles.error}>{voiceError}</div>}
++    <div className={styles.list}>
++      {controller.available && !controller.loading && shown.length === 0 &&
++        <div className={styles.empty}>{query || voiced ? '没有符合筛选条件的收藏。' : '还没有收藏。在历史记录中点击“收藏”即可保存喜欢的台词。'}</div>}
++      {controller.available && shown.slice(0, limit).map((entry) => <article key={entry.id} className={styles.card}>
++        <header><strong><Snapshot text={entry.speaker || '旁白'} /></strong><span>{entry.sceneName}</span></header>
++        <div className={styles.text}><Snapshot text={entry.text} /></div>
++        {entry.voiceUnavailable && <div className={styles.description}>{entry.voiceUnavailable}</div>}
++        {entry.identity === 'revision-position' && <div className={styles.description}
++          title="未登记稳定台词身份，收藏按当前版本的场景位置保存，不推断其他修订中的对应台词。">此台词仅按当前版本位置保存。</div>}
++        <footer>
++          <span>{new Date(entry.createdAt).toLocaleString()} · {entry.voice ? '有语音' : '纯文本'}</span>
++          <div className={styles.actions}>
++            {entry.voice && <button type="button" disabled={!active || controller.busy || controller.loading}
++              aria-pressed={playing === entry.id} onClick={() => void audition(entry)}>
++              {playing === entry.id ? '停止试听' : checking === entry.id ? '取消载入' : '试听语音'}</button>}
++            <button type="button" disabled={controller.busy || controller.loading}
++              onClick={() => void controller.remove(entry.id)} aria-label={`取消收藏：${entry.speaker || '旁白'}`}>取消收藏</button>
++          </div>
++        </footer>
++      </article>)}
++      {controller.available && shown.length > limit && <button className={styles.more} type="button"
++        onClick={() => setLimit((value) => value + 40)}>显示更多（剩余 {shown.length - limit} 条）</button>}
++    </div>
++  </section>;
++}
+diff --git a/packages/webgal/src/UI/Favorites/favoriteVoice.ts b/packages/webgal/src/UI/Favorites/favoriteVoice.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2313303503ed27bc580b9432f1061c42d8792633
+--- /dev/null
++++ b/packages/webgal/src/UI/Favorites/favoriteVoice.ts
+@@ -0,0 +1,83 @@
++type VoiceEnvironment = {
++  createAudio: (url: string) => HTMLAudioElement;
++  releaseAudioUrl: (url: string) => void;
++  currentVoice: () => HTMLAudioElement | null;
++  stopHistory: () => void;
++  volume: () => number;
++  context: () => string;
++  onState: (id: string, error: string) => void;
++};
++
++/** Audition owns only its media element and a temporary mute on the current
++ * voice. Native timing, performs and scene state are never paused or changed. */
++export class FavoriteVoicePlayer {
++  private generation = 0;
++  private active?: HTMLAudioElement;
++  private activeUrl?: string;
++  private muted?: { media: HTMLAudioElement; original: boolean };
++
++  constructor(private readonly env: VoiceEnvironment) {}
++
++  async play(id: string, url: string): Promise<void> {
++    this.stop(false, false);
++    const generation = this.generation;
++    const context = this.env.context();
++    const media = this.env.currentVoice();
++    if (media !== this.muted?.media) {
++      this.releaseMute();
++      if (media) { this.muted = { media, original: media.muted }; media.muted = true; }
++    }
++    this.env.stopHistory();
++    this.activeUrl = url;
++    let audio: HTMLAudioElement;
++    try { audio = this.env.createAudio(url); }
++    catch {
++      this.stop();
++      this.env.onState('', '语音无法载入。文本收藏仍保留。');
++      return;
++    }
++    this.active = audio;
++    audio.volume = Math.max(0, Math.min(1, this.env.volume()));
++    const current = () => this.active === audio && this.generation === generation && this.env.context() === context;
++    audio.onended = () => { if (current()) this.stop(); };
++    audio.onerror = () => {
++      if (!current()) return;
++      this.stop();
++      this.env.onState('', '这条收藏的语音无法播放，文件可能缺失或格式不支持。文本收藏仍保留。');
++    };
++    this.env.onState(id, '');
++    try {
++      await audio.play();
++      if (!current()) audio.pause();
++    } catch {
++      if (!current()) return;
++      this.stop();
++      this.env.onState('', '语音播放失败，请检查资源或再次点击试听。文本收藏仍保留。');
++    }
++  }
++
++  private releaseMute() {
++    if (!this.muted) return;
++    this.muted.media.muted = this.muted.original;
++    this.muted = undefined;
++  }
++
++  stop(releaseVoice = true, notify = true): void {
++    ++this.generation;
++    const audio = this.active;
++    this.active = undefined;
++    if (audio) {
++      audio.onended = null;
++      audio.onerror = null;
++      audio.pause();
++      audio.removeAttribute('src');
++      audio.load();
++    }
++    if (this.activeUrl) this.env.releaseAudioUrl(this.activeUrl);
++    this.activeUrl = undefined;
++    if (releaseVoice) this.releaseMute();
++    if (notify) this.env.onState('', '');
++  }
++
++  dispose(): void { this.stop(true, false); }
++}
+diff --git a/packages/webgal/src/UI/Favorites/favorites.module.scss b/packages/webgal/src/UI/Favorites/favorites.module.scss
+new file mode 100644
+index 0000000000000000000000000000000000000000..2b79095a3957423e33661ca419c9c878bb951b0b
+--- /dev/null
++++ b/packages/webgal/src/UI/Favorites/favorites.module.scss
+@@ -0,0 +1,53 @@
++.panel {
++  position: absolute;
++  inset: calc(10% + 2em) 6% 3%;
++  color: #fff;
++  display: flex;
++  flex-direction: column;
++  gap: .65em;
++  font-family: "资源圆体", sans-serif;
++  font-size: 145%;
++  min-height: 0;
++  button, input, select { font: inherit; }
++  button, select, input[type="search"] {
++    color: #fff;
++    border: 1px solid #ffffff50;
++    background: #18242fe6;
++    border-radius: .35em;
++    padding: .4em .7em;
++  }
++  button { cursor: pointer; }
++  button:hover:not(:disabled) { background: #3b5669; }
++  button:disabled { opacity: .5; cursor: wait; }
++  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #a5d4e4; outline-offset: 3px; }
++}
++.tools { display: flex; gap: 1em; align-items: end; flex-wrap: wrap; }
++.search { display: flex; flex: 1; min-width: 12em; flex-direction: column; gap: .3em; }
++.search input { width: 100%; box-sizing: border-box; }
++.filter { display: flex; gap: .4em; padding-bottom: .5em; align-items: center; white-space: nowrap; }
++.filter input { width: 1em; height: 1em; accent-color: #a5d4e4; }
++.sort { display: flex; flex-direction: column; gap: .3em; }
++.description { color: #c6d7df; font-size: .75em; line-height: 1.5; }
++.status { color: #c6e9f6; font-size: .85em; min-height: 1.3em; }
++.error { color: #ffd6bd; font-size: .9em; padding: .55em .7em; background: #6c352680; border-radius: .3em; }
++.error button { margin-left: .7em; }
++.list { overflow: auto; min-height: 0; padding: 0 .5em .5em 0; }
++.empty { padding: 3em 1em; text-align: center; color: #c6d7df; }
++.card {
++  border: 1px solid #ffffff25;
++  background: #17232db3;
++  border-radius: .45em;
++  padding: 1em 1.2em;
++  margin-bottom: .65em;
++  header { display: flex; justify-content: space-between; gap: 1em; color: #b8e0ee; }
++  header > span { font-size: .7em; color: #a9bac4; overflow-wrap: anywhere; }
++  footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .6em; align-items: center; }
++  footer > span { color: #a9bac4; font-size: .7em; }
++}
++.text { padding: .7em 0 1em; line-height: 1.6; overflow-wrap: anywhere; }
++.actions { display: flex; gap: .5em; font-size: .8em; }
++.more { display: block; margin: .5em auto; }
++@media (max-width: 800px) {
++  .panel { inset-inline: 3%; font-size: 125%; }
++  .tools { gap: .6em; }
++}
+diff --git a/packages/webgal/src/UI/Favorites/useFavorites.ts b/packages/webgal/src/UI/Favorites/useFavorites.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..af5258d3f664b1d878b1fbf62b364c58d78f5373
+--- /dev/null
++++ b/packages/webgal/src/UI/Favorites/useFavorites.ts
+@@ -0,0 +1,102 @@
++import { useCallback, useEffect, useRef, useState } from 'react';
++import type { IBacklogItem } from '@/Core/Modules/backlog';
++import {
++  favoriteBacklog, favoriteIdForBacklog, loadFavorites, removeFavorite, subscribeFavorites,
++  type FavoriteEntry,
++} from '@/Core/controller/storage/makenovelFavorites';
++import {
++  getSaveStatus, getSaveStorageEpoch, isSaveStorageEnabled, subscribeSaveStatus,
++} from '@/Core/controller/storage/makenovelCompatibility';
++import { WebGAL } from '@/Core/WebGAL';
++
++export const favoriteContext = () => `${WebGAL.gameKey}:${getSaveStorageEpoch()}:${isSaveStorageEnabled()}`;
++
++export function useFavorites(open: boolean) {
++  const [entries, setEntries] = useState<FavoriteEntry[]>([]);
++  const [loading, setLoading] = useState(false);
++  const [busy, setBusy] = useState(false);
++  const [error, setError] = useState('');
++  const [notice, setNotice] = useState('');
++  const [available, setAvailable] = useState(false);
++  const request = useRef(0);
++  const locked = useRef(false);
++  const mounted = useRef(false);
++
++  const refresh = useCallback(async () => {
++    const token = ++request.current;
++    const context = favoriteContext();
++    setLoading(true);
++    setError('');
++    try {
++      const next = await loadFavorites();
++      if (!mounted.current || token !== request.current || context !== favoriteContext()) return;
++      setEntries(next);
++      setAvailable(true);
++    } catch (cause) {
++      if (!mounted.current || token !== request.current || context !== favoriteContext()) return;
++      setAvailable(false);
++      setError(cause instanceof Error ? cause.message : '收藏读取失败；原数据未被替换。');
++    } finally {
++      if (mounted.current && token === request.current) setLoading(false);
++    }
++  }, []);
++
++  useEffect(() => {
++    if (!open) return;
++    mounted.current = true;
++    let context = favoriteContext();
++    const checkContext = () => {
++      if (context === favoriteContext()) return;
++      context = favoriteContext();
++      ++request.current;
++      setEntries([]);
++      setAvailable(false);
++      setNotice('');
++      void refresh();
++    };
++    const unsubscribe = subscribeSaveStatus(checkContext);
++    const unsubscribeFavorites = subscribeFavorites(() => {
++      if (!locked.current) void refresh();
++    });
++    void refresh();
++    return () => {
++      mounted.current = false;
++      ++request.current;
++      unsubscribe();
++      unsubscribeFavorites();
++    };
++  }, [open, refresh]);
++
++  const mutate = useCallback(async (operation: () => Promise<FavoriteEntry[]>, message: string) => {
++    if (!mounted.current || locked.current) return;
++    locked.current = true;
++    setBusy(true);
++    setError('');
++    setNotice('');
++    const token = ++request.current;
++    const context = favoriteContext();
++    try {
++      const next = await operation();
++      if (!mounted.current || token !== request.current || context !== favoriteContext()) return;
++      setEntries(next);
++      setAvailable(true);
++      setNotice(message);
++    } catch (cause) {
++      if (!mounted.current || token !== request.current || context !== favoriteContext()) return;
++      setError(cause instanceof Error ? cause.message : '收藏保存失败；原数据未被替换。');
++    } finally {
++      locked.current = false;
++      if (mounted.current) setBusy(false);
++    }
++  }, []);
++
++  const toggle = (item: IBacklogItem) => {
++    const id = favoriteIdForBacklog(item, entries);
++    return mutate(() => id ? removeFavorite(id) : favoriteBacklog(item), id ? '已取消收藏。' : '已收藏。');
++  };
++  const remove = (id: string) => mutate(() => removeFavorite(id), '已取消收藏。');
++  const preview = getSaveStatus().preview;
++  return { entries, loading, busy, error, notice, available: available && !preview, refresh, toggle, remove };
++}
++
++export type FavoritesController = ReturnType<typeof useFavorites>;
+diff --git a/packages/webgal/src/UI/Menu/Options/System/System.tsx b/packages/webgal/src/UI/Menu/Options/System/System.tsx
+index 879c7128d992362c79ce18cfe68b1f780a7e0a28..09e660e2a5da7d761ba9f3cdbb68942ad6c4a010 100644
+--- a/packages/webgal/src/UI/Menu/Options/System/System.tsx
++++ b/packages/webgal/src/UI/Menu/Options/System/System.tsx
+@@ -20,7 +20,8 @@ import { dumpFastSaveToStorage, dumpSavesToStorage } from '@/Core/controller/sto
+ import { OptionSlider } from '@/UI/Menu/Options/OptionSlider';
+ import { Info } from '@icon-park/react';
+ import { SaveDataTools } from '@/UI/SaveDataTools/SaveDataTools';
+-import { reportSaveError } from '@/Core/controller/storage/makenovelCompatibility';
++import { reportSaveError, getSaveStorageEpoch } from '@/Core/controller/storage/makenovelCompatibility';
++import { clearFavorites } from '@/Core/controller/storage/makenovelFavorites';
+ 
+ export function System() {
+   const userDataState = useSelector((state: RootState) => state.userData);
+@@ -160,12 +161,20 @@ export function System() {
+                     leftText: t('$common.yes'),
+                     rightText: t('$common.no'),
+                     leftFunc: () => {
+-                      dispatch(resetAllData());
+-                      void WebGAL.flowchartManager.clearProgress().catch(reportSaveError);
+-                      dumpToStorageFast();
+-                      dispatch(saveActions.resetSaves());
+-                      void dumpSavesToStorage(0, 200).catch(reportSaveError);
+-                      void dumpFastSaveToStorage().catch(reportSaveError);
++                      const namespace = WebGAL.gameKey;
++                      const epoch = getSaveStorageEpoch();
++                      // Preserve malformed collection data and stop the clear operation
++                      // if it cannot be acknowledged in the same player session.
++                      void clearFavorites().then(() => {
++                        if (namespace !== WebGAL.gameKey || epoch !== getSaveStorageEpoch())
++                          throw new Error('作品会话已改变，没有继续清除玩家数据。');
++                        dispatch(resetAllData());
++                        void WebGAL.flowchartManager.clearProgress().catch(reportSaveError);
++                        dumpToStorageFast();
++                        dispatch(saveActions.resetSaves());
++                        void dumpSavesToStorage(0, 200).catch(reportSaveError);
++                        void dumpFastSaveToStorage().catch(reportSaveError);
++                      }).catch(reportSaveError);
+                     },
+                     rightFunc: () => {},
+                   });

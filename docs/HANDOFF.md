@@ -1,6 +1,6 @@
 # 交接与恢复
 
-记录：2026-10-27，MakeNovel `0.0.17` / `main`，远端 `https://github.com/Elylien/makenovel.git`。提交与推送以现场 Git 核对为准。
+记录：2026-10-27，MakeNovel `0.0.18` / `main`，远端 `https://github.com/Elylien/makenovel.git`。提交与推送以现场 Git 核对为准。
 
 ## 恢复先核查
 
@@ -13,46 +13,46 @@ Get-Content -LiteralPath .local/editor-runtime/process.json
 Get-NetTCPConnection -State Listen -LocalPort 3000,3001 -ErrorAction SilentlyContinue
 ```
 
-先读 PROJECT_STATUS、DEVELOPMENT_PLAN、TESTING、DIRECTOR_EDITING、KNOWN_ISSUES。私有输入只留 docs/private，禁止 stage/upload。两 vendor HEAD 保持锁定上游，工作树有意应用补丁；不要 reset/clean、暂存 gitlink 或创建嵌套提交。状态与交接文末的毕业设计任务尾注属于另一个未提交任务，继续保留且不要顺带提交。
+先读 PROJECT_STATUS、DEVELOPMENT_PLAN、PROJECT_REVIEW_AND_ROADMAP、TESTING、KNOWN_ISSUES。私有输入只留 docs/private，禁止stage/upload。两vendor HEAD保持锁定上游，工作树有意应用补丁；不要reset/clean、暂存gitlink或创建嵌套提交。状态与交接文末毕业设计尾注属于外部未提交任务，保留且不要顺带提交。
 
-## 第十七轮结果
+## 第十八轮结果
 
-普通作品导出新增当前源码/构建收据→共享模板→最终 ASAR 的精确文件校验，覆盖壳入口、原生 manifest 替换、SW移除及作品全部字节。自带入口的作品保留自身引擎并标记 self-contained，不冒用共享构建凭据；没有 manifest 的引擎明确拒绝。
+N1：用图片/舞台/演出等原生就绪事件唤醒单对白流程图待解锁请求，重查场景、会话、存储世代和安全门禁；取消后清理订阅，不用定时轮询。旧引擎READY锁定已实机复现；新引擎图片就绪和MOTION唯一对白的8秒动画自然结束后，节点均无需推进下一句即解锁。
 
-16/16导出回归通过，runtime6/6、Terre11/11反向检查、收据检查、HTTP25/25、服务22/22和保留29/29通过。本轮复用已有构建，没有新增 vendor patch、runtime/Terre构建或独立重放；第十六轮355项不算本轮重跑。范围见 [本轮证据](evidence/2026-10-27-round17.md)。
+N3：原生历史可收藏/取消，列表可检索、仅语音筛选、按时间排序和试听。文本/声音快照独立于存档，缺少稳定身份时标注版本内位置；版本间不自动迁移。声音按当前清单及字节校验后使用Blob试听，原剧情声仅静音且继续计时，停止恢复原值。Web Locks串行写入；不可用时修改拒绝；未知/损坏收藏不覆盖。玩家备份包含同作品不同版本收藏，清档保留收藏，清全部包含收藏。详情见[收藏说明](PLAYER_FAVORITES.md)。
 
-新Windows包 `.local/exports/MakeNovel Round17 20261027-120942-bee75e/`，运行整个目录中的 `WebGAL.exe`；未签名开发包。ASAR `e799b1c045f4acd44d8560bab4ccfe3da60014e82dcc75d27737ac5348d45090`，EXE `1094293cd271c3ae2d29cf55c664adca0a0260c2e21983846691f13a19fd309d`。最终41个public文件、15个game文件通过校验。
+15个代码入口451/451通过，runtime七补丁独立重放18/18通过；baseline:build→editor:build依次成功，共享模板已同步。服务22/22、HTTP25/25、保留441项和最终runtime7/7、Terre11/11检查通过。真实页面完成五条收藏、取消再新增、搜索/筛选/排序、位置回退说明、有效试听/停止、坏音频报错；旧快档和刷新后仍保留五条。原始结果在 `docs/evidence/local/round18/`，公开范围见[第十八轮证据](evidence/2026-10-27-round18.md)。
 
-开发服务无监听时，真实Windows窗口完成普通槽1和快档保存、人物关闭后的快读、Alt+F4退出、重新启动后的普通档/快档/流程图恢复。普通槽1时间为 `2026/10/27 12:16:05`，检查点STABLE，两人物与橙色人物终态正确；“动画章节”已解锁，“准备章节”仍锁定。第二次正常退出后该包进程为零。CLI两次12秒启动采用受控结束，仅是独立冒烟；全机断网、强杀/断电与完整恢复矩阵未验收。
+本轮没有新Windows开发包或原生窗口验收，不沿用旧包代替0.0.18验收。真实IME、完整作者流程、声音听感、全机断网/异常退出和性能未测。GUI也未另测跨标签竞争或重复点击去重；这些代码覆盖不能冒充实机。Live2D缺库和Pixi重复纹理警告继续保留。
 
-## 当前进程与作品
+## 当前进程、作品与补丁
 
-本轮开始时旧记录PID36088不再对应受控编辑器，停止命令曾因身份不匹配拒绝，未停止未知进程；后续核对该PID已不存在，项目入口及3000/3001均无进程/监听。GUI验收始终在开发服务不存在时进行。
+构建前按身份停止旧编辑器PID48840，构建后恢复新进程：PID **20576**，UTC启动 **2026-10-27T06:29:58.5616584Z**，入口 `vendor/WebGAL_Terre/packages/terre2/dist/src/main.js`，仅 `127.0.0.1:3001`，3000无监听。停止前重核PID、时间和完整入口；记录及日志在 `.local/editor-runtime/`。本轮没有启动Windows包。
 
-结束后已恢复编辑器：PID **48840**，UTC启动 **2026-10-27T04:23:01.2316257Z**，入口 `vendor/WebGAL_Terre/packages/terre2/dist/src/main.js`，仅 `127.0.0.1:3001`，3000无监听。停止前重新核对PID/时间/入口；记录与日志在 `.local/editor-runtime/`。Windows包当前已正常关闭，未改变用户浏览器标签。
+新样片编辑入口 `http://127.0.0.1:3001/#/game/makenovel-round18`；独立播放器 `http://127.0.0.1:3001/games/makenovel-round18/`，已保留浏览器预览。不要覆盖旧作品。新样片为程序生成SVG、合成测试音和原生脚本，不含商用素材或真人配音。
 
-编辑入口 `http://127.0.0.1:3001/#/game/makenovel-round16`；独立播放器 `http://127.0.0.1:3001/games/makenovel-round16/`。本轮复用该样片没有改稿，projectId `22e62d06-9df3-44af-b54a-46417522f8e2`，Game_key `makenovel-round16-8b9dc5a4-1ce1-4dda-80b4-ffde81533979`，14文件manifest `e3598c67cc66be7e393129cd2fbbe256068c46c5db9349a558ed85fc29b08259`。start SHA256 `750a55bc9a1f092974f23d1c7791571fae149b646d9f362eefadf0de227e2bfb`，motion `3d19e6b30b05f0eca074612fd4bf9f397670d56f946e2bbb5de0c23557e016ce`。
+- projectId：`d8e42a57-745b-49f3-8c23-9fe3ab1dfe28`。
+- Game_key：`makenovel-round18-dee98519-5af6-4a74-9832-6c839e91055e`。
+- manifest：`876a927a2b4fe83cf57f218a812b8e074fd78aeb767189df1ae97d7cf27d8cc0`，18登记文件。
+- WebGAL HEAD：`d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`；Terre HEAD：`cf73dd58535d3ef15bddf0852adee153fa92d7da`。
+- 运行时七补丁完整树：`cfcb56adef2eff807372ad3de7beaaccf3f24e0c`；Terre十一补丁完整树：`f1dbce8b346b235e96da095beee935341c77aa40`。
+- 0007补丁：`6679062bf1bc118d7ad84b1d66cb103128e15c99a0f4e24fec1111bcea17f3d4`。后续runtime0008从七补丁完整树导出，Terre0012仍从十一补丁完整树导出。
+- 收据：`.local/runtime-sync/runtime-build.json`，builtAt `2026-10-27T06:26:16.5942188Z`；25引擎文件签名 `5bace677fc357d14e96096fea6fb18fafd6cb9ac6eda1819cdbc7a53c182fe26`。
 
-本地证据 `docs/evidence/local/round17/`：`windows-acceptance.json`、`06-windows-restart-restored.png`、`09-windows-restart-quick-restored.png`、两份normal-exit进程记录及独立CLI报告。导出时收据保留当时not-run字段，后续GUI结论看独立验收记录。既有APPDATA的58文件备份位于 `.local/player-backups/round17-before-20261027-120008`，不要覆盖或用它清空当前玩家数据。
-
-运行时六补丁完整树 `c81482167623cae5204a999f720ae6877be0f4ac`；Terre十一补丁完整树 `f1dbce8b346b235e96da095beee935341c77aa40`。WebGAL HEAD `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`，Terre HEAD `cf73dd58535d3ef15bddf0852adee153fa92d7da`。运行时收据 `.local/runtime-sync/runtime-build.json`，引擎签名 `6ad117b5dd65caa8895ef06cd7fb8bc07ead0960d4562ac369c74e417b2f341b`，旧模板备份与所有旧样片继续保留。
+收藏演示操作保留在当前新作品玩家空间，READY快档早于所有收藏。重新测试时创建新隔离作品，不清空既有玩家数据。作者跳句预览不应写入正式玩家收藏；需要验证时从独立播放器正常标题进入。
 
 ## 下一具体单元
 
-先核对现场与清单，再复现单对白场景在主图/有限演出结束后没有后续安全提交的流程图解锁边界：
+用户希望一轮合并更多功能后测试。下一批优先N2作者完整操作/真实IME，并推进N4本地AI接口的首个可审阅草稿流程。先确认当前作品与原生编辑会话，再选择新的隔离作品执行新建→逐句改稿→素材配置→保存/切换→预览→导出；记录真实输入法事件和失败场景，不能用合成composition事件代替IME验收。
 
 ```powershell
-node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round16
-npm.cmd run test:runtime-restore
-rg -n 'pendingUnlock|deferred|unlockNode|commit' vendor/WebGAL/packages/webgal/src/Core
+node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round18
+npm.cmd run test:source-input
+npm.cmd run test:director
 ```
 
-沿原生生命周期选取明确安全事件，先写失败回归，再考虑runtime0007；不要新增播放器存档请求队列，不用定时轮询猜测稳定，不改变旧作品源码来掩盖问题。下一Terre0012从 `f1dbce8b346b235e96da095beee935341c77aa40` 导出，下一runtime0007从 `c81482167623cae5204a999f720ae6877be0f4ac` 导出。需要构建时先停editor，再baseline:build→editor:build；不并发Terre两workspace。独立重放时冻结patch/manifest。
+先完成本批实现再集中运行相关检查；只有新失败、源码变化或剩余风险才扩展重测。AI草稿仍须保持原生来源身份、版本冲突和用户可审阅写回，不让未完成草稿进入活动运行时；不把外部服务、收费或正式发行默认为已配置。
 
-作品改稿后暂停写入，再显式 `npm.cmd run game:seal -- -GamePath '<作品目录>' -Action Update` 并重开。真实IME、全机断网、异常退出及发行验收保持独立。用户已授权开源Git、工具安装和Computer Use；付费与正式发行分开处理。
+需要构建时先停editor，再baseline:build→editor:build；不并发Terre两个workspace构建。导出补丁后冻结来源再做独立重放；后续改动须重新导出与构建。普通作品共享引擎已更新，自带入口的旧作品不会自动换引擎。作品改稿后暂停写入，再显式 `npm.cmd run game:seal -- -GamePath '<作品目录>' -Action Update` 并重开。
 
-## 2026-10-27 规划交接
-
-用户要求先回顾整个流程并把后续安排写入文件。本次仅完成 [总回顾与路线](PROJECT_REVIEW_AND_ROADMAP.md) 以及文档入口同步，没有执行第十八轮实现。恢复产品开发时先读该路线，再按上面的下一具体命令开展N1；之后按N2作者真实操作、N3收藏、N4本地AI接口和N5集成样片推进，不能跳过原有完整目标。
-
-本次重新核对两子模块HEAD、runtime6/6和Terre11/11已登记补丁、Git原有修改及实际进程；编辑器PID48840/UTC启动2026-10-27T04:23:01.2316257Z仍匹配，未重启、未重建。没有重跑产品GUI或Windows包测试；最后产品结果见第十七轮。两份毕业设计尾注和私有输入继续排除于本次提交。
+N5及完整G1—G5仍见[总回顾与路线](PROJECT_REVIEW_AND_ROADMAP.md)。第十七轮Windows目录包、旧模板备份、旧样片、玩家备份和文档外部尾注全部保留。

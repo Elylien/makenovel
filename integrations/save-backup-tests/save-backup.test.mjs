@@ -47,6 +47,22 @@ test('captures same project across manifests and excludes all foreign project ke
   assert.deepEqual(archive.payload.records.map(r => r.key), [`${namespace}-saves2`, namespace, `${older}-flowchart-main-x`].sort());
 });
 
+test('favorites are preserved across project revisions without including foreign or prefix-neighbor data', async () => {
+  const keys = [`${namespace}-favorites`, `${older}-favorites`];
+  const storage = new Storage([
+    [keys[0], { schemaVersion: 1, entries: [{ text: 'Keep my snapshot' }] }],
+    [keys[1], 'damaged old favorites must still be backed up'],
+    [`${foreign}-favorites`, { private: true }], [`${namespace}-favorites-other`, { unrelated: true }],
+  ]);
+  const before = structuredClone(storage.data);
+  const archive = await captureSaveBackup(storage, scope);
+  assert.deepEqual(archive.payload.records.map(record => record.key), keys.sort());
+  await verifySaveBackup(JSON.parse(JSON.stringify(archive)), scope);
+  assert.deepEqual(storage.data, before); assert.deepEqual(storage.writes, []);
+  assert.equal(ownsSaveBackupKey(`${foreign}-favorites`, scope), false);
+  assert.equal(ownsSaveBackupKey(`${namespace}-favorites-other`, scope), false);
+});
+
 test('anchored key matching excludes prefix neighbors, malformed hashes, unrelated settings and backup keys', () => {
   for (const key of ['makenovel-test-other', 'makenovel-test-saves2-extra', 'makenovel-test-saves-fast-other',
     'makenovel-test-savesNaN', 'makenovel-test-flowchart', `${namespace}0`, `${namespace}x-saves0`,

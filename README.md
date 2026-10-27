@@ -2,7 +2,7 @@
 
 面向 Windows 的视觉小说创作工具链：传统玩家体验、人工导演模式，以及共享同一份源码的 AI 创作接口。
 
-**当前版本 0.0.17：Windows 导出会核对已审核引擎的来源与最终包内容，并已通过本机正常退出后的存档恢复。** 在项目开发服务停止时，实际 EXE 保存稳定点、正常退出并重启，普通槽、快档和流程图均恢复双人与动画终态。本轮导出核验 16/16；运行时和编辑器继续使用第十六轮已审核构建。结果与边界见 [当前状态](docs/PROJECT_STATUS.md) 和 [第十七轮证据](docs/evidence/2026-10-27-round17.md)。全机断网、干净机器、异常退出、完整 G1/G2 与正式发行仍未整体验收。
+**当前版本 0.0.18：新增台词与语音收藏，并修复单对白场景在图片或有限动画就绪后仍未解锁流程图的问题。** 历史记录可以收藏、取消、搜索、筛选和试听；收藏独立于剧情存档，读取旧快档不会抹去后来收藏的条目。来源、构建和实际浏览器路径见 [当前状态](docs/PROJECT_STATUS.md)、[收藏说明](docs/PLAYER_FAVORITES.md) 与 [第十八轮证据](docs/evidence/2026-10-27-round18.md)。本轮没有当前引擎的 Windows EXE 验收；0.0.17 的正常重启结果保留为历史证据，完整 G1/G2 与正式发行仍未整体验收。
 
 ## 开始
 
@@ -142,7 +142,17 @@ npm.cmd run test:playback-demo
 npm.cmd run test:playback-modes
 ```
 
-目标已存在时拒绝覆盖。流程节点在后续安全剧情提交时重试解锁，动画结束本身不会自动解锁；没有后续安全提交的单句场景可能仍锁定。主动存档仍须在稳定点重新操作。稳定历史/流程图快照恢复终态；返回动画中的历史记录会从初态重播，不是精确相位续播。详细路径见 [播放样片说明](integrations/playback-demo/README.md)。
+目标已存在时拒绝覆盖。第十六轮当时仅在后续安全剧情提交时重试流程节点解锁；0.0.18 已增加原生就绪事件，单对白在图片或有限动画结算后也能重试，仍逐次核对场景、会话与保存门禁。主动存档仍须在稳定点重新操作。稳定历史/流程图快照恢复终态；返回动画中的历史记录会从初态重播，不是精确相位续播。历史样片见 [播放样片说明](integrations/playback-demo/README.md)，当前改动见 [第十八轮证据](docs/evidence/2026-10-27-round18.md)。
+
+第十八轮将单对白解锁和收藏放入同一个独立样片：
+
+```powershell
+npm.cmd run demo:player-library -- --output .local/editor-profile/games/makenovel-round18
+npm.cmd run test:favorites
+npm.cmd run test:favorites-ui
+```
+
+目标目录已存在时拒绝覆盖。已生成的本地样片可从 [独立播放器](http://127.0.0.1:3001/games/makenovel-round18/) 正常标题进入，或在 [编辑器](http://127.0.0.1:3001/#/game/makenovel-round18) 查看原生源码。样片含有声、无声、缺少稳定身份和故意损坏语音的条目；播放器的“回想”页提供收藏入口。收藏只属于当前封存版本，不跳转剧情，当前上限为2000条和8×1024×1024个序列化字符（UTF-16码元）；旧版收藏保留，不自动迁移。详见 [收藏说明](docs/PLAYER_FAVORITES.md)。
 
 ## 导出 Windows 开发包
 
@@ -156,17 +166,18 @@ npm.cmd run game:export -- -GamePath '.local/editor-profile/games/你的作品�
 
 普通作品导出前核对当前源码、构建收据和共享模板；完成后检查最终 ASAR 的引擎、作品和壳文件，拒绝陈旧模板、额外或变化的文件。自带入口的作品保留自己的引擎，并要求已有 manifest.json；不自动获得共享引擎的审核结论。交付时需复制整个输出目录，不能只复制 EXE。
 
-第十七轮使用当前审核引擎和未改写的 Round16 样片生成新包。停止项目开发服务后，实际 Windows EXE 的稳定点普通/快速存档、正常退出重启及流程图恢复通过有限路径；机器网络仍开启。CLI 的两次受限网络启动使用独立 profile，结束方式为受控进程终止，与 GUI 的正常退出证据分别记账。见 [第十七轮记录](docs/evidence/2026-10-27-round17.md) 和 [Windows 导出说明](integrations/windows-export/README.md)。历史坏图保存门禁等结果仍以 [第七轮记录](docs/evidence/2026-10-08-round7.md) 为准；本轮不据此授予全部存档或 Windows 发行验收。
+第十七轮使用当时0.0.17审核引擎和未改写的 Round16 样片生成新包。停止项目开发服务后，实际 Windows EXE 的稳定点普通/快速存档、正常退出重启及流程图恢复通过有限路径；机器网络仍开启。CLI 的两次受限网络启动使用独立 profile，结束方式为受控进程终止，与 GUI 的正常退出证据分别记账。见 [第十七轮记录](docs/evidence/2026-10-27-round17.md) 和 [Windows 导出说明](integrations/windows-export/README.md)。历史坏图保存门禁等结果仍以 [第七轮记录](docs/evidence/2026-10-08-round7.md) 为准；本轮不据此授予全部存档或 Windows 发行验收。
 
 ## 项目导航
 
-先看 [项目回顾与后续安排](docs/PROJECT_REVIEW_AND_ROADMAP.md)：包含十七轮历程、当前能力缺口、近期五个执行单元和完整产品路线。当前产品基线仍为0.0.17，规划本身不新增验收结论。
+先看 [项目回顾与后续安排](docs/PROJECT_REVIEW_AND_ROADMAP.md)：保留0.0.17时的十七轮复盘，并记录0.0.18合批完成N1与N3的增量。接下来优先合并推进N2作者真实操作/中文IME与N4本地AI工具，再将成果接入完整双路线作品；每批功能稳定后统一进行相关回归和真实路径验证。
 
 - [当前状态](docs/PROJECT_STATUS.md) / [交接入口](docs/HANDOFF.md)
 - [开发计划](docs/DEVELOPMENT_PLAN.md) / [需求追踪](docs/REQUIREMENTS_TRACEABILITY.md)
 - [引擎评估](docs/ENGINE_EVALUATION.md) / [Terre 实测](docs/TERRE_BASELINE.md)
 - [对标范围](docs/REFERENCE_PARITY.md) / [决策](docs/DECISIONS.md)
 - [存档版本与完整备份](docs/SAVE_COMPATIBILITY.md)（跨版本迁移尚未实现）
+- [台词与语音收藏](docs/PLAYER_FAVORITES.md)
 
 `vendor/` 使用 Git submodule 固定上游提交，`upstream.lock.json` 记录版本和锁文件摘要。实验不创建第二套剧情执行器或存档系统。
 

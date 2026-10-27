@@ -623,3 +623,88 @@ test('bootstrap text cache clears on initialization, failed verification and aut
   bootstrap.markPreviewSession();
   assert.equal(bootstrap.getVerifiedBootstrapText(filename), undefined);
 });
+
+async function vocalFixture() {
+  const f = await fixture();
+  const filename = 'game/vocal/中文 #%.wav';
+  const bytes = Buffer.from([82, 73, 70, 70, 0, 255, 128, 7]);
+  await fs.mkdir(path.dirname(path.join(f.directory, filename)), { recursive: true });
+  await fs.writeFile(path.join(f.directory, filename), bytes);
+  await f.update(); await f.ready();
+  f.calls.length = 0;
+  return { f, filename, bytes };
+}
+
+test('favorite voice returns exact manifest bytes with canonical filename encoding', async () => {
+  const { f, filename, bytes } = await vocalFixture();
+  const result = await runtime.readVerifiedVocalAsset(filename);
+  assert.deepEqual(Buffer.from(result), bytes);
+  assert.equal(f.calls.some(call => call.url.includes('%23%25.wav')), true);
+  await fs.writeFile(path.join(f.directory, filename), 'changed after read');
+  assert.deepEqual(Buffer.from(result), bytes, 'returned bytes do not refetch the live URL');
+});
+
+test('favorite voice rejects paths outside vocal, unsupported media and unregistered files', async () => {
+  const { f } = await vocalFixture();
+  for (const filename of ['game/background/pixel #%.bin', 'game/vocal/../scene/start.txt', 'game/vocal/file.js', 'https://foreign.test/a.wav'])
+    await assert.rejects(runtime.readVerifiedVocalAsset(filename), /本作品内支持的音频/u);
+  await fs.writeFile(path.join(f.directory, 'game/vocal/unsealed.wav'), 'unsealed');
+  await assert.rejects(runtime.readVerifiedVocalAsset('game/vocal/unsealed.wav'), /未登记/u);
+  assert.equal(f.calls.length, 0);
+});
+
+test('favorite voice rejects changed or missing assets without a second unverified playback URL', async () => {
+  const { f, filename } = await vocalFixture();
+  await fs.appendFile(path.join(f.directory, filename), 'changed');
+  await assert.rejects(runtime.readVerifiedVocalAsset(filename), /作品内容已变化/u);
+  await fs.unlink(path.join(f.directory, filename));
+  await assert.rejects(runtime.readVerifiedVocalAsset(filename), /无法读取作品文件/u);
+});
+
+test('favorite voice verifies the selected bytes again after the full preflight', async () => {
+  const { f, filename } = await vocalFixture();
+  let reads = 0;
+  f.setHook(name => {
+    if (name === filename && ++reads === 2) return new Response('changed between verification and audition');
+  });
+  await assert.rejects(runtime.readVerifiedVocalAsset(filename), /语音内容已经改变/u);
+  assert.equal(reads, 2);
+});
+
+test('favorite voice detects reseal while awaiting selected bytes', async () => {
+  const { f, filename } = await vocalFixture();
+  let manifests = 0;
+  f.setHook(name => {
+    if (name === MANIFEST_PATH && ++manifests === 3) {
+      const changed = structuredClone(f.manifest);
+      changed.gameKey = 'different-game';
+      return new Response(JSON.stringify(rehash(changed)));
+    }
+  });
+  await assert.rejects(runtime.readVerifiedVocalAsset(filename), /作品版本或玩家存储会话已改变/u);
+});
+
+test('favorite voice detects storage epoch change during the selected read', async () => {
+  const { f, filename } = await vocalFixture();
+  let reads = 0;
+  f.setHook(name => { if (name === filename && ++reads === 2) runtime.setSaveStorageEnabled(true); });
+  await assert.rejects(runtime.readVerifiedVocalAsset(filename), /玩家存储会话已改变/u);
+});
+
+test('favorite voice in author preview is isolated before any resource read', async () => {
+  const { f, filename } = await vocalFixture();
+  const preview = await freshRuntime('favorite-voice-preview');
+  await preview.initializeSaveCompatibility('./game/config.txt', 'compat-test');
+  preview.setSaveStorageEnabled(true); preview.markPreviewSession();
+  f.calls.length = 0;
+  await assert.rejects(preview.readVerifiedVocalAsset(filename), /作者预览/u);
+  assert.equal(f.calls.length, 0);
+});
+
+test('favorite voice checks its declared size before starting another whole-game preflight', async () => {
+  const { f, filename } = await vocalFixture();
+  await fs.writeFile(path.join(f.directory, filename), Buffer.alloc(32 * 1024 * 1024 + 1));
+  await f.update(); await f.ready(); f.calls.length = 0;
+  await assert.rejects(runtime.readVerifiedVocalAsset(filename), /32 MiB/u);
+  assert.equal(f.calls.length, 0);
+});
