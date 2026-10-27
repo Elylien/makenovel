@@ -50,3 +50,9 @@ rg -n 'pendingUnlock|deferred|unlockNode|commit' vendor/WebGAL/packages/webgal/s
 沿原生生命周期选取明确安全事件，先写失败回归，再考虑runtime0007；不要新增播放器存档请求队列，不用定时轮询猜测稳定，不改变旧作品源码来掩盖问题。下一Terre0012从 `f1dbce8b346b235e96da095beee935341c77aa40` 导出，下一runtime0007从 `c81482167623cae5204a999f720ae6877be0f4ac` 导出。需要构建时先停editor，再baseline:build→editor:build；不并发Terre两workspace。独立重放时冻结patch/manifest。
 
 作品改稿后暂停写入，再显式 `npm.cmd run game:seal -- -GamePath '<作品目录>' -Action Update` 并重开。真实IME、全机断网、异常退出及发行验收保持独立。用户已授权开源Git、工具安装和Computer Use；付费与正式发行分开处理。
+
+## 2026-10-27 规划交接
+
+用户要求先回顾整个流程并把后续安排写入文件。本次仅完成 [总回顾与路线](PROJECT_REVIEW_AND_ROADMAP.md) 以及文档入口同步，没有执行第十八轮实现。恢复产品开发时先读该路线，再按上面的下一具体命令开展N1；之后按N2作者真实操作、N3收藏、N4本地AI接口和N5集成样片推进，不能跳过原有完整目标。
+
+本次重新核对两子模块HEAD、runtime6/6和Terre11/11已登记补丁、Git原有修改及实际进程；编辑器PID48840/UTC启动2026-10-27T04:23:01.2316257Z仍匹配，未重启、未重建。没有重跑产品GUI或Windows包测试；最后产品结果见第十七轮。两份毕业设计尾注和私有输入继续排除于本次提交。

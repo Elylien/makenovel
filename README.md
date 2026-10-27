@@ -160,6 +160,8 @@ npm.cmd run game:export -- -GamePath '.local/editor-profile/games/你的作品�
 
 ## 项目导航
 
+先看 [项目回顾与后续安排](docs/PROJECT_REVIEW_AND_ROADMAP.md)：包含十七轮历程、当前能力缺口、近期五个执行单元和完整产品路线。当前产品基线仍为0.0.17，规划本身不新增验收结论。
+
 - [当前状态](docs/PROJECT_STATUS.md) / [交接入口](docs/HANDOFF.md)
 - [开发计划](docs/DEVELOPMENT_PLAN.md) / [需求追踪](docs/REQUIREMENTS_TRACEABILITY.md)
 - [引擎评估](docs/ENGINE_EVALUATION.md) / [Terre 实测](docs/TERRE_BASELINE.md)
