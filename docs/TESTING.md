@@ -1,8 +1,35 @@
 # 测试入口与证据
 
-更新：2026-10-27，MakeNovel `0.0.18`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-27，MakeNovel `0.0.19`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-## 第十八轮可复查入口
+## 第十九轮可复查入口
+
+八个唯一代码入口 **579/579** 通过。author-tools46、author-input21、documents69、identity28、source-input12、graph-input132、director147、editor124（14 Jest套件）。代码、真实HTTP/GUI、构建和Windows分开计数。工具46项包括模拟传输和临时协议服务器，不等于真实Terre接力；本轮另由新上下文代理经实际服务完成接力。
+
+```powershell
+npm.cmd run test:author-tools
+npm.cmd run test:author-input
+npm.cmd run test:documents
+npm.cmd run test:identity
+npm.cmd run test:source-input
+npm.cmd run test:graph-input
+npm.cmd run test:director
+npm.cmd run test:editor
+```
+
+输入21项在修复前失败、修复后通过；BOM分析变化触发导演回归失败，又用新增用例复现首节点编辑/恢复缺陷，修复后完整147项通过并重跑graph132。`checks-summary.json`记录最后一轮各唯一入口；旧失败日志保留，通用backend JSON的TAP计数0不能替代实际Jest124项。
+
+停编辑器→baseline:build（106.066秒）→editor:build（277.898秒），均成功。Terre12补丁独立重放18/18；最终Terre12/12、runtime7/7反向检查通过。共享引擎HTTP25/25、服务22/22、保留464项、作品39文件封存后复核通过，均不加入579代码总数。
+
+```powershell
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL_Terre -ExpectedPatchCount 12 -EvidencePath docs/evidence/local/round19/terre-independent-replay.json
+node integrations/terre-launcher/verify-editor.mjs
+npm.cmd run game:seal -- -GamePath '.local/editor-profile/games/makenovel-round19' -Action Verify
+```
+
+实际坐标鼠标路径：新作品/资源上传/空场景→图形/源码互改→保存重开；AI插入→图形微调→旧提案冲突拒写→新修订续写→缺素材拒写，17ID/其他字节保持。封存后从标题分别走通两分支和共同结尾，均end回标题。完整细节与截图索引见[第十九轮证据](evidence/2026-10-27-round19.md)。系统IME候选窗口和当前Windows包仍未验收；粘贴与模拟事件不算IME，网页构建不算Windows通过。播放器Live2D缺库等既有告警保留。
+
+## 第十八轮可复查入口（历史）
 
 本轮合并单对白流程图就绪、文本/语音收藏、筛选与试听、备份/清理接线。十五个代码入口 **451/451**，逐份TAP与 `evidence/local/round18/checks-summary.json` 的计数一致，全部退出0；构建、补丁重放、HTTP文件核对和GUI步骤不加入代码总数。没有重跑完整作者工作流或全部历史入口。
 

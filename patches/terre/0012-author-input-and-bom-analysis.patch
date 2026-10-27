@@ -1,0 +1,189 @@
+diff --git a/packages/origine2/src/components/Assets/Assets.tsx b/packages/origine2/src/components/Assets/Assets.tsx
+index f14b6b5d355d17e01ddb55655605bb830c550b5e..da54e2e5190e2dc1b9935445a4afe56804a8aa12 100644
+--- a/packages/origine2/src/components/Assets/Assets.tsx
++++ b/packages/origine2/src/components/Assets/Assets.tsx
+@@ -1,3 +1,4 @@
++import { isImeKeyEvent } from '@/utils/isImeKeyEvent';
+ import { api } from '@/api';
+ import { useValue } from '@/hooks/useValue';
+ import { ChangeEvent, CSSProperties, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+@@ -434,7 +435,7 @@ export default function Assets({
+                 <PopoverSurface
+                   onKeyDown={(event) => {
+                     event.stopPropagation();
+-                    if (event.key === 'Enter' && !checkHasFile(newFileName.value.trim() + newFileExtensionName.value)) {
++                    if (event.key === 'Enter' && !isImeKeyEvent(event) && !checkHasFile(newFileName.value.trim() + newFileExtensionName.value)) {
+                       handleCreateNewFile(
+                         currentFullPath.join('/'),
+                         `${newFileName.value.trim()}${newFileExtensionName.value}`,
+@@ -509,7 +510,7 @@ export default function Assets({
+                 <PopoverSurface
+                   onKeyDown={(event) => {
+                     event.stopPropagation();
+-                    if (event.key === 'Enter' && !checkHasFile(newFileName.value)) {
++                    if (event.key === 'Enter' && !isImeKeyEvent(event) && !checkHasFile(newFileName.value)) {
+                       handleCreateNewFolder(currentFullPath.join('/'), newFileName.value.trim());
+                       createNewFolderPopoverOpen.set(false);
+                       newFileName.set('');
+diff --git a/packages/origine2/src/components/Assets/FileElement.tsx b/packages/origine2/src/components/Assets/FileElement.tsx
+index f44c2ab450d52aed364e53b2c787a727455c75de..ea51a91e32c503a2f3f684de451f29f84f647dbc 100644
+--- a/packages/origine2/src/components/Assets/FileElement.tsx
++++ b/packages/origine2/src/components/Assets/FileElement.tsx
+@@ -1,3 +1,4 @@
++import { isImeKeyEvent } from '@/utils/isImeKeyEvent';
+ import { checkFileName } from '@/utils/checkFileName';
+ import { extractExtension, getDirIcon, getFileIcon } from '@/utils/getFileIcon';
+ import {
+@@ -205,6 +206,7 @@ export default function FileElement({
+                       e.stopPropagation();
+                       if (
+                         e.key === 'Enter' &&
++                        !isImeKeyEvent(e) &&
+                         !(
+                           newFileName.value.trim() === '' ||
+                           !isAccessible ||
+diff --git a/packages/origine2/src/pages/dashboard/Sidebar.tsx b/packages/origine2/src/pages/dashboard/Sidebar.tsx
+index 4570aa21245fdeae6855de8075b16267480bb1e8..8fa5c014135b4b4bf8f993a700fcf6d340415d88 100644
+--- a/packages/origine2/src/pages/dashboard/Sidebar.tsx
++++ b/packages/origine2/src/pages/dashboard/Sidebar.tsx
+@@ -1,3 +1,4 @@
++import { isImeKeyEvent } from '@/utils/isImeKeyEvent';
+ import GameElement from "./GameElement";
+ import styles from "./sidebar.module.scss";
+ import {useState} from "react";
+@@ -121,7 +122,7 @@ export default function Sidebar(props: ISidebarProps) {
+                   setGameName(event.target.value);
+                   gameDir === normalizeFileName(gameName) && setGameDir(normalizeFileName(event.target.value));
+                 }}
+-                onKeyDown={(event) => (event.key === 'Enter') && createNewGame()}
++                onKeyDown={(event) => (event.key === 'Enter') && !isImeKeyEvent(event) && createNewGame()}
+                 defaultValue={t`新的游戏`}
+                 placeholder={t`游戏名称`}
+               />
+@@ -129,7 +130,7 @@ export default function Sidebar(props: ISidebarProps) {
+               <Input
+                 value={gameDir}
+                 onChange={(event) => setGameDir(event.target.value)}
+-                onKeyDown={(event) => (event.key === 'Enter') && createNewGame()}
++                onKeyDown={(event) => (event.key === 'Enter') && !isImeKeyEvent(event) && createNewGame()}
+                 defaultValue={gameDir}
+                 placeholder={t`游戏目录`}
+               />
+diff --git a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Choose.tsx b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Choose.tsx
+index bef1bd3280d58476d2ff8b63ce017ea9eb058e93..74089d719653fece2ea0e9a73078eab6c7c8deac 100644
+--- a/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Choose.tsx
++++ b/packages/origine2/src/pages/editor/GraphicalEditor/SentenceEditor/Choose.tsx
+@@ -1,3 +1,4 @@
++import { isImeKeyEvent } from '@/utils/isImeKeyEvent';
+ import { ISentenceEditorProps } from "./index";
+ import styles from "./sentenceEditor.module.scss";
+ import { useValue } from "../../../../hooks/useValue";
+@@ -109,7 +110,7 @@ function ChooseTargetDialog(props: IChooseTargetDialogProps) {
+                 onChange={(_, data) => manualLabel.set(data.value)}
+                 placeholder={t`输入 label 名称`}
+                 onKeyDown={(event) => {
+-                  if (event.key === "Enter" && manualLabel.value.trim()) {
++                  if (event.key === "Enter" && !isImeKeyEvent(event) && manualLabel.value.trim()) {
+                     selectTarget(manualLabel.value.trim());
+                   }
+                 }}
+diff --git a/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts b/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
+index 5a6dea33048208594ad47acc980325ef886cf645..7bd86f32882eea3477f38b443a41ec8a51accb59 100644
+--- a/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
++++ b/packages/origine2/src/pages/editor/SceneDocument/directorSession.ts
+@@ -392,6 +392,11 @@ function withAnimationSourceBoundary(source: string, node: DirectorSessionNode):
+     readonlyReason: reason ?? undefined };
+ }
+ 
++/** Match identity source spans: a file-leading BOM belongs to the file, not a node. */
++function directorBlockRaw(block: SceneBlock): string {
++  return block.startLine === 1 ? block.raw.replace(/^\uFEFF/, '') : block.raw;
++}
++
+ /**
+  * Collect only the immediately preceding linear native commands. This is a
+  * source group, not an inferred stage snapshot or a cross-branch reconstruction.
+@@ -428,13 +433,14 @@ export function createDirectorSession(source: string, startLine: number, history
+     const sentence = ranges.find(item => item.startLine === block.startLine - 1 && !item.isLineBreakHolder);
+     if (!sentence) throw new Error('无法定位原生语句，请重新打开导演面板。');
+     const node = identity.nodes.find(item => item.startLine === sentence.startLine);
++    const raw = directorBlockRaw(block);
+     const role = block === selected ? 'dialogue' : block.kind === 'comment' || block.kind === 'blank'
+       ? 'comment' : block.command === 'wait' ? 'wait' : 'stage';
+     // A reserved ID is not written until this particular node actually changes.
+     return {
+       origin: 'existing',
+       nodeId: node?.nodeId ?? reserveId(), startLine: sentence.startLine,
+-      command: block.command ?? sentence.commandRaw, sentence, raw: block.raw, originalRaw: block.raw,
++      command: block.command ?? sentence.commandRaw, sentence, raw, originalRaw: raw,
+       originallyRegistered: !!node?.nodeId, registered: !!node?.nodeId,
+       editable: role === 'dialogue' || role === 'stage' || (role === 'wait' && acceptedWait(block, sentence)), role,
+     };
+@@ -466,7 +472,7 @@ function refreshNodes(session: DirectorSession, source: string): DirectorSession
+       throw new Error('等待的语法或时序边界已改变，导演草稿未应用。');
+     }
+     if (node.origin === 'inserted') validateInsertedStage(block, sentence);
+-    return { ...node, sentence, raw: block.raw, registered: !!identified };
++    return { ...node, sentence, raw: directorBlockRaw(block), registered: !!identified };
+   }).map(node => withAnimationSourceBoundary(source, node));
+   return { ...session, source, nodes, changed: source !== session.expectedSource,
+     inheritance: sourceInheritance(source, nodes, nodes.find(node => node.nodeId === session.selectedNodeId)!.startLine) };
+diff --git a/packages/origine2/src/pages/editor/Topbar/tabs/GameConfig/GameConfig.tsx b/packages/origine2/src/pages/editor/Topbar/tabs/GameConfig/GameConfig.tsx
+index d01e5d24ff58f71530857089ef8e69ed900b1385..935952fab8f05acc283ff71f20a635a9524b62da 100644
+--- a/packages/origine2/src/pages/editor/Topbar/tabs/GameConfig/GameConfig.tsx
++++ b/packages/origine2/src/pages/editor/Topbar/tabs/GameConfig/GameConfig.tsx
+@@ -1,3 +1,4 @@
++import { isImeKeyEvent } from '@/utils/isImeKeyEvent';
+ import styles from "../topbarTabs.module.scss";
+ import dialogStyles from './gameConfigDialog.module.scss';
+ import {useValue} from "../../../../../hooks/useValue";
+@@ -406,7 +407,7 @@ function GameConfigEditor(props: IGameConfigEditor) {
+           showEditBox.set(false);
+         }}
+         onKeyDown={(event) => {
+-          if (event.key === 'Enter') {
++          if (event.key === 'Enter' && !isImeKeyEvent(event)) {
+             const inputElement = event.target as HTMLInputElement;
+             props.onChange(inputElement.value);
+             showEditBox.set(false);
+diff --git a/packages/origine2/src/utils/isImeKeyEvent.ts b/packages/origine2/src/utils/isImeKeyEvent.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ef3081945fb2412ee2b33811245833d30b15866e
+--- /dev/null
++++ b/packages/origine2/src/utils/isImeKeyEvent.ts
+@@ -0,0 +1,16 @@
++interface CompositionKeyEvent {
++  isComposing?: boolean;
++  keyCode?: number;
++  nativeEvent?: {
++    isComposing?: boolean;
++    keyCode?: number;
++  };
++}
++
++/** Candidate-confirmation keys must not submit an author form or close its editor. */
++export function isImeKeyEvent(event: CompositionKeyEvent): boolean {
++  const nativeEvent = event.nativeEvent ?? event;
++  // Some IMEs report 229 on the confirming key even when isComposing is already false.
++  return event.isComposing === true || nativeEvent.isComposing === true ||
++    event.keyCode === 229 || nativeEvent.keyCode === 229;
++}
+diff --git a/packages/terre2/src/Modules/scene-document/scene-analysis.ts b/packages/terre2/src/Modules/scene-document/scene-analysis.ts
+index 2bc7f1ea047b3f36b2851abeb2abffdfe0fadef0..076206a2bb8ab0099e7d3a951004b478c1566d96 100644
+--- a/packages/terre2/src/Modules/scene-document/scene-analysis.ts
++++ b/packages/terre2/src/Modules/scene-document/scene-analysis.ts
+@@ -199,9 +199,12 @@ export function analyzeScene(text: string): SceneAnalysis {
+   ) => {
+     diagnostics.push({ code, severity, message, range: sourceRange });
+   };
+-  const folded = sceneTextPreProcess(text).split('\n');
++  // A UTF-8 BOM is file metadata, not part of the first native command.
++  // Keep original text/ranges for diagnostics and identity-preserving writes.
++  const parserText = text.replace(/^\uFEFF/, '');
++  const folded = sceneTextPreProcess(parserText).split('\n');
+   const native = parser.parse(
+-    text,
++    parserText,
+     'validation',
+     'validation.txt',
+   ).sentenceList;

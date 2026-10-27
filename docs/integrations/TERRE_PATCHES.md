@@ -216,4 +216,22 @@ pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.p
 
 覆盖 SetAnimation、SentenceEditor props、DirectorPanel、directorSession 和四份 locale。已有有限动画的资源/目标/next 复用原生控件与局部写回；已知模型只读，动画为结构边界，旧/动态/高级参数不做静默迁移。五个新消息 ID 随构建提取；非中文翻译待补。没有运行时新补丁或依赖升级。
 
-最终十一补丁独立重放 18/18，真实 index/开发树保持；构建后反向检查 11/11。细分测试与实际 GUI 见 [第十五轮证据](../evidence/2026-10-26-round15.md)。下一增量应以上述十一补丁完整树为基准。
+最终十一补丁独立重放 18/18，真实 index/开发树保持；构建后反向检查 11/11。细分测试与实际 GUI 见 [第十五轮证据](../evidence/2026-10-26-round15.md)。下述第十九轮增量以上述十一补丁完整树为基准。
+
+## 第十九轮作者输入与BOM分析补丁
+
+`0.0.19` 保留Terre0001—0011与runtime七份补丁原字节，追加 `0012-author-input-and-bom-analysis.patch`。增量基树为 `f1dbce8b346b235e96da095beee935341c77aa40`，两个上游HEAD与锁文件保持。
+
+- 文件数：8；补丁大小：11261字节。
+- SHA256：`1e72d5297fd7594b97d4463730ab2d165169f26764a395b418c9a68e36f9aa28`。
+- 十二补丁完整树：`1881fb345e93da773e7381be80f89201fabfdd16`。
+
+八个文件包括共享 `isImeKeyEvent`、Sidebar/Choose/GameConfig/Assets/FileElement五个作者组件、共享scene-analysis和directorSession。作者组件的7个Enter入口在组合态不提前执行；共享分析仅从parser输入剥离文件首BOM，完整原文与诊断范围仍保留。导演的raw/originalRaw与identity span对齐，修复未登记首命令编辑及精确回退。没有修改锁定parser本体、运行时执行器、存档格式或业务写入协议；本地AI CLI另位于根仓 `integrations/author-tools/`。
+
+原始输入回归21项全部失败后修复至21/21；BOM契约新增回归进一步捕获真实实现问题，修复后导演147/147。两类失败日志均保留。全部本轮代码共579/579，受控runtime→Terre构建通过；独立无alternates clone按最终固定补丁执行正向、幂等、反序与真实index保持检查18/18。实际作者/工具接力和正常双路线播放另见 [第十九轮证据](../evidence/2026-10-27-round19.md)，代码回归不授予真实系统IME或Windows包验收。
+
+```powershell
+pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.ps1 -Target WebGAL_Terre -ExpectedPatchCount 12 -EvidencePath docs/evidence/local/round19/terre-independent-replay.json
+```
+
+后续增量以上述十二补丁完整树为基准。重放期间停止修改vendor、补丁和manifest；不得通过重写前十一份补丁或重置vendor掩盖差异。

@@ -626,13 +626,78 @@ test('editing preserves BOM, CRLF, exact comments, unknown outside blocks and ex
   assert.equal(session.nodes.find(node => node.nodeId === 'say.one').registered, true);
 });
 
-test('the existing BOM-first-command analysis boundary remains conservative and preserves all original bytes', () => {
+test('BOM-first commands are available without rewriting untouched source or registering identities', () => {
   const source = '\uFEFFchangeBg:day.svg -next; 原注释\r\nsay:正文;\r\n';
   let session = open(source, 1, 0);
-  assert.deepEqual(session.nodes.map(node => node.command), ['say']);
+  assert.deepEqual(session.nodes.map(node => node.command), ['changeBg', 'say']);
+  assert.equal(session.source, source);
+  assert.equal(session.changed, false);
+  assert.equal(session.nodes.some(node => node.registered), false);
+  const ids = session.nodes.map(node => node.nodeId);
   session = edit(session, session.selectedNodeId, 'say:新文;');
   assert.equal(session.source.split('\r\n')[0], source.split('\r\n')[0]);
-  assert.throws(() => open('\uFEFFsay:正文;', 0, 0), /仅支持/);
+  assert.deepEqual(session.nodes.map(node => node.nodeId), ids);
+  assert.equal(target(session, 'changeBg').registered, false);
+  assert.equal(session.source.match(/\uFEFF/g)?.length, 1);
+  assert.equal(session.source.replaceAll('\r\n', '').includes('\n'), false);
+  assert.deepEqual(semantics(nativeRanges(session.source)), semantics(runtimeParse(session.source)));
+  assert.equal(commit(source, 0, session), session.source);
+});
+
+test('editing and reverting a BOM-first registered command preserves exact BOM, CRLF, comments and existing IDs', () => {
+  const source = '\uFEFFchangeBg:  day.svg  -duration = 080 -next;  原注释 ; @makenovel-node bg.first  \r\n'
+    + 'say:  原文  ; 作者 ; @makenovel-node say.first\r\nfutureFx:opaque -future=kept; untouched\r\n';
+  const opened = open(source, 1, 7);
+  const changed = edit(opened, 'bg.first', 'changeBg:night.svg -duration=80 -next;');
+  const expected = source.replace('day.svg', 'night.svg');
+  assert.equal(commit(source, 7, changed), expected);
+  assert.equal(opened.source, source);
+  assert.equal(changed.source.match(/\uFEFF/g)?.length, 1);
+  assert.deepEqual(changed.nodes.map(node => node.nodeId), ['bg.first', 'say.first']);
+  assert.equal(changed.selectedNodeId, 'say.first');
+  assert.deepEqual(semantics(nativeRanges(changed.source)), semantics(runtimeParse(changed.source)));
+  const reverted = edit(changed, 'bg.first', 'changeBg:day.svg -duration=80 -next;');
+  assert.equal(commit(source, 7, reverted), source);
+  assert.equal(reverted.changed, false);
+});
+
+test('BOM-first unregistered stage and dialogue edits register only the edited identity', () => {
+  for (const [source, line, command, replacement, originalText, changedText] of [
+    ['\uFEFFchangeBg:day.svg -next; 原注释\r\nsay:正文;\r\n', 1, 'changeBg', 'changeBg:night.svg -next;', 'day.svg', 'night.svg'],
+    ['\uFEFFsay:  原文  ;  作者  \r\nfutureFx:after -x=2;\r\n', 0, 'say', 'say:新文;', '原文', '新文'],
+  ]) {
+    const opened = open(source, line, 0);
+    const id = target(opened, command).nodeId;
+    const changed = edit(opened, id, replacement);
+    const marker = `; @makenovel-node ${id}`;
+    assert.equal(changed.source.split(marker).length, 2, 'exactly the edited node gains one identity');
+    assert.equal(changed.source.replace(marker, ''), source.replace(originalText, changedText));
+    assert.equal(changed.source.match(/\uFEFF/g)?.length, 1);
+    assert.equal(changed.source.replaceAll('\r\n', '').includes('\n'), false);
+    assert.equal(target(changed, command).registered, true);
+    assert.deepEqual(changed.nodes.map(node => node.nodeId), opened.nodes.map(node => node.nodeId));
+    assert.equal(opened.source, source);
+    assert.equal(commit(source, 0, changed), changed.source);
+    assert.deepEqual(semantics(nativeRanges(changed.source)), semantics(runtimeParse(changed.source)));
+    const reverted = edit(changed, id, replacement.replace(changedText, originalText));
+    assert.equal(commit(source, 0, reverted), source);
+    assert.equal(reverted.changed, false);
+    assert.equal(target(reverted, command).registered, false);
+  }
+});
+
+test('a leading BOM does not make unsafe first-line dialogue or stage commands eligible', () => {
+  for (const statement of ['say:正文 -next;', 'say:正文 -when=flag;', 'say:正文 -future=kept;', 'say:正文\r\n  -clear;']) {
+    assert.throws(() => open(`\uFEFF${statement}`, 0, 0), /仅支持/, statement);
+  }
+  for (const statement of ['futureFx:opaque -future=kept;', 'changeBg:day.svg -when=flag;', 'changeBg:day.svg -future=kept;']) {
+    const source = `\uFEFF${statement} 原注释\r\nsay:正文;\r\n`;
+    const opened = open(source, 1, 0);
+    assert.deepEqual(opened.nodes.map(node => node.command), ['say'], statement);
+    const changed = edit(opened, opened.selectedNodeId, 'say:新文;');
+    assert.equal(changed.source.split('\r\n')[0], source.split('\r\n')[0]);
+    assert.equal(opened.source, source);
+  }
 });
 
 test('read-only references and foreign node identities cannot be changed', () => {

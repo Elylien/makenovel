@@ -44,6 +44,10 @@
     {
       "file": "0011-director-finite-animation.patch",
       "sha256": "5eef4d6325a523a4df649f331502af2c6455bc90eea3a2a100fbcfe49dbf0c0c"
+    },
+    {
+      "file": "0012-author-input-and-bom-analysis.patch",
+      "sha256": "1e72d5297fd7594b97d4463730ab2d165169f26764a395b418c9a68e36f9aa28"
     }
   ]
 }

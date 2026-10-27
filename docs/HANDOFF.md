@@ -1,6 +1,6 @@
 # 交接与恢复
 
-记录：2026-10-27，MakeNovel `0.0.18` / `main`，远端 `https://github.com/Elylien/makenovel.git`。提交与推送以现场 Git 核对为准。
+记录：2026-10-27，MakeNovel `0.0.19` / `main`。远端 `https://github.com/Elylien/makenovel.git`；提交与推送以现场 Git 为准。
 
 ## 恢复先核查
 
@@ -13,46 +13,43 @@ Get-Content -LiteralPath .local/editor-runtime/process.json
 Get-NetTCPConnection -State Listen -LocalPort 3000,3001 -ErrorAction SilentlyContinue
 ```
 
-先读 PROJECT_STATUS、DEVELOPMENT_PLAN、PROJECT_REVIEW_AND_ROADMAP、TESTING、KNOWN_ISSUES。私有输入只留 docs/private，禁止stage/upload。两vendor HEAD保持锁定上游，工作树有意应用补丁；不要reset/clean、暂存gitlink或创建嵌套提交。状态与交接文末毕业设计尾注属于外部未提交任务，保留且不要顺带提交。
+先读 PROJECT_STATUS、DEVELOPMENT_PLAN、PROJECT_REVIEW_AND_ROADMAP、TESTING。禁止 stage/upload `docs/private/`。两 vendor HEAD 保持锁定上游，工作树有意应用登记补丁；不要 reset/clean、暂存 gitlink、创建或发布嵌套提交。文末毕业设计尾注属于外部任务，保留但不提交；原始尾注副本在 `.scratch/round17-external-*.md`。
 
-## 第十八轮结果
+## 第十九轮结果
 
-N1：用图片/舞台/演出等原生就绪事件唤醒单对白流程图待解锁请求，重查场景、会话、存储世代和安全门禁；取消后清理订阅，不用定时轮询。旧引擎READY锁定已实机复现；新引擎图片就绪和MOTION唯一对白的8秒动画自然结束后，节点均无需推进下一句即解锁。
+N2：通过用户新开的 Chrome 窗口，用截图坐标点击完成新建独立作品、原生上传、空场景图形→源码→图形→保存/重开。封存后从标题正常走完两条路线，各自到达共同结尾并回标题。AI 新增后经界面微调再续写的最终台词实际显示。没有使用作者跳句作为路线验收。
 
-N3：原生历史可收藏/取消，列表可检索、仅语音筛选、按时间排序和试听。文本/声音快照独立于存档，缺少稳定身份时标注版本内位置；版本间不自动迁移。声音按当前清单及字节校验后使用Blob试听，原剧情声仅静音且继续计时，停止恢复原值。Web Locks串行写入；不可用时修改拒绝；未知/损坏收藏不覆盖。玩家备份包含同作品不同版本收藏，清档保留收藏，清全部包含收藏。详情见[收藏说明](PLAYER_FAVORITES.md)。
+七处 Enter 入口补组合态与 229 保护，真实组件回调 21/21；系统候选窗、选词 Enter/取消与各宿主完整矩阵仍未验收。共享分析只在解析副本去首 BOM，原生 parser 本体不改；导演节点 raw/originalRaw 排除文件 BOM，整个文档保留原字节。集中回归发现的首行编辑/恢复失败均已修复并保留失败前后日志。
 
-15个代码入口451/451通过，runtime七补丁独立重放18/18通过；baseline:build→editor:build依次成功，共享模板已同步。服务22/22、HTTP25/25、保留441项和最终runtime7/7、Terre11/11检查通过。真实页面完成五条收藏、取消再新增、搜索/筛选/排序、位置回退说明、有效试听/停止、坏音频报错；旧快档和刷新后仍保留五条。原始结果在 `docs/evidence/local/round18/`，公开范围见[第十八轮证据](evidence/2026-10-27-round18.md)。
+N4：`integrations/author-tools/` 提供 loopback CLI/函数，查询、提案、审阅摘要、校验和已有 revision/workspace 写回事务；公开入口见 [AI_AUTHORING](AI_AUTHORING.md)。独立空上下文代理经真实工具完成插入→图形界面微调→旧稿冲突拒写→新稿继续，17 ID 和其他字节不变；缺素材拒写且原稿不变。无模型服务、MCP、自动封存/运行路线、多文件事务或递归素材完整检查。
 
-本轮没有新Windows开发包或原生窗口验收，不沿用旧包代替0.0.18验收。真实IME、完整作者流程、声音听感、全机断网/异常退出和性能未测。GUI也未另测跨标签竞争或重复点击去重；这些代码覆盖不能冒充实机。Live2D缺库和Pixi重复纹理警告继续保留。
+八个代码入口579/579，Terre十二补丁独立重放18/18，最终反向Terre12/12、runtime7/7；两个受控构建均成功，服务22/22、HTTP25/25、保留464项、39文件封存复核通过。原始日志及截图在 `docs/evidence/local/round19/`，公开摘要见[本轮证据](evidence/2026-10-27-round19.md)。不得直接相加各 checks JSON：frontend 是修复前失败记录，backend 的通用 TAP 计数器显示0，实际 Jest 日志是14套/124项；最终去重汇总为 checks-summary.json。
 
-## 当前进程、作品与补丁
+## 进程、作品与来源
 
-构建前按身份停止旧编辑器PID48840，构建后恢复新进程：PID **20576**，UTC启动 **2026-10-27T06:29:58.5616584Z**，入口 `vendor/WebGAL_Terre/packages/terre2/dist/src/main.js`，仅 `127.0.0.1:3001`，3000无监听。停止前重核PID、时间和完整入口；记录及日志在 `.local/editor-runtime/`。本轮没有启动Windows包。
+构建前按身份停止旧 PID20576；当前 PID **48968**，UTC 启动 **2026-10-27T08:16:28.7830462Z**，入口 `E:/kaifas/game/makenovel/vendor/WebGAL_Terre/packages/terre2/dist/src/main.js`，仅 `127.0.0.1:3001`；3000 无监听。停止前重核 PID、时间和入口。日志及身份在 `.local/editor-runtime/`。本轮未生成或启动新的 Windows 包。
 
-新样片编辑入口 `http://127.0.0.1:3001/#/game/makenovel-round18`；独立播放器 `http://127.0.0.1:3001/games/makenovel-round18/`，已保留浏览器预览。不要覆盖旧作品。新样片为程序生成SVG、合成测试音和原生脚本，不含商用素材或真人配音。
-
-- projectId：`d8e42a57-745b-49f3-8c23-9fe3ab1dfe28`。
-- Game_key：`makenovel-round18-dee98519-5af6-4a74-9832-6c839e91055e`。
-- manifest：`876a927a2b4fe83cf57f218a812b8e074fd78aeb767189df1ae97d7cf27d8cc0`，18登记文件。
+- 编辑器：`http://127.0.0.1:3001/#/game/makenovel-round19`；播放器：`http://127.0.0.1:3001/games/makenovel-round19/`，已保留标签页。
+- projectId：`17eef852-e529-4915-90b5-1ca991d4e96a`；Game_key：`313d6ec912f2104`。
+- manifest：`ff210e88930911871363999ca8545a36bf3ebf9119cb8c119c6511836c0a6c56`，39 文件。
+- 最终 story revision：`e162066a811d380cf4b6647150f922bdb294d995a537f213f0ee527e8dcb19cf`。已停止作者写入并封存；继续改稿后需显式 Update，不自动沿用旧清单。
 - WebGAL HEAD：`d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`；Terre HEAD：`cf73dd58535d3ef15bddf0852adee153fa92d7da`。
-- 运行时七补丁完整树：`cfcb56adef2eff807372ad3de7beaaccf3f24e0c`；Terre十一补丁完整树：`f1dbce8b346b235e96da095beee935341c77aa40`。
-- 0007补丁：`6679062bf1bc118d7ad84b1d66cb103128e15c99a0f4e24fec1111bcea17f3d4`。后续runtime0008从七补丁完整树导出，Terre0012仍从十一补丁完整树导出。
-- 收据：`.local/runtime-sync/runtime-build.json`，builtAt `2026-10-27T06:26:16.5942188Z`；25引擎文件签名 `5bace677fc357d14e96096fea6fb18fafd6cb9ac6eda1819cdbc7a53c182fe26`。
+- runtime 七补丁完整树：`cfcb56adef2eff807372ad3de7beaaccf3f24e0c`；Terre 十二补丁完整树：`1881fb345e93da773e7381be80f89201fabfdd16`。
+- 0012：8 文件，11261 bytes，SHA256 `1e72d5297fd7594b97d4463730ab2d165169f26764a395b418c9a68e36f9aa28`。下一 Terre0013 从十二补丁完整树导出；runtime0008 从七补丁完整树导出。
+- runtime 收据：`.local/runtime-sync/runtime-build.json`，builtAt `2026-10-27T08:06:50.9419104Z`；25 个共享引擎文件已由真实作品 URL 比对。
 
-收藏演示操作保留在当前新作品玩家空间，READY快档早于所有收藏。重新测试时创建新隔离作品，不清空既有玩家数据。作者跳句预览不应写入正式玩家收藏；需要验证时从独立播放器正常标题进入。
+新作品保留原生模板资源，人物/背景复用旧轮次原创 SVG，画面上旧 Round18 字样是测试素材，不是新的美术交付。没有复制商业参考游戏素材。旧作品、私有输入、旧补丁和毕业文档尾注464项摘要保持。
 
 ## 下一具体单元
 
-用户希望一轮合并更多功能后测试。下一批优先N2作者完整操作/真实IME，并推进N4本地AI接口的首个可审阅草稿流程。先确认当前作品与原生编辑会话，再选择新的隔离作品执行新建→逐句改稿→素材配置→保存/切换→预览→导出；记录真实输入法事件和失败场景，不能用合成composition事件代替IME验收。
-
 ```powershell
-node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round18
-npm.cmd run test:source-input
-npm.cmd run test:director
+python .scratch/round19-preserve.py check
+npm.cmd run game:seal -- -GamePath '.local/editor-profile/games/makenovel-round19' -Action Verify
+npm.cmd run author:tools -- capabilities
 ```
 
-先完成本批实现再集中运行相关检查；只有新失败、源码变化或剩余风险才扩展重测。AI草稿仍须保持原生来源身份、版本冲突和用户可审阅写回，不让未完成草稿进入活动运行时；不把外部服务、收费或正式发行默认为已配置。
+不要重新初始化保留基线。后续用新隔离作品做系统 IME 和剩余作者流程，再扩展必要 AI 原生提案能力与运行验证，推进 N5 的完整演出/声音、路线、存读档/历史/收藏和接力；不能把本轮静态双路线替代完整 N5。真实 IME 需系统候选和实际选词/取消证据，粘贴、模拟 composition 和浏览器按键不能替代。当前代码回归入口见 TESTING，历史Windows验收仍只适用于0.0.17。
 
-需要构建时先停editor，再baseline:build→editor:build；不并发Terre两个workspace构建。导出补丁后冻结来源再做独立重放；后续改动须重新导出与构建。普通作品共享引擎已更新，自带入口的旧作品不会自动换引擎。作品改稿后暂停写入，再显式 `npm.cmd run game:seal -- -GamePath '<作品目录>' -Action Update` 并重开。
+Computer Use 已通过用户新开 Chrome 窗口正常控制；优先使用当前实际可读的标签和截图坐标。旧自动导航403来自来源守卫，未改守卫；历史原生窗口无法确定 URL 的安全停止不代表所有浏览器都不可用。如果原生输入法检查再次被工具强制停止，遵守停止并如实记录，不绕过策略。
 
-N5及完整G1—G5仍见[总回顾与路线](PROJECT_REVIEW_AND_ROADMAP.md)。第十七轮Windows目录包、旧模板备份、旧样片、玩家备份和文档外部尾注全部保留。
+需要构建时先停编辑器，再 `baseline:build`→`editor:build`；冻结来源并重新导出补丁后重放。普通作品共享模板，自带入口的旧作品不会自动换引擎。修改作品后暂停写入，再显式 `game:seal -Action Update`，重开并核验。完整未完范围见 [PROJECT_REVIEW_AND_ROADMAP](PROJECT_REVIEW_AND_ROADMAP.md)。
