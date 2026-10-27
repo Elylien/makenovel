@@ -1,8 +1,31 @@
 # 测试入口与证据
 
-更新：2026-10-27，MakeNovel `0.0.16`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-27，MakeNovel `0.0.17`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-## 第十六轮可复查入口
+## 第十七轮可复查入口
+
+导出核验 **16/16** 通过，使用真实 ASAR 和原生 manifest 替换方法，覆盖共享模板陈旧、文件增删/改字节、非预期 manifest 变化、末端副本损坏、来源中途变化、自带引擎及缓存壳变化。自带入口仍要求 manifest.json，缺失明确拒绝。普通作品的来源检查依次覆盖当前审核源码/dist 收据、实际共享模板、最终复制完成的 ASAR；不以中间产物代替末端包。
+
+```powershell
+npm.cmd run test:export-integrity
+npm.cmd run patch:runtime:check
+npm.cmd run patch:check
+pwsh -NoLogo -NoProfile -File scripts/Sync-Runtime.ps1 -Action Check
+node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/games/makenovel-round16
+npm.cmd run game:export -- -GamePath '.local/editor-profile/games/makenovel-round16' -OutputName 'MakeNovel Round17'
+pwsh -NoLogo -NoProfile -File integrations/windows-export/Verify-Package.ps1 -PackagePath '<上条命令本次输出的完整目录>'
+```
+
+| 本轮层次 | 实际结果 | 边界 |
+| --- | --- | --- |
+| 来源/内容 | runtime 6/6、Terre 11/11 补丁检查及共享引擎 25 文件收据核对通过；新包 41 个 public 文件精确核对，其中 game 15 个；源作品 14 个清单条目验证通过 | 清单本身不计入 14 条目，但包含于 15 个导出 game 文件；没有重建 vendor、重跑第十六轮 355 项或独立补丁重放 |
+| CLI 进程烟测 | 2×12 秒启动，通过系统 PATH、独立 profile、无效 HTTP(S) 代理和 file 协议日志检查 | 两次均为 `controlled-process-termination`；不作为正常退出、完整断网或 GUI 可玩证据 |
+| 实际 Windows GUI | 无本项目开发服务时保存 STABLE 普通槽 1 和快档，关闭人物后快读恢复；Alt+F4 正常退出，同包重启读取普通槽、流程图和快档，恢复双人及橙色人物终态 | 两次正常退出均核对包进程与 3000/3001 归零；机器网络开启。未捕获演出尚在进行时的 Windows 拒存点击，不继承浏览器门禁通过结论 |
+| 数据保护 | 测试前完整默认玩家 profile 文件备份并逐文件核对；使用既有 Round16 身份和未修改作品 | 备份完整不等于实际旧 namespace 逻辑值逐项回归；未清空已有玩家数据 |
+
+实际包路径、ASAR 摘要、截图和退出记录见 [第十七轮证据](evidence/2026-10-27-round17.md)。这轮未测试全机断网、干净机器、强杀/断电、真实中文 IME、声音/DPI 全矩阵或全部播放/恢复组合；正式发行与完整 G1/G2 保持未验收。
+
+## 第十六轮可复查入口（历史）
 
 本轮聚焦十三入口 **355/355**，没有重跑全部作者回归或完整上游 runtime339。受控 runtime 构建 73.898s、Terre 构建 167.796s 均通过；runtime 六补丁独立重放 18/18，runtime 6/6 与 Terre 11/11 最终补丁检查通过。实际旧版复现、新版播放与恢复路径见 [第十六轮证据](evidence/2026-10-26-round16.md)。
 

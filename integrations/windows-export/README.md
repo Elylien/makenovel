@@ -18,6 +18,20 @@ pwsh -NoLogo -NoProfile -File integrations/windows-export/Verify-Package.ps1 -Pa
 
 打包步骤沿用 Terre：复制壳 → 复制引擎或作品自带引擎 → 修改 manifest → 移除 service worker → 复制作品 game 目录 → 创建 ASAR。只跳过结束时自动打开 Explorer 的副作用。原服务在 Windows 上的 `unpack` 正斜杠 glob 未能匹配规范化路径；已审查补丁改用宿主分隔符的 `unpackDir`，确保 Steamworks `.node` 与相邻 DLL 实际存在于 `app.asar.unpacked`。脚本要求后端已编译此修复，并逐一核对包内 `game/` 下所有作品文件、壳脚本与原文件字节。
 
+第十七轮增加导出来源核验。普通作品的 PowerShell 入口先运行 `Sync-Runtime -Action Check`，确认当前已审查源码与 dist 对应构建收据；随后严格比对实际共享模板的非 game 文件集及摘要。陈旧模板、未登记新增文件或变化的收据均拒绝。缓存壳的 main/preload 及 public 素材也比对锁定原件。
+
+最终输出目录中的 ASAR（不是仅中间包）再次核对完整 public 文件集和原字节：保留壳 public 素材、引擎全部文件、精确 game 文件集；仅允许原生 manifest 的两步名称/描述替换及 service worker 删除。导出前后再次检查作者源码和共享模板/收据未变。`makenovel-export.json` schemaVersion 2 的 `integrity` 区分 `reviewed-shared` 与 `self-contained`，记录收据、引擎摘要及文件数。
+
+自带 index.html 的作品仍使用自己的引擎，但必须提供 manifest.json 文件；缺失时明确拒绝，避免复刻原生导出写出 `file not exist` 非 JSON 占位文件的行为。已有文件按作品自身的完整内容验证，保留原生 manifest 替换和 service worker 删除；不要求共享引擎收据，也不声称已升级到共享运行时。该核验覆盖包内容一致性，不证明全体 Electron 原生依赖、运行行为或断电耐久性。
+
+独立回归需要已安装锁定 Terre 依赖和已构建的 WebgalFsService：
+
+```powershell
+node --test integrations/windows-export/export-integrity.test.mjs
+```
+
+16 项回归使用真实 ASAR 和原生 manifest 替换方法，覆盖陈旧模板、额外/缺失/改字节资源、非法额外 manifest 变化、末端副本损坏、来源中途变化、自带引擎和壳缓存变化。它不启动完整导出或播放器，不代替实际 Windows GUI。
+
 成功输出包含 `WebGAL.exe`、`resources/app.asar`、`resources/app.asar.unpacked` 及 Electron 运行依赖。**需完整复制整个目录**，不能只发一个 EXE。`makenovel-export.json` 包含本次源/产物摘要与有限验收状态。
 
 `Verify-Package.ps1` 直接运行包内 EXE，并给子进程仅保留 Windows 系统 PATH，使用独立本地 profile；Chromium 通过不存在的 loopback 代理端口阻断 HTTP(S)，去除隐式 loopback 代理绕过；核对真实渲染器进程、读取场景/游戏信息的日志、file 协议不连接编辑器的日志，并记录网络连接和 NetLog。它先请求正常关闭；隐藏窗口没有可用的 `MainWindowHandle` 时，只结束核验过身份的自建进程并明确记为 `controlled-process-termination`，随后重启。强制结束的 NetLog 可能没有完整 JSON 尾部，不能当作完整网络录制。

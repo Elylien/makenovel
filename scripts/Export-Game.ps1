@@ -25,6 +25,14 @@ if (-not (Test-Path -LiteralPath (Join-Path $terreRoot 'packages/terre2/dist/src
 $exporterBuild = Get-Content -LiteralPath (Join-Path $terreRoot 'packages/terre2/dist/src/Modules/manage-game/manage-game.service.js') -Raw
 if ($exporterBuild -notmatch '\bunpackDir\s*:') { throw 'The built Terre exporter lacks the reviewed native-ASAR fix. Rebuild the patched backend before exporting.' }
 
+# Ordinary works use the shared engine. Its current reviewed source and dist
+# must be validated before taking the template snapshot. Self-contained works
+# retain their own engine and are verified against their own source instead.
+if (-not (Test-Path -LiteralPath (Join-Path $sourceRoot 'index.html'))) {
+    & (Join-Path $PSScriptRoot 'Sync-Runtime.ps1') -Action Check
+    if ($LASTEXITCODE -ne 0) { throw 'Runtime build receipt check failed before export.' }
+}
+
 $scratchRoot = Join-Path $repoRoot '.scratch/windows-export'
 $shellWork = Join-Path $scratchRoot 'upstream-shell'
 $exportsRoot = Join-Path $repoRoot '.local/exports'
