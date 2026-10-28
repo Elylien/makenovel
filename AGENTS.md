@@ -1,14 +1,24 @@
-# Project entry
+# MakeNovel 项目入口
 
-Read `docs/PROJECT_STATUS.md`, `docs/HANDOFF.md`, and `docs/DEVELOPMENT_PLAN.md` first. On resume, verify Git status, submodule commits, and live processes before relying on previous results.
+## 自主推进
 
-- Windows commands use PowerShell 7 (`pwsh`), `-NoLogo -NoProfile` for nested shells, literal paths and explicit working directories. Check native exit codes; use `npm.cmd` / `npx.cmd` if wrappers fail. New files are UTF-8; preserve source line endings. Never use Bash syntax in PowerShell.
-- Original user documents, when available, are under `docs/private/`. Never stage or upload them, even with `git add -f`. Public requirements and acceptance state live in `docs/REQUIREMENTS_TRACEABILITY.md`.
-- Reuse the locked WebGAL runtime and Terre editor. Do not replace native scripts, runtime or save state with an independent implementation. `experiments/` is evidence, not completed product functionality.
-- Both vendors intentionally have applied working-tree changes matching `patches/terre/manifest.json` and `patches/webgal/manifest.json`. Run `scripts/Apply-Patches.ps1 -Check` for Terre and add `-Target WebGAL` for the runtime to distinguish reviewed state from unknown edits. Do not reset either checkout or publish unpushed nested commits. Re-export reviewed changes to the root patch before committing.
-- Stop the editor before rebuilding. Run the controlled `baseline:build` before `editor:build`; the latter checks the runtime receipt and syncs the reviewed engine into the shared template after upstream builds. Preserve template backups and author files. Ordinary games without their own entry use the shared engine; existing self-contained games do not automatically receive it.
-- Do not modify vendor sources without a reviewed, reproducible patch strategy. Preserve upstream copyrights, lockfiles, original assets and user changes. Inspect submodule status as well as root status.
-- Unknown syntax and comments must survive local edits. Stable identity is distinct from line number/text revision. Reject stale writes; incomplete drafts must not reach the active runtime.
-- The reference is the Steam Chinese Windows edition of Senren Banka. Build and patch details remain unverified. No copying commercial assets.
-- Build/test commands and evidence are in `docs/TESTING.md`. Record passed, failed, not run, blocked and human review separately. A successful web build is not Windows offline acceptance.
-- Update status and handoff before stopping, including process state, last tests, unfinished work and next concrete command. Public repo creation was authorized; paid services and formal software releases are separate actions.
+用户于 2026-10-28 明确要求放宽项目对 agent 的工作限制，下一轮由 **ChatGPT Astra** 接手。自主规划优先级、合并相关功能、使用并行代理和已授权工具、安装必要环境；根据实际问题调整实现、架构和验证方案。常规开发、可逆操作、工具使用和公开源码维护沿用已有授权，无需反复确认。
+
+N/M/G 编号用于追踪目标与证据，不限制每轮功能数量，也不要求严格串行。可以一次完成多项相关功能再集中测试；IME、Windows 包、AI 能力和作者流程按实际依赖并行推进。旧轮次的“不纳入本轮”“先做最小范围”是历史取舍，不约束下一轮发挥。由接手者决定本批范围、实现顺序和适当验证，更新结果即可。
+
+## 从哪里接手
+
+- [当前状态](docs/PROJECT_STATUS.md)：已经做过、未验证与未实现的摘要。
+- [交接](docs/HANDOFF.md)：最新现场、作品、来源和可执行命令。
+- [项目回顾与安排](docs/PROJECT_REVIEW_AND_ROADMAP.md)：完整历程、能力缺口与可调整的优先级。
+- [需求追踪](docs/REQUIREMENTS_TRACEABILITY.md)和[测试入口](docs/TESTING.md)：功能目标与证据明细。
+
+恢复工作时用 Git、子模块和实际进程核对现场，旧 PID 与浏览器标签仅作线索。结束时把完成结果、剩余工作和现场状态写回交接。计划可随工程事实调整；不需要为了常规调序追加审批流程。
+
+## 现有工程与数据
+
+当前使用锁定 WebGAL 与 Terre，两个 vendor 工作树的修改由根仓 `patches/` 重放；这不是禁止修改 vendor。可自主改进，并把源码、补丁和构建对应关系一并更新。`npm.cmd run patch:check` 与 `patch:runtime:check` 可核对当前登记状态。构建脚本采用先停编辑器、`baseline:build` 再 `editor:build` 的收据与模板同步流程；操作说明见测试文档。
+
+用户原始文件在 `docs/private/`，按用户要求不提交或上传。保留用户作品、玩家数据、已有修改、版权与来源信息。源码身份、未知内容保留和冲突处理属于现有产品正确性要求；需要改变方案时同时实现并验证迁移或替代策略。现有功能边界不等于未来实现禁令。
+
+Windows 命令使用 PowerShell 7（`pwsh`、`login=false`），路径和编码明确；按实际 shell 写语法，必要时使用 `npm.cmd` / `npx.cmd`。测试、浏览器操作、真实 IME 和 Windows 包各自登记实际结果。项目文档调整不改变工具平台本身的权限与安全规则。

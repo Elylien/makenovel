@@ -1,55 +1,86 @@
 # 交接与恢复
 
-记录：2026-10-27，MakeNovel `0.0.19` / `main`。远端 `https://github.com/Elylien/makenovel.git`；提交与推送以现场 Git 为准。
+记录：2026-10-28，MakeNovel **0.0.19** / `main`，产品代码基线 `588bd81`。远端 `https://github.com/Elylien/makenovel.git`。下一会话由 **ChatGPT Astra** 接手；这是项目交接安排，本次没有更改会话模型或创建新会话。
 
-## 恢复先核查
+## 接手方式
+
+用户已授权自主规划、开源源码维护、必要工具安装、工具调用与 Computer Use，并要求一批多做功能后集中测试。项目取消固定轮数/单元大小、无关任务串行、旧轮次范围禁令和重复确认要求。可根据工程事实调整方案、改进 vendor、使用并行代理；N/M/G 是追踪标记。现有正确性机制与未实现能力如实记录，需要改变时连同实现和验证一起推进。
+
+[当前状态](PROJECT_STATUS.md)概括完成/未完，[总回顾与安排](PROJECT_REVIEW_AND_ROADMAP.md)列全部工作线，[测试入口](TESTING.md)列可运行检查。私有原件继续按用户原要求留在 `docs/private/`，不提交或上传。
+
+## 已核实的现场
+
+- 2026-10-28：3000/3001 无监听；旧 PID48968 不存在。`process.json` 留有旧身份，不能据此判断服务运行或直接杀进程。本次没有重启服务、操作 GUI 或导出新包。
+- 开始本次文档整理时，根仓只有 STATUS/HANDOFF 的外部毕业设计尾注及两个预期 dirty vendor；产品代码为已推送 `588bd81`。提交后状态以 Git 为准。
+- 本次检查 Terre **12/12**、runtime **7/7** 已应用补丁反向通过，原有 **464 项**保留摘要通过。没有重跑独立补丁重放、579 项业务回归、构建或实机验收。
+- 文末外部尾注原样保留，排除公开提交。副本在 `.scratch/round17-external-*.md`；尾注提及的 DOCX 当前原路径缺失，需另行找回或定位。
+
+恢复可先执行：
 
 ```powershell
 git status --short --branch
 git submodule status
+Get-NetTCPConnection -State Listen -LocalPort 3000,3001 -ErrorAction SilentlyContinue
 npm.cmd run patch:check
 npm.cmd run patch:runtime:check
-Get-Content -LiteralPath .local/editor-runtime/process.json
-Get-NetTCPConnection -State Listen -LocalPort 3000,3001 -ErrorAction SilentlyContinue
 ```
 
-先读 PROJECT_STATUS、DEVELOPMENT_PLAN、PROJECT_REVIEW_AND_ROADMAP、TESTING。禁止 stage/upload `docs/private/`。两 vendor HEAD 保持锁定上游，工作树有意应用登记补丁；不要 reset/clean、暂存 gitlink、创建或发布嵌套提交。文末毕业设计尾注属于外部任务，保留但不提交；原始尾注副本在 `.scratch/round17-external-*.md`。
+## 已完成的最新功能与证据
 
-## 第十九轮结果
+第十八轮交付单对白就绪解锁和最小台词/语音收藏。第十九轮交付空场景作者往返、7 个 Enter 入口的组合态保护、BOM 首节点修复、本地 AI 查询/提案/提交及真实 GUI 接力；过期提案和缺素材写入拒绝，17 个节点 ID 与无关字节保留。round19 从标题分别走通两路线并回标题。
 
-N2：通过用户新开的 Chrome 窗口，用截图坐标点击完成新建独立作品、原生上传、空场景图形→源码→图形→保存/重开。封存后从标题正常走完两条路线，各自到达共同结尾并回标题。AI 新增后经界面微调再续写的最终台词实际显示。没有使用作者跳句作为路线验收。
+第十九轮历史验证：8 个唯一代码入口 **579/579**；Terre 十二补丁独立重放 **18/18**；runtime 构建 106.066 秒、Terre 构建 277.898 秒；服务 **22/22**、HTTP 引擎 **25/25**；39 文件封存。公开记录见[第十九轮](evidence/2026-10-27-round19.md)，原始记录在 `docs/evidence/local/round19/`。`checks-summary.json` 是最终去重汇总，frontend 文件保留修复前失败，backend 的通用 TAP 计数器 0 不代表实际 Jest 没运行（14 套/124 项）。
 
-七处 Enter 入口补组合态与 229 保护，真实组件回调 21/21；系统候选窗、选词 Enter/取消与各宿主完整矩阵仍未验收。共享分析只在解析副本去首 BOM，原生 parser 本体不改；导演节点 raw/originalRaw 排除文件 BOM，整个文档保留原字节。集中回归发现的首行编辑/恢复失败均已修复并保留失败前后日志。
+这些不等于真实 IME、完整 N2/N4/N5、全部 AT、当前 Windows 包或正式发行。当前 AI 是 loopback CLI/内部函数；无模型聊天、MCP、路线执行、自动画面检查或多文件事务。
 
-N4：`integrations/author-tools/` 提供 loopback CLI/函数，查询、提案、审阅摘要、校验和已有 revision/workspace 写回事务；公开入口见 [AI_AUTHORING](AI_AUTHORING.md)。独立空上下文代理经真实工具完成插入→图形界面微调→旧稿冲突拒写→新稿继续，17 ID 和其他字节不变；缺素材拒写且原稿不变。无模型服务、MCP、自动封存/运行路线、多文件事务或递归素材完整检查。
+## 可直接推进的下一批
 
-八个代码入口579/579，Terre十二补丁独立重放18/18，最终反向Terre12/12、runtime7/7；两个受控构建均成功，服务22/22、HTTP25/25、保留464项、39文件封存复核通过。原始日志及截图在 `docs/evidence/local/round19/`，公开摘要见[本轮证据](evidence/2026-10-27-round19.md)。不得直接相加各 checks JSON：frontend 是修复前失败记录，backend 的通用 TAP 计数器显示0，实际 Jest 日志是14套/124项；最终去重汇总为 checks-summary.json。
+| 工作线 | 可做的具体结果 | 验证出口 |
+| --- | --- | --- |
+| 当前 Windows 包 | 用 round18 检验收藏/单对白解锁，用 round19 检验作者/AI 两路线；选用现有作品或制作新的集成作品，导出到新目录 | 来源/ASAR 核验后，停止本项目开发服务，实际 EXE 普通/快速保存→正常退出→重启→恢复；新增收藏和解锁各自留证 |
+| 作者与 AI 合批 | 从实际常规制作断点选择无代码分支/站位等作者功能，同时补相应 AI 原生命令、素材/配音清单或运行验证 | 图形→源码→AI→图形、保存重开和正常播放；冲突/未知内容/缺资源有对应结果 |
+| 中文输入与工具排查 | 在可用宿主记录真实候选选词、Enter/Escape、焦点/组合键；按工具返回重测桌面通道 | 系统候选与最终文本的实际证据；不可用时记该项阻塞，继续独立工程工作 |
+| N5 集成 | 合流两人物、两路线、音画/天气/动作、调用返回/变量结局、三类存档、历史/收藏/流程图及恢复 | 从标题正常运行，两路线及播放模式/恢复组合有浏览器与当前 EXE 分层证据 |
 
-## 进程、作品与来源
+上表是建议切入点，不是固定顺序或每轮上限。可把共享依赖的功能一次完成后集中测试。中长期作者、玩家、资源、恢复、插件、第二作品、性能与发行清单见总回顾。
 
-构建前按身份停止旧 PID20576；当前 PID **48968**，UTC 启动 **2026-10-27T08:16:28.7830462Z**，入口 `E:/kaifas/game/makenovel/vendor/WebGAL_Terre/packages/terre2/dist/src/main.js`，仅 `127.0.0.1:3001`；3000 无监听。停止前重核 PID、时间和入口。日志及身份在 `.local/editor-runtime/`。本轮未生成或启动新的 Windows 包。
-
-- 编辑器：`http://127.0.0.1:3001/#/game/makenovel-round19`；播放器：`http://127.0.0.1:3001/games/makenovel-round19/`，已保留标签页。
-- projectId：`17eef852-e529-4915-90b5-1ca991d4e96a`；Game_key：`313d6ec912f2104`。
-- manifest：`ff210e88930911871363999ca8545a36bf3ebf9119cb8c119c6511836c0a6c56`，39 文件。
-- 最终 story revision：`e162066a811d380cf4b6647150f922bdb294d995a537f213f0ee527e8dcb19cf`。已停止作者写入并封存；继续改稿后需显式 Update，不自动沿用旧清单。
-- WebGAL HEAD：`d0318e6c4cdb8b04bb5d891f40368cff3c6efc85`；Terre HEAD：`cf73dd58535d3ef15bddf0852adee153fa92d7da`。
-- runtime 七补丁完整树：`cfcb56adef2eff807372ad3de7beaaccf3f24e0c`；Terre 十二补丁完整树：`1881fb345e93da773e7381be80f89201fabfdd16`。
-- 0012：8 文件，11261 bytes，SHA256 `1e72d5297fd7594b97d4463730ab2d165169f26764a395b418c9a68e36f9aa28`。下一 Terre0013 从十二补丁完整树导出；runtime0008 从七补丁完整树导出。
-- runtime 收据：`.local/runtime-sync/runtime-build.json`，builtAt `2026-10-27T08:06:50.9419104Z`；25 个共享引擎文件已由真实作品 URL 比对。
-
-新作品保留原生模板资源，人物/背景复用旧轮次原创 SVG，画面上旧 Round18 字样是测试素材，不是新的美术交付。没有复制商业参考游戏素材。旧作品、私有输入、旧补丁和毕业文档尾注464项摘要保持。
-
-## 下一具体单元
+当前服务已停；需要作者界面/CLI 时启动并核对实际 URL：
 
 ```powershell
-python .scratch/round19-preserve.py check
-npm.cmd run game:seal -- -GamePath '.local/editor-profile/games/makenovel-round19' -Action Verify
+npm.cmd run editor:start
 npm.cmd run author:tools -- capabilities
 ```
 
-不要重新初始化保留基线。后续用新隔离作品做系统 IME 和剩余作者流程，再扩展必要 AI 原生提案能力与运行验证，推进 N5 的完整演出/声音、路线、存读档/历史/收藏和接力；不能把本轮静态双路线替代完整 N5。真实 IME 需系统候选和实际选词/取消证据，粘贴、模拟 composition 和浏览器按键不能替代。当前代码回归入口见 TESTING，历史Windows验收仍只适用于0.0.17。
+Windows 导出脚本可在开发服务未启动时运行，先复核候选作品和当前构建凭据：
 
-Computer Use 已通过用户新开 Chrome 窗口正常控制；优先使用当前实际可读的标签和截图坐标。旧自动导航403来自来源守卫，未改守卫；历史原生窗口无法确定 URL 的安全停止不代表所有浏览器都不可用。如果原生输入法检查再次被工具强制停止，遵守停止并如实记录，不绕过策略。
+```powershell
+npm.cmd run game:seal -- -GamePath '.local/editor-profile/games/makenovel-round18' -Action Verify
+pwsh -NoLogo -NoProfile -File scripts/Sync-Runtime.ps1 -Action Check
+npm.cmd run game:export -- -GamePath '.local/editor-profile/games/makenovel-round18' -OutputName 'MakeNovel Current Windows Check'
+```
 
-需要构建时先停编辑器，再 `baseline:build`→`editor:build`；冻结来源并重新导出补丁后重放。普通作品共享模板，自带入口的旧作品不会自动换引擎。修改作品后暂停写入，再显式 `game:seal -Action Update`，重开并核验。完整未完范围见 [PROJECT_REVIEW_AND_ROADMAP](PROJECT_REVIEW_AND_ROADMAP.md)。
+这些是下一步命令，本次未执行导出。导出目录由脚本加入时间/随机后缀；实际 GUI 验证前核对 profile 并保留已有玩家数据。若来源或构建凭据过期，按脚本流程停编辑器，`baseline:build`→`editor:build` 后再导出。普通作品使用共享模板，自带入口作品使用自己的引擎。作品改稿后显式更新封存清单，旧 Verify 结果不沿用。
+
+## Windows 与 Computer Use 的准确边界
+
+最近实际 Windows 包是 `.local/exports/MakeNovel Round17 20261027-120942-bee75e/`，对应 0.0.17 与六补丁 runtime，已有正常重启恢复证据。当前七补丁引擎尚未重新导出/验收，**不是当前新包验收失败**。Web 构建不更新旧 EXE；该包是播放器，不包含完整桌面编辑器与 AI 服务。
+
+上次工具诊断中，Chrome 标签截图坐标点击链接成功；新开 Chrome 原生窗口并绑定窗口时，工具因不能可靠识别当前 URL 强制停止。定位到原生浏览器窗口校验阶段，内部原因尚不明。本次没有重试，不能宣布修复；也不能推导 WebGAL.exe 同样被阻止。遵从当时工具结果，并在后续允许的会话继续独立任务。详见[复核记录](evidence/2026-10-28-documentation-review.md)。
+
+## 来源与作品定位
+
+| 对象 | 当前记录 |
+| --- | --- |
+| WebGAL HEAD | `d0318e6c4cdb8b04bb5d891f40368cff3c6efc85` |
+| Terre HEAD | `cf73dd58535d3ef15bddf0852adee153fa92d7da` |
+| runtime 七补丁完整树 | `cfcb56adef2eff807372ad3de7beaaccf3f24e0c` |
+| Terre 十二补丁完整树 | `1881fb345e93da773e7381be80f89201fabfdd16` |
+| Terre0012 | 8 文件，11261 bytes，SHA256 `1e72d5297fd7594b97d4463730ab2d165169f26764a395b418c9a68e36f9aa28` |
+| runtime 构建收据 | `.local/runtime-sync/runtime-build.json`，builtAt `2026-10-27T08:06:50.9419104Z` |
+| round19 projectId / Game_key | `17eef852-e529-4915-90b5-1ca991d4e96a` / `313d6ec912f2104` |
+| round19 manifest | `ff210e88930911871363999ca8545a36bf3ebf9119cb8c119c6511836c0a6c56`，39 文件 |
+| round19 story revision | `e162066a811d380cf4b6647150f922bdb294d995a537f213f0ee527e8dcb19cf` |
+
+启服后编辑器路径 `http://127.0.0.1:3001/#/game/makenovel-round19`，播放器路径 `http://127.0.0.1:3001/games/makenovel-round19/`。round18 用于收藏/单句就绪专门回归，round19 用于作者/AI/两路线；当前标签页不证明服务可达。两作品保留原模板和原创占位素材，部分图上有旧 Round18 字样，未交付新正式美术。
+
+下一补丁可从上述完整树导出 Terre0013 / runtime0008。`.scratch/round19-preserve.py check` 可复核旧数据，不重新初始化旧基线。提交公开文档时仅暂存 STATUS/HANDOFF 外部尾注之前的内容，尾注与私有资料继续留在工作区。

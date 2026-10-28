@@ -4,6 +4,8 @@
 
 **当前版本 0.0.19：增加本地 AI 创作工具，并完成空场景作者操作和图形/AI 接力验证。** 工具支持原生源码查询、稳定ID提案、差异审阅、校验和版本受控提交；图形微调后的旧提案被拒绝，新提案保留修改继续创作。七处 Enter 输入保护与 BOM 首节点编辑已修复。使用见[作者操作流程](docs/AUTHOR_WORKFLOW.md)、[AI 创作工具](docs/AI_AUTHORING.md)；验证范围见[当前状态](docs/PROJECT_STATUS.md)和[第十九轮证据](docs/evidence/2026-10-27-round19.md)。真实系统 IME 与当前 Windows EXE 仍待验收，完整 G1/G2 和正式发行尚未完成。
 
+项目进度与后续工作已于 2026-10-28 汇总：[已完成/待验证/待实现](docs/PROJECT_REVIEW_AND_ROADMAP.md)、[Astra 接手与可执行命令](docs/HANDOFF.md)。下一轮可自主安排更大的功能批次。当前 Windows 包尚未重新导出并验收；最近实际验证的包是 0.0.17，不能覆盖现有七补丁引擎。此次文档更新没有增加产品功能。
+
 ## 开始
 
 需要 Git、Node.js 22、Corepack 和 PowerShell 7。开发基线使用 Yarn 1.22.22，依赖版本来自上游锁文件。

@@ -1,8 +1,12 @@
 # 测试入口与证据
 
-更新：2026-10-27，MakeNovel `0.0.19`。实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
+更新：2026-10-28，MakeNovel `0.0.19`。下列产品回归与构建为对应历史轮次记录，本次没有重跑。第十九轮实测环境：Windows 11 x64 / PowerShell 7.6.5 / Node 22.17.0 / Yarn 1.22.22。来源提交见 `upstream.lock.json`，硬件见 `PERFORMANCE.md`。
 
-## 第十九轮可复查入口
+## 本次文档复核（2026-10-28）
+
+本次只复核现场并更新文档：Git/子模块与锁定一致，Terre12/12、runtime7/7 反向检查和 464 项保留摘要通过；3000/3001 无监听，PID48968 不存在。文档差异、链接和提交范围另核对，见[本次记录](evidence/2026-10-28-documentation-review.md)。未运行新产品回归、构建、GUI、真实 IME 或 Windows 导出。不同轮次测试数量不累加为当前覆盖率。
+
+## 第十九轮可复查入口（最新产品测试记录）
 
 八个唯一代码入口 **579/579** 通过。author-tools46、author-input21、documents69、identity28、source-input12、graph-input132、director147、editor124（14 Jest套件）。代码、真实HTTP/GUI、构建和Windows分开计数。工具46项包括模拟传输和临时协议服务器，不等于真实Terre接力；本轮另由新上下文代理经实际服务完成接力。
 
@@ -177,7 +181,7 @@ pwsh -NoLogo -NoProfile -File integrations/patch-tests/Test-RuntimePatchReplay.p
 
 历史第十三轮静态立绘转场：代码 **653/653** = 作者495（导演125、图形/执行说明118）+七套样片21+runtime菜单/perform/资源/恢复137。独立tsc、受控runtime→Terre构建/共享模板同步、十补丁独立重放18/18、HTTP引擎25/25和服务22/22通过。 真实界面路径及未运行范围见 [第十三轮证据](evidence/2026-10-09-round13.md)。
 
-## 第十三轮可复查入口
+## 第十三轮可复查入口（历史）
 
 ```powershell
 npm.cmd run test:director
@@ -192,7 +196,7 @@ node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/game
 
 历史第十二轮接入有限静态背景转场。最终625/625=作者470（导演111、图形/执行说明107）+六套样片18+runtime子集137；前端构建含tsc、受控runtime→Terre构建/模板同步、最终九补丁独立重放18/18、HTTP25/25、服务22/22均通过。真实局部输入/取消、整批撤销/重做、三种身份保存刷新、只读边界、正常转场、提前点击、演出拒存和稳定快速存读档按有限路径通过。完整runtime339、新Windows包和全套自动/快进/菜单矩阵未重跑。见 [第十二轮证据](evidence/2026-10-09-round12.md)。
 
-## 第十二轮可复查入口
+## 第十二轮可复查入口（历史）
 
 ```powershell
 npm.cmd run test:director
@@ -216,7 +220,7 @@ node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/game
 
 历史摘要（第七轮）：增加原生导演局部会话、图形控件重同步、静态主图片加载失败保存门禁，以及导演与资源故障样片。最终代码回归 **646/646**：运行时 339、作者侧 304、导演样片 3；SVG 原生错误桥接后十三个运行时入口已完整重跑通过。受控构建、模板传播、HTTP 25/25、服务 22/22、两端独立重放各 18/18，以及有限导演与资源故障浏览器实测均有独立证据。Windows 最终包文件核对 21/21；全程停开发服务后，真实 EXE 的改稿呈现、资源失败拒存/旧槽保留、恢复保存及正常退出重启读档通过本机有限路径。第六轮 301 项、第四至六轮的有限现场验证和第四轮 259 项作者工具回归保留为历史证据；本轮作者入口已重新执行，按本轮数量另计。任何子项通过都不表示 G0、G1、G2 或完整 AT 整体验收通过。
 
-## 第十一轮可复查入口
+## 第十一轮可复查入口（历史）
 
 ```powershell
 npm.cmd run test:director
@@ -342,7 +346,7 @@ pwsh -NoLogo -NoProfile -File scripts/Start-Editor.ps1 -Stop
 
 HTTP API 与两个 WebSocket gateway 使用同一个 loopback listener，并核验准确的 Host、Origin/Referer 与 Fetch Metadata。命令行 API 请求需带 `Origin: http://127.0.0.1:3001`；PowerShell 请求同时用 `-NoProxy`。这些限制防止其他网页从浏览器驱动本机接口，不认证可自行构造请求头的本地进程，也不隔离可信本地代码。详见 [启动器说明](../integrations/terre-launcher/README.md)。
 
-## 第八轮 0.0.8 当前代码回归与验收状态
+## 第八轮 0.0.8 历史代码回归与验收状态
 
 本轮串行记录在 `docs/evidence/local/round8/checks-summary.json`，12 个入口全部退出 0，**456/456** 通过。下表只累计本轮重新执行的代码回归；不把第七轮完整 339 项运行时结果、独立补丁重放、服务断言、文件核对或现场操作重复加入总数。
 
@@ -496,7 +500,7 @@ node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/game
 
 尚未由上述代码测试覆盖：IndexedDB/Electron 真正配额或断电耐久性、跨标签原子快照、大作品全资源 hash 时间/内存、beforeunload 等待、任意插件副作用回退、完整舞台/音频、真实 Windows 中文 IME、DPI/全屏、全机断网/干净机器和正式发行。静态 HTTP 只能核验清单列出的文件，新增文件需本地 verify/重新封存。具体协议与限制见 [SAVE_COMPATIBILITY.md](SAVE_COMPATIBILITY.md)。
 
-## 第四轮 0.0.4 实际结果
+## 第四轮 0.0.4 实际结果（历史）
 
 | 检查 | 当前结果 | 范围与限制 |
 | --- | --- | --- |
@@ -527,7 +531,7 @@ node integrations/game-manifest/cli.mjs verify --game .local/editor-profile/game
 
 恢复副本验收应分别测试同标签刷新、关闭后新标签的手动选择、另一标签并行修改、旧 revision 冲突、另一工作区同名文件，以及 session/localStorage 单独不可用。不删除其他副本来制造容量通过；不得把浏览器存储称为项目文件系统恢复仓。
 
-## 第三轮 0.0.3 实际结果
+## 第三轮 0.0.3 实际结果（历史）
 
 | 检查 | 结果 | 范围与限制 |
 | --- | --- | --- |
@@ -612,12 +616,16 @@ pwsh -NoLogo -NoProfile -File scripts/Invoke-Upstream.ps1 -Target WebGAL -Action
 
 Preview 限定 `127.0.0.1:3000`，端口占用时失败，显示上游示例与当前应用的 runtime 补丁，结束后 Ctrl+C 停止。
 
-## 下一轮具体补测
+## 当前补测与实现安排
 
-1. 扩大核心语法与未知代码边界用例，验证导入/多场景/所有预览入口；完整语言与插件能力单独登记。
-2. 完成真实 Windows 中文 IME 与多场景历史/恢复边界；100 步/2 MiB 历史及浏览器副本不代替全套作者操作验收。
-3. 对已实现的原生版本门禁、完整备份与两场景恢复补齐最终 GUI/下载文件/新 EXE 故障验证；测量大作品 hash 与自动快存成本，不猜旧索引映射。项目文件系统恢复、三方合并和其他资源事务独立推进。
-4. 扩大 DPI/全屏与窗口矩阵，核对 runtime 修复进入新模板/新 EXE，补声音、分支、跨场景、多槽与异常存档验收。
-5. 用既有 Windows 导出入口验证全机断网或干净用户机器、只读安装位置与异常写盘；正式签名/安装仍为独立发行工作。
+下列工作可合批或并行，具体测试随实际修改选择，不要求每轮重跑全部历史入口。
 
-第二轮正式产品补丁独立重放 10 项检查通过，开发树与全新 clone 树相同；见 `local/round2/product-patch-replay.json`。第二轮最终浏览器运行已保存对白通过；这些历史结果不替代第三轮两补丁与最终页面复查。
+1. **当前 Windows 包：** 核对现有构建凭据与作品清单，导出新目录并核验 ASAR；实际 EXE 普通/快速存档、收藏、单句解锁、正常退出重启和恢复。0.0.17 老包只是历史通过范围，当前未重导/未测不是失败。
+2. **作者与 AI：** 扩展常规制作断点后集中测图形/源码/工具往返、身份/未知内容、冲突、保存重开及正常播放；新路线/画面工具须有真实执行证据。
+3. **系统输入：** 可用桌面宿主下实际操作中文候选、选词/取消、Enter/Escape、组合键与焦点；组件 composition/229 回归或中文粘贴另列，不替代系统 IME。通道暂不可用不阻塞前两项。
+4. **集成与恢复：** 在同一作品补双路线音画/天气/动作、调用栈/变量、普通/快速/自动档、历史/收藏/流程图及缺资源/存储故障矩阵。已有上游入口先审计，缺实现的先补齐。
+5. **环境和质量：** 逐步扩大全机断网、干净用户环境、DPI/全屏/真实声音、只读位置/异常写盘/强杀、素材规模与哈希成本、依赖许可和正式发行检查。受控恢复导入、项目恢复仓和迁移仍需实现。
+
+计划与全部缺口见[项目回顾](PROJECT_REVIEW_AND_ROADMAP.md)，启动/导出具体命令见[交接](HANDOFF.md)。
+
+历史备注：第二轮产品补丁独立重放 10 项及真实保存曾通过，原始记录为 `docs/evidence/local/round2/product-patch-replay.json`；这里只保留历史索引，不作为当前补丁树或产品验收。
